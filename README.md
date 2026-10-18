@@ -26,3 +26,7 @@ different cadences. Every release states:
 
 Each Parquet file the tool writes records the tool version, the table-spec version and the source bundle's
 sha256 in its metadata.
+
+## License
+
+[CC0 1.0 Universal](LICENSE): dedicated to the public domain.
