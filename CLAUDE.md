@@ -69,7 +69,8 @@ See [ADR 0002](docs/decisions/0002-independent-tool-versioning.md). In short:
 
 - Default branch is `main`. Work on a branch; land changes via PR review. Don't merge without the user's OK.
 - **No Claude attribution:** no "Co-Authored-By: Claude" and no "Generated with Claude Code" in commit
-  messages or PR bodies.
+  messages (the user's rule). Keep PR bodies free of them too, since a squash merge can copy the body into
+  the commit.
 - Keep commit messages clean and focused on the change.
 - Docs move with every PR: a change to behaviour, the table spec or the compatibility matrix updates the
   matching docs in the same PR.
