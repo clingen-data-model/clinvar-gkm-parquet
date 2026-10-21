@@ -177,6 +177,16 @@ def test_unknown_table_and_query_error(tmp_path):
         build_tables(con, spec, ["kv"], tmp_path, KV, render=render_with(kv="SELECT error('unknown extension x')"))
 
 
+def test_query_error_mid_copy_leaves_no_file(tmp_path):
+    spec, con = make_spec(), make_con()
+    bad = SQL["kv"].replace(
+        "record AS value", "CASE WHEN key = 'K2' THEN error('bad record K2') ELSE record END AS value"
+    )
+    with pytest.raises(SpecError, match="table kv: query failed.*bad record K2"):
+        build_tables(con, spec, ["kv"], tmp_path, KV, render=render_with(kv=bad))
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_empty_section_gives_an_empty_table(tmp_path):
     spec = make_spec()
     rows = section_rows()

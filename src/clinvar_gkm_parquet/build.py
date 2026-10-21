@@ -390,11 +390,11 @@ def build_tables(
                 log(f"table {table.name}: writing")
             tmp = out_dir / (table.file_name + ".tmp")
             tmp.unlink(missing_ok=True)
+            written[table.name] = tmp  # registered first, so a failed COPY's partial file is removed too
             try:
                 con.execute(_copy_sql(spec, table, render(table), tmp, kv))
             except duckdb.Error as e:
                 raise SpecError(f"table {table.name}: query failed: {e}") from e
-            written[table.name] = tmp
             _check_table(con, table, tmp)
             fps[table.name] = _fingerprint_file(con, tmp, key_column(table), record_column(table))
             group = groups[table.name]
