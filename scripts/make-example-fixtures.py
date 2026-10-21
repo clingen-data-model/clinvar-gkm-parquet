@@ -192,7 +192,7 @@ def therapy_key(obj: dict, where: str) -> str:
     name = obj["name"]
     if not isinstance(name, str) or not SAFE_DRUG_NAME_RE.match(name):
         raise FixtureError(f"{where}: drug name {name!r} needs BigQuery JSON escaping this script does not model")
-    canonical = '{"name":%s,"type":"MappableConcept","conceptType":"Drug"}' % json.dumps(name)
+    canonical = f'{{"name":{json.dumps(name)},"type":"MappableConcept","conceptType":"Drug"}}'
     return "clinvar.therapy:" + hashlib.sha256(canonical.encode()).hexdigest()
 
 
@@ -334,7 +334,7 @@ class Fixture:
             self.records[section][key] = record
         elif canonical(have) != canonical(record):
             raise FixtureError(
-                f"{where}: {section}/{key} appears with two different contents; " "the reversal is ambiguous"
+                f"{where}: {section}/{key} appears with two different contents; the reversal is ambiguous"
             )
 
     def deinline(self, record: dict, section: str, where: str) -> dict:
@@ -354,8 +354,7 @@ class Fixture:
                 found = classify(value, here)
                 if found is None or found[0] not in allowed:
                     raise FixtureError(
-                        f"{here}: object at a pointer site is not a "
-                        f"{'/'.join(sorted(allowed))} record: {found}"
+                        f"{here}: object at a pointer site is not a {'/'.join(sorted(allowed))} record: {found}"
                     )
                 child_section, child_key = found
                 if child_section == "therapy":
