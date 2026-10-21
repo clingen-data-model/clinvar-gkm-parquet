@@ -1,0 +1,474 @@
+{
+  "fixture": "clinvar-gkm_examples.json.gz",
+  "sha256": "f10f89cc1069746cd6f7324df2140a22e75fb4c3520334387ec9246587c020c2",
+  "schema_version": "1.1.0",
+  "provisional": "de-inlined from ClinVar-GKM examples/, not published bundle bytes; record key order and number formatting may differ from a real bundle; replace with a real excerpt after the 2026-10-18 1.1.0 bundle is staged",
+  "generator": "scripts/make-example-fixtures.py",
+  "source": {
+    "repository": "https://github.com/clingen-data-model/clinvar-gkm",
+    "commit": "25344ba6edb639bacbdd8af38bd90a2e6b9f4240",
+    "release_line": "1.0",
+    "dataset": "clinvar_2026_10_04_v2_6_0",
+    "stated_in": "message of commit d0fbe2abd817396e508437eeae15ae13edb1c45a, the last commit touching examples/ at the source ref",
+    "examples_commit": "d0fbe2abd817396e508437eeae15ae13edb1c45a",
+    "examples_commit_subject": "docs(examples): refresh all 42 from rebuilt 2026-10-04 (conformant coords + no trait_id)",
+    "extractor": {
+      "path": "src/scripts/extract-example.py",
+      "blob": "e0cb204d96995a136fc8d2d934ab48b5338b9cde"
+    },
+    "assembler": {
+      "path": "src/scripts/assemble-gkm-dicts.py",
+      "blob": "9bd3821e10c616e8b1faebe3418287355ad28173"
+    },
+    "bundle_schema": {
+      "path": "schema/clinvar-gkm/clinvar-gkm-bundle.schema.json",
+      "blob": "f94329d14a36527447d5c14f785432db0d737649"
+    },
+    "examples": [
+      {
+        "path": "examples/cat-vrs/clinvar:12582.jsonc",
+        "blob": "178f479ec1dbd13954674106cbc1b53663b580fb",
+        "section": "variation",
+        "key": "clinvar:12582"
+      },
+      {
+        "path": "examples/cat-vrs/clinvar:208366.jsonc",
+        "blob": "d38f9315fbe8e4758a5b1bae2a2bc7551c53ee44",
+        "section": "variation",
+        "key": "clinvar:208366"
+      },
+      {
+        "path": "examples/rcv/RCV000007523.119-G-NP.jsonc",
+        "blob": "e849c23808cd0e4f32d68e8ad9cb0b1935d6059a",
+        "section": "rcv",
+        "key": "RCV000007523.119-G-NP"
+      },
+      {
+        "path": "examples/rcv/RCV000007523.119-G-PATH.jsonc",
+        "blob": "0526c1cb8ecdc3f5c9d1d865a2001a7116e1b17f",
+        "section": "rcv",
+        "key": "RCV000007523.119-G-PATH"
+      },
+      {
+        "path": "examples/rcv/RCV000029215.25-G-PATH.jsonc",
+        "blob": "aa9da58f13aecd832fc16e20dab297d5ae930bc5",
+        "section": "rcv",
+        "key": "RCV000029215.25-G-PATH"
+      },
+      {
+        "path": "examples/rcv/RCV000272938.40-G-PATH.jsonc",
+        "blob": "c3efd16c3dcaec4c55a0f2f7fe2b46705aa695a3",
+        "section": "rcv",
+        "key": "RCV000272938.40-G-PATH"
+      },
+      {
+        "path": "examples/rcv/RCV000548006.14-G-PATH.jsonc",
+        "blob": "d69e67e72a826c7abd87aa1ce0a68051fddd7dd7",
+        "section": "rcv",
+        "key": "RCV000548006.14-G-PATH"
+      },
+      {
+        "path": "examples/rcv/RCV000585796.12-G-PATH.jsonc",
+        "blob": "542966a1f9bd24bb958e36db0dfcdf1775cc9001",
+        "section": "rcv",
+        "key": "RCV000585796.12-G-PATH"
+      },
+      {
+        "path": "examples/rcv/RCV001781420.15-G-PATH.jsonc",
+        "blob": "30ba8fb66a6347005d50b11e351375ebba6aeca4",
+        "section": "rcv",
+        "key": "RCV001781420.15-G-PATH"
+      },
+      {
+        "path": "examples/rcv/RCV001787370.11-G-DR.jsonc",
+        "blob": "9febcc8775a1858c993b4ae239a2e584f365690b",
+        "section": "rcv",
+        "key": "RCV001787370.11-G-DR"
+      },
+      {
+        "path": "examples/rcv/RCV001787371.11-G-DR.jsonc",
+        "blob": "e52904beb61adaf9eb3d9336200bab33ba924eff",
+        "section": "rcv",
+        "key": "RCV001787371.11-G-DR"
+      },
+      {
+        "path": "examples/rcv/RCV001839445.10-G-NP.jsonc",
+        "blob": "454a6a92ce0dd8ec43426399c64b0273763133e4",
+        "section": "rcv",
+        "key": "RCV001839445.10-G-NP"
+      },
+      {
+        "path": "examples/rcv/RCV003327361.6-G-ASSOC.jsonc",
+        "blob": "4ac83bb17047753273bd8ad6d34dfc4f9f8d9c47",
+        "section": "rcv",
+        "key": "RCV003327361.6-G-ASSOC"
+      },
+      {
+        "path": "examples/rcv/RCV004018620.1-G-PATH.jsonc",
+        "blob": "d11c577f96f1b36bacdfe1a9781001a92769c00c",
+        "section": "rcv",
+        "key": "RCV004018620.1-G-PATH"
+      },
+      {
+        "path": "examples/rcv/RCV004554600.1-G-PATH.jsonc",
+        "blob": "18dce3330b9e4523087ab6256e7e050a4f0aeb92",
+        "section": "rcv",
+        "key": "RCV004554600.1-G-PATH"
+      },
+      {
+        "path": "examples/rcv/RCV004668724.2-S-ONCO.jsonc",
+        "blob": "534a833248088ca7781e0f2cedcb9d52fa26bc88",
+        "section": "rcv",
+        "key": "RCV004668724.2-S-ONCO"
+      },
+      {
+        "path": "examples/rcv/RCV005007840.1-G-PATH.jsonc",
+        "blob": "44a4ba6089fbe6d872627921e39c1b333b644291",
+        "section": "rcv",
+        "key": "RCV005007840.1-G-PATH"
+      },
+      {
+        "path": "examples/rcv/RCV006253518.1-S-SCI.jsonc",
+        "blob": "e967376e4ebcb609d606c717462451b01e94b3fc",
+        "section": "rcv",
+        "key": "RCV006253518.1-S-SCI"
+      },
+      {
+        "path": "examples/rcv/RCV006253519.1-S-SCI.jsonc",
+        "blob": "86dc562a4383df60c486cc54b71d3a50017ae498",
+        "section": "rcv",
+        "key": "RCV006253519.1-S-SCI"
+      },
+      {
+        "path": "examples/rcv/RCV006253521.1-S-SCI.jsonc",
+        "blob": "ddd3d32b3c8e3f023e17890b1207b61f6753736f",
+        "section": "rcv",
+        "key": "RCV006253521.1-S-SCI"
+      },
+      {
+        "path": "examples/rcv/RCV006253522.1-S-SCI.jsonc",
+        "blob": "9cad294ad0d8164b4561e4873326d2e0d8e982f2",
+        "section": "rcv",
+        "key": "RCV006253522.1-S-SCI"
+      },
+      {
+        "path": "examples/rcv/RCV006253523.1-S-SCI.jsonc",
+        "blob": "086206f20cb42f7e7f4a9e300dead9ca4790f833",
+        "section": "rcv",
+        "key": "RCV006253523.1-S-SCI"
+      },
+      {
+        "path": "examples/rcv/RCV006253525.1-S-SCI.jsonc",
+        "blob": "c3738148511a87a84e069a4315d405f3c86f3153",
+        "section": "rcv",
+        "key": "RCV006253525.1-S-SCI"
+      },
+      {
+        "path": "examples/rcv/RCV006253527.1-S-SCI.jsonc",
+        "blob": "32811fa602491a19e7eda73f9e59a6932e89d472",
+        "section": "rcv",
+        "key": "RCV006253527.1-S-SCI"
+      },
+      {
+        "path": "examples/rcv/RCV006254391.1-S-SCI.jsonc",
+        "blob": "04509af3b79ff5f229db5ec415f7158d926bf9ba",
+        "section": "rcv",
+        "key": "RCV006254391.1-S-SCI"
+      },
+      {
+        "path": "examples/scv/SCV001571657.2-G-PATH.jsonc",
+        "blob": "baa90c76a2497b244c3d6365d37497576d53cf61",
+        "section": "scv",
+        "key": "clinvar.submission:SCV001571657.2"
+      },
+      {
+        "path": "examples/scv/SCV002099547.2-G-NP.jsonc",
+        "blob": "e164399cb044fcff4223858655c58ebd1211aae6",
+        "section": "scv",
+        "key": "clinvar.submission:SCV002099547.2"
+      },
+      {
+        "path": "examples/scv/SCV004035006.2-G-ASSOC.jsonc",
+        "blob": "07723c4a3b6946595667d16cbfecb7f3a8487177",
+        "section": "scv",
+        "key": "clinvar.submission:SCV004035006.2"
+      },
+      {
+        "path": "examples/scv/SCV004565358.1-S-SCI-T1-TR.json",
+        "blob": "c66c1c8380fafee84b22312cfbd635f2586ce971",
+        "section": "scv",
+        "key": "clinvar.submission:SCV004565358.1"
+      },
+      {
+        "path": "examples/scv/SCV004565361.1-S-SCI-T2-DIAG.json",
+        "blob": "1e698e8bfa126fbb9885c14fb34024bda05b4900",
+        "section": "scv",
+        "key": "clinvar.submission:SCV004565361.1"
+      },
+      {
+        "path": "examples/scv/SCV005061369.1-S-SCI-T4-BLB.json",
+        "blob": "a7b8eb68321e57bc984f13d8a621e1cd0e1b49c6",
+        "section": "scv",
+        "key": "clinvar.submission:SCV005061369.1"
+      },
+      {
+        "path": "examples/scv/SCV005093950.2-S-ONCO.json",
+        "blob": "42255cc1884ab4a490c2efaae8f0884ca6fa9d77",
+        "section": "scv",
+        "key": "clinvar.submission:SCV005093950.2"
+      },
+      {
+        "path": "examples/scv/SCV005387955.1-S-SCI-T3-VUS.json",
+        "blob": "b92e9f01e0563c210b3fe365e4925bc7bb29e086",
+        "section": "scv",
+        "key": "clinvar.submission:SCV005387955.1"
+      },
+      {
+        "path": "examples/vcv/VCV000007105.213-G-DR.jsonc",
+        "blob": "73b99d630749ad70dd259b6fd1be4c3dfc4096bb",
+        "section": "vcv",
+        "key": "VCV000007105.213-G-DR"
+      },
+      {
+        "path": "examples/vcv/VCV000007105.213-G-NP.jsonc",
+        "blob": "1a77e6848282b368bbfa5f1a5c6bae642a2222c4",
+        "section": "vcv",
+        "key": "VCV000007105.213-G-NP"
+      },
+      {
+        "path": "examples/vcv/VCV000007105.213-G-PATH.jsonc",
+        "blob": "1137825ac078c06e22de977c580945f90d2a8999",
+        "section": "vcv",
+        "key": "VCV000007105.213-G-PATH"
+      },
+      {
+        "path": "examples/vcv/VCV000007105.213-G-RF.jsonc",
+        "blob": "f51bb2e1f4afe40ea5194db90a2c370e7c355ffa",
+        "section": "vcv",
+        "key": "VCV000007105.213-G-RF"
+      },
+      {
+        "path": "examples/vcv/VCV000012582.69-G-ASSOC.jsonc",
+        "blob": "1690e736bf448233cc4f2f796ebd69f3e9dc8a73",
+        "section": "vcv",
+        "key": "VCV000012582.69-G-ASSOC"
+      },
+      {
+        "path": "examples/vcv/VCV000012582.69-G-NP.jsonc",
+        "blob": "12387dc43326329422652df73ad8d84c522ff484",
+        "section": "vcv",
+        "key": "VCV000012582.69-G-NP"
+      },
+      {
+        "path": "examples/vcv/VCV000012582.69-G-PATH.jsonc",
+        "blob": "d212910b18af46e3ac329ceba10e9551ae04cae1",
+        "section": "vcv",
+        "key": "VCV000012582.69-G-PATH"
+      },
+      {
+        "path": "examples/vcv/VCV000012582.69-S-ONCO.jsonc",
+        "blob": "c96a96440fd42e0581779e619de491a63c00695d",
+        "section": "vcv",
+        "key": "VCV000012582.69-S-ONCO"
+      },
+      {
+        "path": "examples/vcv/VCV000012582.69-S-SCI.jsonc",
+        "blob": "6a5b4610a21419e01a3400af3dae5c2ba6b55b7e",
+        "section": "vcv",
+        "key": "VCV000012582.69-S-SCI"
+      }
+    ]
+  },
+  "layout": "assemble-gkm-dicts.py assemble() line format; sections in its SECTIONS order; keys sorted within a section (the assembler keeps export order); records serialized with stdlib json, separators (',', ':'), ensure_ascii=False (orjson-equivalent here: no floats); record key order as in the examples; gzip level 3, mtime 0, no file name",
+  "counts": {
+    "sequenceReference": 2,
+    "location": 2,
+    "allele": 2,
+    "gene": 2,
+    "variation": 2,
+    "condition": 36,
+    "conditionSet": 6,
+    "therapy": 1,
+    "submitter": 7,
+    "propositionPathogenicity": 33,
+    "propositionOncogenicity": 5,
+    "propositionSomaticClinicalImpact": 36,
+    "propositionClinvarCustom": 22,
+    "evidenceLine": 96,
+    "scv": 8,
+    "vcv": 26,
+    "rcv": 60
+  },
+  "derived_keys": [
+    {
+      "section": "therapy",
+      "key": "clinvar.therapy:d43f0ffdae264d1b474cdbd8b72697434c578d264fdd851dd7a5291462333c4e",
+      "derivation": "sha256 of BigQuery TO_JSON_STRING(STRUCT(name, type, conceptType))",
+      "note": "recomputed from the record; not checked against a published key"
+    }
+  ],
+  "dangling_pointers": [
+    "#/conditionSet/clinvar.conditionset:vcv-192de0ca81bbc94c042e78f0f34e8ee6",
+    "#/conditionSet/clinvar.conditionset:vcv-19a2113997fd0e7e4375609c23b0cfdf",
+    "#/conditionSet/clinvar.conditionset:vcv-264ece9dbe2854fe26b9944c4eb2e2a0",
+    "#/conditionSet/clinvar.conditionset:vcv-bb7bbe4b9359ca3cee03dda641611e4c",
+    "#/scv/clinvar.submission:SCV000027724.10",
+    "#/scv/clinvar.submission:SCV000033658.6",
+    "#/scv/clinvar.submission:SCV000033659.6",
+    "#/scv/clinvar.submission:SCV000044088.6",
+    "#/scv/clinvar.submission:SCV000051860.6",
+    "#/scv/clinvar.submission:SCV000051861.6",
+    "#/scv/clinvar.submission:SCV000053487.10",
+    "#/scv/clinvar.submission:SCV000071392.3",
+    "#/scv/clinvar.submission:SCV000071493.4",
+    "#/scv/clinvar.submission:SCV000074347.16",
+    "#/scv/clinvar.submission:SCV000090450.1",
+    "#/scv/clinvar.submission:SCV000153744.3",
+    "#/scv/clinvar.submission:SCV000191996.5",
+    "#/scv/clinvar.submission:SCV000198478.2",
+    "#/scv/clinvar.submission:SCV000198479.2",
+    "#/scv/clinvar.submission:SCV000198480.2",
+    "#/scv/clinvar.submission:SCV000221179.6",
+    "#/scv/clinvar.submission:SCV000329246.6",
+    "#/scv/clinvar.submission:SCV000329383.7",
+    "#/scv/clinvar.submission:SCV000330918.5",
+    "#/scv/clinvar.submission:SCV000397270.3",
+    "#/scv/clinvar.submission:SCV000511517.1",
+    "#/scv/clinvar.submission:SCV000536740.1",
+    "#/scv/clinvar.submission:SCV000538017.1",
+    "#/scv/clinvar.submission:SCV000584079.1",
+    "#/scv/clinvar.submission:SCV000594089.1",
+    "#/scv/clinvar.submission:SCV000607274.4",
+    "#/scv/clinvar.submission:SCV000611562.1",
+    "#/scv/clinvar.submission:SCV000659085.3",
+    "#/scv/clinvar.submission:SCV000693723.1",
+    "#/scv/clinvar.submission:SCV000741228.7",
+    "#/scv/clinvar.submission:SCV000747395.1",
+    "#/scv/clinvar.submission:SCV000747396.1",
+    "#/scv/clinvar.submission:SCV000784594.1",
+    "#/scv/clinvar.submission:SCV000864219.1",
+    "#/scv/clinvar.submission:SCV000882686.2",
+    "#/scv/clinvar.submission:SCV000882700.3",
+    "#/scv/clinvar.submission:SCV000883108.1",
+    "#/scv/clinvar.submission:SCV000886152.2",
+    "#/scv/clinvar.submission:SCV000889288.5",
+    "#/scv/clinvar.submission:SCV000891676.1",
+    "#/scv/clinvar.submission:SCV000928113.2",
+    "#/scv/clinvar.submission:SCV000992585.2",
+    "#/scv/clinvar.submission:SCV000999192.1",
+    "#/scv/clinvar.submission:SCV001149705.2",
+    "#/scv/clinvar.submission:SCV001161676.3",
+    "#/scv/clinvar.submission:SCV001163504.1",
+    "#/scv/clinvar.submission:SCV001169465.1",
+    "#/scv/clinvar.submission:SCV001193905.2",
+    "#/scv/clinvar.submission:SCV001244997.1",
+    "#/scv/clinvar.submission:SCV001246813.39",
+    "#/scv/clinvar.submission:SCV001251533.1",
+    "#/scv/clinvar.submission:SCV001251746.1",
+    "#/scv/clinvar.submission:SCV001368335.2",
+    "#/scv/clinvar.submission:SCV001424387.1",
+    "#/scv/clinvar.submission:SCV001450105.1",
+    "#/scv/clinvar.submission:SCV001524786.1",
+    "#/scv/clinvar.submission:SCV001527339.4",
+    "#/scv/clinvar.submission:SCV001550138.2",
+    "#/scv/clinvar.submission:SCV001553614.1",
+    "#/scv/clinvar.submission:SCV001622798.2",
+    "#/scv/clinvar.submission:SCV001713417.5",
+    "#/scv/clinvar.submission:SCV001736991.1",
+    "#/scv/clinvar.submission:SCV001739511.1",
+    "#/scv/clinvar.submission:SCV001744105.3",
+    "#/scv/clinvar.submission:SCV001810348.2",
+    "#/scv/clinvar.submission:SCV001860325.1",
+    "#/scv/clinvar.submission:SCV001929598.1",
+    "#/scv/clinvar.submission:SCV002009133.3",
+    "#/scv/clinvar.submission:SCV002019253.4",
+    "#/scv/clinvar.submission:SCV002031250.1",
+    "#/scv/clinvar.submission:SCV002031251.1",
+    "#/scv/clinvar.submission:SCV002035293.1",
+    "#/scv/clinvar.submission:SCV002048630.9",
+    "#/scv/clinvar.submission:SCV002053836.1",
+    "#/scv/clinvar.submission:SCV002061800.2",
+    "#/scv/clinvar.submission:SCV002072562.5",
+    "#/scv/clinvar.submission:SCV002080609.1",
+    "#/scv/clinvar.submission:SCV002097285.2",
+    "#/scv/clinvar.submission:SCV002318898.4",
+    "#/scv/clinvar.submission:SCV002502414.1",
+    "#/scv/clinvar.submission:SCV002503785.3",
+    "#/scv/clinvar.submission:SCV002507372.1",
+    "#/scv/clinvar.submission:SCV002507456.1",
+    "#/scv/clinvar.submission:SCV002512246.1",
+    "#/scv/clinvar.submission:SCV002523540.1",
+    "#/scv/clinvar.submission:SCV002525678.1",
+    "#/scv/clinvar.submission:SCV002529678.1",
+    "#/scv/clinvar.submission:SCV002543782.1",
+    "#/scv/clinvar.submission:SCV002564582.1",
+    "#/scv/clinvar.submission:SCV002579737.2",
+    "#/scv/clinvar.submission:SCV002601600.1",
+    "#/scv/clinvar.submission:SCV002759371.1",
+    "#/scv/clinvar.submission:SCV002761398.2",
+    "#/scv/clinvar.submission:SCV002810876.2",
+    "#/scv/clinvar.submission:SCV002818128.2",
+    "#/scv/clinvar.submission:SCV002821689.27",
+    "#/scv/clinvar.submission:SCV003841941.5",
+    "#/scv/clinvar.submission:SCV003925476.1",
+    "#/scv/clinvar.submission:SCV004024086.1",
+    "#/scv/clinvar.submission:SCV004037030.2",
+    "#/scv/clinvar.submission:SCV004042777.1",
+    "#/scv/clinvar.submission:SCV004046363.3",
+    "#/scv/clinvar.submission:SCV004100881.1",
+    "#/scv/clinvar.submission:SCV004101106.1",
+    "#/scv/clinvar.submission:SCV004101389.2",
+    "#/scv/clinvar.submission:SCV004101520.3",
+    "#/scv/clinvar.submission:SCV004105952.4",
+    "#/scv/clinvar.submission:SCV004171185.1",
+    "#/scv/clinvar.submission:SCV004176446.1",
+    "#/scv/clinvar.submission:SCV004176950.1",
+    "#/scv/clinvar.submission:SCV004211619.2",
+    "#/scv/clinvar.submission:SCV004242533.3",
+    "#/scv/clinvar.submission:SCV004698102.2",
+    "#/scv/clinvar.submission:SCV004805438.2",
+    "#/scv/clinvar.submission:SCV005023563.1",
+    "#/scv/clinvar.submission:SCV005044128.1",
+    "#/scv/clinvar.submission:SCV005051724.1",
+    "#/scv/clinvar.submission:SCV005094257.2",
+    "#/scv/clinvar.submission:SCV005197698.1",
+    "#/scv/clinvar.submission:SCV005397656.1",
+    "#/scv/clinvar.submission:SCV005414064.1",
+    "#/scv/clinvar.submission:SCV005634967.1",
+    "#/scv/clinvar.submission:SCV006076878.1",
+    "#/scv/clinvar.submission:SCV006109277.1",
+    "#/scv/clinvar.submission:SCV006304919.1",
+    "#/scv/clinvar.submission:SCV006554384.1",
+    "#/scv/clinvar.submission:SCV006554430.1",
+    "#/scv/clinvar.submission:SCV006555683.1",
+    "#/scv/clinvar.submission:SCV006561073.1",
+    "#/scv/clinvar.submission:SCV007105405.1",
+    "#/scv/clinvar.submission:SCV007105406.1",
+    "#/scv/clinvar.submission:SCV007105409.1",
+    "#/scv/clinvar.submission:SCV007105413.1",
+    "#/scv/clinvar.submission:SCV007105415.1",
+    "#/scv/clinvar.submission:SCV007105418.1",
+    "#/scv/clinvar.submission:SCV007105422.1",
+    "#/scv/clinvar.submission:SCV007105432.1",
+    "#/scv/clinvar.submission:SCV007105434.1",
+    "#/scv/clinvar.submission:SCV007105520.1",
+    "#/scv/clinvar.submission:SCV007105704.1",
+    "#/scv/clinvar.submission:SCV007329966.1",
+    "#/scv/clinvar.submission:SCV007448776.1",
+    "#/scv/clinvar.submission:SCV007538136.1",
+    "#/scv/clinvar.submission:SCV007540636.1",
+    "#/scv/clinvar.submission:SCV007580311.1",
+    "#/scv/clinvar.submission:SCV007591183.1",
+    "#/scv/clinvar.submission:SCV007675062.1",
+    "#/scv/clinvar.submission:SCV007771141.1",
+    "#/scv/clinvar.submission:SCV007984673.1",
+    "#/variation/clinvar:16609",
+    "#/variation/clinvar:2758242",
+    "#/variation/clinvar:3242232",
+    "#/variation/clinvar:3376511",
+    "#/variation/clinvar:376363",
+    "#/variation/clinvar:44991",
+    "#/variation/clinvar:7105",
+    "#/variation/clinvar:97850"
+  ]
+}
