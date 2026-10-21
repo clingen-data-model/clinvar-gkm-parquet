@@ -1,0 +1,59 @@
+# Table spec 1.0: the 22 tables of ClinVar-GKM's 1.1.0 latest Parquet set (design plan §3).
+# Format: see src/clinvar_gkm_parquet/spec.py. Rules: .claude/rules/table-spec.md.
+#
+# status: draft. Names, order and types are taken from ClinVar-GKM's BigQuery export SQL and its 1.1.0 column
+# reference, ahead of the first 1.1.0 export. Spec 1.0 is final only once it is captured from that export
+# (DESCRIBE of all 22 files and a scan of every extensions column, design plan §3.2), when status becomes
+# "captured". It is "released" with the tool release that first writes it; after that it is never edited.
+spec_version: "1.0"
+status: draft
+bundle_schema_versions: ["1.1.0"]
+sources:
+  - "ClinVar-GKM src/scripts/parquet-schemas/*.sql @ origin/1.0 25344ba6edb639bacbdd8af38bd90a2e6b9f4240"
+  - "ClinVar-GKM docs/parquet/tables.md @ docs/release-1.0.2-data-changes c08c8d175eefb32b175fa69358b592b01f6455a6 (PR #146)"
+  - "ClinVar-GKM schema/clinvar-gkm/clinvar-gkm-bundle.schema.json @ origin/1.0 25344ba6edb639bacbdd8af38bd90a2e6b9f4240"
+writer:
+  compression: snappy
+  row_group_size: 122880
+tables:
+  - name: sequenceReference
+    sections: [sequenceReference]
+    row_filter: null
+    sort_key: id
+    description: Reference sequences that locations are placed on, keyed by their refget accession.
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: The bundle key, SQ.<digest>.
+      - name: type
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: Always SequenceReference.
+      - name: refget_accession
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.refgetAccession, transform: null}
+        description: The refget accession; same value as id.
+      - name: name
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.name, transform: null}
+        description: The RefSeq accession, e.g. NC_000017.11.
+      - name: molecule_type
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.moleculeType, transform: null}
+        description: genomic, mRNA or RNA.
+      - name: residue_alphabet
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.residueAlphabet, transform: null}
+        description: na (nucleic acid).
+      - name: data
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: record, path: null, transform: null}
+        description: The bundle record, byte for byte.

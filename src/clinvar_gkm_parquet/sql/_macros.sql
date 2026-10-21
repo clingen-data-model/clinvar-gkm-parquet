@@ -1,0 +1,1 @@
+-- Shared DuckDB macros (see sqltemplate.py). Written by the table-spec work package.
