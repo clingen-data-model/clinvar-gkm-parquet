@@ -35,9 +35,6 @@ from .errors import InputError, SchemaVersionError, SpecError
 from .model import BuildInputs, BuildResult, DeltaManifest, InputFile, StagedBundle, TableResult
 from .spec import Spec, Table, load_spec
 
-# The published line index (CLAUDE.md "Published data access"; provisional path).
-DEFAULT_INDEX_URL = "https://data.clinvar-gkm.org/v1/1.1/index.json"
-
 KV_PREFIX = "clinvar_gkm_parquet."
 # Design plan §7.2, in the order they are written.
 KV_KEYS = (
@@ -545,9 +542,14 @@ def load_inputs(
     memory_limit: str | None = None,
     threads: int | None = None,
     log: Callable[[str], None] | None = None,
+    keep_staging: bool = False,
 ) -> LoadedState:
     """Stages 1-2 (design plan §6.2): check the delta chain, stage every input, replay into a DuckDB database
-    at `<work>/state.duckdb`. Shared by build and `verify --bundle-recompute`."""
+    at `<work>/state.duckdb`. Shared by build and `verify --bundle-recompute`.
+
+    load_state copies the staging files into DuckDB tables (and checks schema_version across the chain), so
+    the staging files are read by nothing afterwards: unless `keep_staging`, they are deleted right away, which
+    lowers the disk peak (design plan §6.3)."""
     work.mkdir(parents=True, exist_ok=True)
     manifests = [sources.load_manifest(m) for _, m in inputs.deltas]
     replay.check_chain(inputs.full_source_release, manifests)  # cheap; before tens of minutes of staging
@@ -559,9 +561,6 @@ def load_inputs(
         if log:
             log(f"staging {d_inp.name}")
         staged_deltas.append((bundle.stage_bundle(d_inp, work / "stage" / f"delta-{i:03d}"), man))
-    versions = {full.schema_version} | {s.schema_version for s, _ in staged_deltas}
-    if len(versions) != 1:
-        raise SchemaVersionError(f"inputs mix bundle schema_versions {sorted(versions)}; a chain needs one")
     if full.schema_version not in spec.bundle_schema_versions:
         raise SchemaVersionError(
             f"bundle schema_version {full.schema_version} is not one table spec {spec.spec_version} reads "
@@ -572,7 +571,12 @@ def load_inputs(
     if log:
         log("loading the final state" + (f" ({len(staged_deltas)} delta(s))" if staged_deltas else ""))
     counts = dict(replay.load_state(con, full, staged_deltas))
-    unknown = sorted(set(counts) - spec.sections)
+    if not keep_staging:
+        for staged in [full] + [s for s, _ in staged_deltas]:
+            for st in staged.sections.values():
+                Path(st.path).unlink(missing_ok=True)
+    # An empty section (load_state creates all of them) is harmless; a non-empty one no table reads is not.
+    unknown = sorted(s for s, n in counts.items() if n and s not in spec.sections)
     if unknown:
         raise SpecError(
             f"bundle section(s) {unknown} are not read by any table of spec {spec.spec_version}; "
@@ -613,7 +617,9 @@ def build(
         shutil.rmtree(work)
     state: LoadedState | None = None
     try:
-        state = load_inputs(inputs, work, spec, memory_limit=memory_limit, threads=threads, log=log)
+        state = load_inputs(
+            inputs, work, spec, memory_limit=memory_limit, threads=threads, log=log, keep_staging=keep_work
+        )
         con = state.con
         con.execute(sqltemplate.macros_sql())
         kv = kv_metadata(
@@ -625,13 +631,8 @@ def build(
         )
 
         def section_done(section: str) -> None:
-            if keep_work:
-                return
-            drop_relation(con, f"bundle_{section}")
-            for staged in [state.full] + [s for s, _ in state.deltas]:
-                st = staged.sections.get(section)
-                if st is not None:
-                    Path(st.path).unlink(missing_ok=True)
+            if not keep_work:
+                drop_relation(con, f"bundle_{section}")  # frees its space in the work database
 
         results = build_tables(
             con, spec, names, out_dir, kv, counts=state.counts, on_section_done=section_done, log=log
@@ -691,9 +692,9 @@ def resolve_build_inputs(args) -> BuildInputs:
                 "--release resolves the full and deltas itself; don't combine it with --delta, "
                 "--manifest or --full-source-release"
             )
-        src = index_src or DEFAULT_INDEX_URL
-        index = sources.load_index(src)
-        base_url = src.rsplit("/", 1)[0] + "/" if "/" in src else ""
+        index = sources.load_index(index_src or sources.DEFAULT_INDEX_URL)
+        # Index paths start with the line (v1/1.1/...) and are relative to the index's base_url.
+        base_url = index.get("base_url") or sources.DEFAULT_BASE_URL
         return sources.resolve_release(index, release, base_url=base_url)
     if not getattr(args, "full", None):
         raise InputError("--full (or --release) is required")

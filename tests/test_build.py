@@ -20,7 +20,7 @@ from clinvar_gkm_parquet.build import (
     resolve_build_inputs,
     run_build_command,
 )
-from clinvar_gkm_parquet.errors import InputError, SchemaVersionError, SpecError
+from clinvar_gkm_parquet.errors import InputError, SpecError
 from clinvar_gkm_parquet.model import BuildInputs, DeltaManifest, InputFile, StagedBundle, StagedSection
 
 FIXTURE = Path(__file__).parent / "fixtures" / "examples-1.1.0" / "clinvar-gkm_examples.json.gz"
@@ -378,6 +378,12 @@ def test_build_refuses_unknown_section(stubbed, tmp_path, monkeypatch):
         build(inputs, tmp_path / "out", spec=spec)
     assert not (tmp_path / "out.work").exists()
 
+    def load_state_empty(con, full, deltas):  # an empty section no table reads is fine
+        return load_sections(con, {**section_rows(), "mystery": []})
+
+    monkeypatch.setattr(build_mod.replay, "load_state", load_state_empty)
+    build(inputs, tmp_path / "out", spec=spec, tables=["kv"])
+
 
 def test_build_creates_absent_empty_section(stubbed, tmp_path, monkeypatch):
     spec, inputs, _ = stubbed
@@ -390,21 +396,6 @@ def test_build_creates_absent_empty_section(stubbed, tmp_path, monkeypatch):
     monkeypatch.setattr(build_mod.replay, "load_state", load_state)
     res = build(inputs, tmp_path / "out", spec=spec)
     assert {t.table: t.rows for t in res.tables}["kv"] == 0
-
-
-def test_build_refuses_mixed_schema_versions(stubbed, tmp_path, monkeypatch):
-    spec, inputs, _ = stubbed
-    real = build_mod.bundle.stage_bundle
-
-    def stage(inp, work_dir):
-        sb = real(inp, work_dir)
-        if inp.name == "d2.json.gz":
-            return StagedBundle(sb.input, sb.sha256, sb.size, "1.2.0", sb.sections)
-        return sb
-
-    monkeypatch.setattr(build_mod.bundle, "stage_bundle", stage)
-    with pytest.raises(SchemaVersionError, match="mix"):
-        build(inputs, tmp_path / "out", spec=spec)
 
 
 def test_build_source_release_without_deltas(stubbed, tmp_path):
@@ -487,10 +478,13 @@ def test_resolve_build_inputs_release(monkeypatch):
     monkeypatch.setattr(build_mod.sources, "resolve_release", resolve_release)
     assert resolve_build_inputs(_args(release="latest")) == "INPUTS"
     assert got == {
-        "index": {"from": build_mod.DEFAULT_INDEX_URL},
+        "index": {"from": build_mod.sources.DEFAULT_INDEX_URL},
         "release": "latest",
-        "base_url": "https://data.clinvar-gkm.org/v1/1.1/",
+        "base_url": "https://data.clinvar-gkm.org",
     }
+    monkeypatch.setattr(build_mod.sources, "load_index", lambda src: {"base_url": "https://mirror.example"})
+    resolve_build_inputs(_args(release="2026-10-18", index="idx.json"))
+    assert got["base_url"] == "https://mirror.example" and got["release"] == "2026-10-18"
 
 
 def test_run_build_command(monkeypatch, capsys, stubbed, tmp_path):
@@ -503,25 +497,97 @@ def test_run_build_command(monkeypatch, capsys, stubbed, tmp_path):
     assert "built 3 table(s), 19 rows, source release 2026-10-11" in out
 
 
-# --- end to end on the real fixture (needs the input and table-spec work packages) ------------------------------
+# --- end to end on the real fixture ----------------------------------------------------------------------------
 
 
-def test_build_fixture_end_to_end(tmp_path):
-    """TODO(integration): runs once bundle.stage_bundle, replay.load_state and sqltemplate are implemented and
-    spec/1.0 lists every table."""
+def _passthrough_spec():
+    """One table per bundle section: id = key, data = record. Exercises the real stage and replay, the build
+    and verify on a real bundle without depending on the table SQL."""
+    from clinvar_gkm_parquet.bundle import SECTIONS
+
+    col = lambda n, k: {  # noqa: E731
+        "name": n,
+        "type": "VARCHAR",
+        "nulls": "never",
+        "derivation": {"kind": k, "path": None, "transform": None},
+        "description": "",
+    }
+    raw = {
+        "spec_version": "9.9",
+        "status": "draft",
+        "bundle_schema_versions": ["1.1.0"],
+        "sources": [],
+        "writer": {"compression": "snappy", "row_group_size": 122880},
+        "tables": [
+            {
+                "name": s,
+                "sections": [s],
+                "row_filter": None,
+                "sort_key": "id",
+                "description": "",
+                "columns": [col("id", "key"), col("data", "record")],
+            }
+            for s in SECTIONS
+        ],
+    }
+    from clinvar_gkm_parquet.spec import parse_spec
+
+    return parse_spec(raw)
+
+
+def _fixture_inputs() -> BuildInputs:
+    sha = (FIXTURE.parent / (FIXTURE.name + ".sha256")).read_text().split()[0]
     inp = InputFile(
         source=str(FIXTURE),
         name=FIXTURE.name,
         release="2026-10-18",
-        expected_sha256=(FIXTURE.parent / (FIXTURE.name + ".sha256")).read_text().split()[0],
+        expected_sha256=sha,
         sha256_source="sidecar",
+        size=FIXTURE.stat().st_size,
     )
+    return BuildInputs(full=inp, full_source_release="2026-10-18")
+
+
+def test_build_and_verify_real_fixture(tmp_path, monkeypatch):
+    """Real stage + replay on the examples-1.1.0 fixture, a pass-through spec, then verify and recompute."""
+    from clinvar_gkm_parquet.verify import recompute, recompute_failed, verify_dir
+
+    spec = _passthrough_spec()
+    monkeypatch.setattr(build_mod.sqltemplate, "macros_sql", lambda: "SELECT 1")
+    monkeypatch.setattr(
+        build_mod.sqltemplate, "render", lambda t: f'SELECT key AS id, record AS data FROM "bundle_{t.name}"'
+    )
+    a = build(_fixture_inputs(), tmp_path / "a", spec=spec, threads=1)
+    b = build(_fixture_inputs(), tmp_path / "b", spec=spec, threads=4, work_dir=tmp_path / "w")
+    assert [(t.table, t.sha256) for t in a.tables] == [(t.table, t.sha256) for t in b.tables]
+    rows = {t.table: t.rows for t in a.tables}
+    assert sum(rows.values()) == 346 and rows["copyNumberCount"] == rows["therapyGroup"] == 0
+    assert verify_dir(tmp_path / "a", spec) == []
+    m = json.loads((tmp_path / "a" / "manifest.json").read_text())
+    assert m["source_bundle_sha256"] == _fixture_inputs().full.expected_sha256
+    assert m["source_release"] == "2026-10-18" and m["source_deltas"] == []
+    state = build_mod.load_inputs(_fixture_inputs(), tmp_path / "rc", spec)
     try:
-        res = build(BuildInputs(full=inp, full_source_release="2026-10-18"), tmp_path / "out")
+        assert not any(recompute_failed(g) for g in recompute(state.con, spec, tmp_path / "a"))
+    finally:
+        state.con.close()
+
+
+def test_build_fixture_end_to_end(tmp_path):
+    """TODO(integration): the real spec and table SQL on the fixture. Runs once sqltemplate is implemented and
+    spec/1.0 has a table for every bundle section."""
+    from clinvar_gkm_parquet.bundle import SECTIONS
+    from clinvar_gkm_parquet.spec import load_spec
+
+    spec = load_spec("1.0")
+    if not set(SECTIONS) <= spec.sections:
+        pytest.skip("needs spec/1.0 to cover every bundle section (table-spec work package)")
+    try:
+        res = build(_fixture_inputs(), tmp_path / "out")
     except NotImplementedError as e:
-        pytest.skip(f"needs the other work packages: {e!r}")
+        pytest.skip(f"needs the table-spec work package: {e!r}")
     from clinvar_gkm_parquet.verify import verify_dir
 
     assert verify_dir(tmp_path / "out") == []
-    res2 = build(BuildInputs(full=inp, full_source_release="2026-10-18"), tmp_path / "out2", threads=4)
+    res2 = build(_fixture_inputs(), tmp_path / "out2", threads=4)
     assert [t.sha256 for t in res.tables] == [t.sha256 for t in res2.tables]
