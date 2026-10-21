@@ -44,3 +44,7 @@ cd tests/fixtures/examples-1.1.0 && sha256sum -c clinvar-gkm_examples.json.gz.sh
 ```
 
 The output is deterministic: the same commit gives byte-identical files.
+
+**Being replaced.** `scripts/extract-fixtures.py` makes the real excerpt (`tests/fixtures/real-1.1.0/`) from a
+published 1.1.0 full; `tests/_fixture.py` uses it as soon as it exists. This provisional fixture is then kept
+only for the extractor's own tests.
