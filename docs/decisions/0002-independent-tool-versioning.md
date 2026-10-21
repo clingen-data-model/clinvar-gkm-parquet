@@ -34,7 +34,9 @@ Three things therefore need versions, and they move independently:
 4. **The tool refuses an unsupported bundle.** It reads `schema_version` from the bundle and stops with an error
    naming the supported versions and pointing at the compatibility matrix.
 5. **Each Parquet file is self-describing.** Its key-value metadata records the tool version, the table-spec
-   version, the bundle `schema_version`, and the sha256 of every source bundle file.
+   version, the bundle `schema_version`, and the sha256 of every source bundle file. The dataset manifest the
+   tool writes beside the files (design plan §7.3), which ClinVar-GKM publishes at `v1/1.1/parquet/`, records
+   the same versions for the whole dataset.
 6. **The compatibility matrix** is kept in `README.md` (for people) and in the package's `version --json`
    output (for scripts), updated together in the release PR.
 
@@ -42,8 +44,8 @@ Three things therefore need versions, and they move independently:
 
 - A user holding any bundle can find the tool version that reads it, and any Parquet file says which tool,
   spec and bundle bytes produced it.
-- ClinVar-GKM pins one tool version per release, and its docs can say which spec version the published latest
-  set follows.
+- ClinVar-GKM pins one tool version per release, and the published dataset's manifest says which tool and spec
+  version built it.
 - Accepting a new bundle `schema_version`, even a PATCH, needs a tool release (at least a MINOR). That is
   deliberate: the tool only claims to read what it has been run on.
 - Two version numbers can confuse: "tool 1.0.0", "table spec 1.0" and "bundle schema 1.1.0". Docs always say

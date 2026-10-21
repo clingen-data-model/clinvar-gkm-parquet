@@ -10,7 +10,13 @@ regenerated from the bundle it came from.
 
 > **Status:** not yet released; there is no code yet. The design is under review:
 > [design plan](docs/plans/2026-10-20-design.md). Until the tool ships, ClinVar-GKM builds its published
-> Parquet set with its own BigQuery export. User documentation will live on the
+> Parquet set with its own BigQuery export.
+>
+> ClinVar-GKM publishes **one** Parquet dataset, at `https://data.clinvar-gkm.org/v1/1.1/parquet/`,
+> overwritten every release, with a manifest naming the build date, source release and tool version. Past
+> releases have no published Parquet; this tool rebuilds them from the monthly bundles (or a monthly plus
+> deltas, for a past week). See [ClinVar-GKM ADR 0009](https://github.com/clingen-data-model/clinvar-gkm/blob/docs/adr-0008-bundle-record/docs/decisions/0009-r2-layout-mirrors-ncbi-clinvar.md)
+> (proposed, PR #168). User documentation will live on the
 > [ClinVar-GKM docs site](https://dataexchange.clinicalgenome.org/clinvar-gkm/), in a planned
 > Ecosystem → Add-ons section.
 

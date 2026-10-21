@@ -17,12 +17,15 @@ working on matching files); one-off decisions live in `docs/decisions/` (ADRs). 
 This repo builds a downloadable, versioned **bundle → Parquet** tool for
 [ClinVar-GKM](https://github.com/clingen-data-model/clinvar-gkm) (local clone: `~/Development/gks/clinvar-gks`).
 
-- **The JSON bundles are the public record.** ClinVar-GKM publishes monthly full bundles and weekly delta
-  bundles, schema-versioned, at `https://data.clinvar-gkm.org/v1/`. Superseded generations are kept under
-  `archive/<version>/` with a `MANIFEST.json` of sha256s.
+- **The JSON bundles are the public record.** ClinVar-GKM publishes official monthly fulls, weekly fulls
+  (current month only) and weekly deltas, schema-versioned, with a `.sha256` per file, in a version-line folder
+  that mirrors NCBI's ClinVar layout: `v1/1.1/` (top level = monthlies; `weekly/`; `deltas/` with `YYYY-MM/`
+  subfolders; `archive/YYYY/`). The 1.0.1 generation is the frozen line `v1/1.0/`. See ClinVar-GKM ADR 0009
+  (proposed, PR #168) and the [design plan §2.1](docs/plans/2026-10-20-design.md#21-published-artifacts).
 - **Parquet is a derived convenience**: a quick way to query the bundle content with current database tools.
-  It is not a record. Only the latest Parquet set is published online; this tool lets anyone rebuild Parquet
-  for any release, including archived ones.
+  It is not a record. ClinVar-GKM publishes one dataset, `v1/1.1/parquet/`, overwritten every release, with a
+  manifest this tool writes; no Parquet is kept in archives or frozen lines. This tool lets anyone rebuild
+  Parquet for any release from the monthlies (plus deltas for a past week).
 - **Invariant: Parquet derives from the bundle.** Every Parquet row and value must be recomputable from the
   published bundle(s) alone. Derived forms are fine: bare ids from `#/` pointers, casts, range bounds,
   flattened extensions, join and lookup tables that combine sections. Facts the bundle lacks are not. If a
@@ -59,10 +62,13 @@ See [ADR 0002](docs/decisions/0002-independent-tool-versioning.md). In short:
 
 ## Published data access
 
-- Base URL `https://data.clinvar-gkm.org`. Release index: `/index.json` (root manifest) and `/v1/index.json`.
+- Base URL `https://data.clinvar-gkm.org`. Release index: `/index.json` (root manifest, lists the lines) and
+  one index per line (`/v1/1.1/index.json`, provisional path), which gives each monthly's `sha256` and
+  `source_release`. Paths move at month and year rollover: resolve files through the index, by release.
 - Send a descriptive `User-Agent` (curl and scripts need one). The CDN rate limit is **250 requests per 10 s**
   per client; a burst over it gets HTTP 429. Back off and retry; never parallelize past it.
 - Only `/v1/`, `/archive/`, `/.well-known/`, `/` and `/index.json` are served; other paths are blocked.
+  `/archive/` goes once `archive/1.0.1/` has moved to `v1/1.0/`.
 - This repo never writes to R2, BigQuery or the ClinVar-GKM repo. Publishing Parquet is ClinVar-GKM's job.
 
 ## Git conventions

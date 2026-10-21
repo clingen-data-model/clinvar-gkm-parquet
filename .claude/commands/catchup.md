@@ -21,8 +21,9 @@ dump. Derive the picture from git and GitHub, never from a hand-maintained doc.
    - the delta manifest and index (`build-delta-manifest.py`, `generate-r2-index.sh`) and the release-model docs;
    - ADRs in `docs/decisions/` (especially 0004, 0007, 0008) and `docs/parquet/tables.md`.
    Use `git -C ~/Development/gks/clinvar-gks log --oneline --since=... origin/1.0 -- <paths>`.
-3. **Published data.** Fetch `https://data.clinvar-gkm.org/v1/index.json` (send a User-Agent) and note any new
-   `schema_version`, release or Parquet `source_release`.
+3. **Published data.** Fetch `https://data.clinvar-gkm.org/index.json` and the current line's index
+   (`/v1/1.1/index.json`, provisional path; send a User-Agent) and note any new line, `schema_version`, release,
+   monthly `source_release` or Parquet manifest.
 4. Summarize in a few bullets: what landed and why, what it means for the files the user named, any interface
    or convention change to adopt (especially a new bundle `schema_version` or a format change), and open
    follow-ups. Link PRs and ADRs by number.

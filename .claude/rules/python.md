@@ -23,8 +23,8 @@ when the implementation settles it.
 - The same tool version, table spec and input bundle(s) must give byte-identical Parquet files. So:
   - pin the exact DuckDB version a release was tested with;
   - write with `ORDER BY` the table's sort key, fixed compression and fixed row-group size;
-  - put no wall-clock timestamps in the Parquet key-value metadata (put them in a sidecar such as
-    `build.json` instead).
+  - put no wall-clock timestamps in the Parquet key-value metadata (put them in the dataset manifest the tool
+    writes beside the files instead; design plan §7.3).
 - Declare every output column type explicitly. Never rely on DuckDB's JSON type inference: it differs from
   the table spec on nested struct field order, integer widths and empty-versus-NULL lists.
 
@@ -33,8 +33,8 @@ when the implementation settles it.
 - Bundles are large (a monthly full is about 4.8 GB gzip). **Stream them**; never `json.load` a whole bundle.
   The assembler writes one `"<key>": <record>` per line; the format is verified in the design plan §4.2.
 - Compute the sha256 of the compressed bytes while streaming, and check it against the published checksum
-  (`<file>.sha256` sidecar, `index.json`, or an archive `MANIFEST.json`) when one is available. Refuse on a
-  mismatch.
+  (`<file>.sha256` sidecar, the line `index.json`, or a frozen line's `MANIFEST.json`) when one is available.
+  Refuse on a mismatch.
 - Read `schema_version` from the bundle itself and refuse a version the tool doesn't list.
 
 ## Fail loudly
