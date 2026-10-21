@@ -1,4 +1,5 @@
-"""Load the example fixture into DuckDB `bundle_<section>` tables and build spec tables over them.
+"""Load the bundle fixture (tests/_fixture.py) into DuckDB `bundle_<section>` tables and build spec tables
+over them.
 
 The fixture is tiny, so it is parsed with the stdlib here (the bundle line format of design plan §4.2) rather
 than through the reader, which is another work package. `record` keeps the exact bytes of the bundle line.
@@ -12,11 +13,11 @@ import re
 from pathlib import Path
 
 import duckdb
+from _fixture import FIXTURE
 
 from clinvar_gkm_parquet.spec import Table, load_spec
 from clinvar_gkm_parquet.sqltemplate import macros_sql, render
 
-FIXTURE = Path(__file__).parent / "fixtures" / "examples-1.1.0" / "clinvar-gkm_examples.json.gz"
 SPEC = load_spec("1.0")
 # The 20 sections of the 1.1.0 bundle schema (design plan §4.2).
 SECTIONS = (

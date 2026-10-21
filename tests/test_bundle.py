@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 import pytest
+from _fixture import STAGING_NAME
 from _input_helpers import (
     FIXTURE,
     PROVENANCE,
@@ -74,7 +75,7 @@ def test_staging_is_key_tab_exact_record_bytes(tmp_path):
     staged = stage_bundle(resolve_input(str(FIXTURE)), tmp_path)
     for section, recs in fixture_sections().items():
         sec = staged.sections[section]
-        assert sec.path == tmp_path / "clinvar-gkm_examples" / f"{section}.tsv.gz"
+        assert sec.path == tmp_path / STAGING_NAME / f"{section}.tsv.gz"
         lines = gzip.decompress(sec.path.read_bytes()).split(b"\n")
         assert lines[-1] == b""
         assert lines[:-1] == [k + b"\t" + r for k, r in recs]
@@ -83,13 +84,13 @@ def test_staging_is_key_tab_exact_record_bytes(tmp_path):
 
 def test_no_partial_folders_left(tmp_path):
     stage_bundle(resolve_input(str(FIXTURE)), tmp_path)
-    assert [p.name for p in tmp_path.iterdir()] == ["clinvar-gkm_examples"]
+    assert [p.name for p in tmp_path.iterdir()] == [STAGING_NAME]
 
 
 def test_restage_replaces(tmp_path):
     inp = resolve_input(str(FIXTURE))
     stage_bundle(inp, tmp_path)
-    stale = tmp_path / "clinvar-gkm_examples" / "stale.tsv.gz"
+    stale = tmp_path / STAGING_NAME / "stale.tsv.gz"
     stale.write_bytes(b"")
     stage_bundle(inp, tmp_path)
     assert not stale.exists()
@@ -135,7 +136,7 @@ def test_checksum_mismatch_keeps_earlier_staging_untouched_by_partial(tmp_path):
     stage_bundle(resolve_input(str(FIXTURE)), tmp_path)
     with pytest.raises(InputError):
         stage_bundle(local_input(FIXTURE, sha="0" * 64), tmp_path)
-    assert [p.name for p in tmp_path.iterdir()] == ["clinvar-gkm_examples"]
+    assert [p.name for p in tmp_path.iterdir()] == [STAGING_NAME]
 
 
 def test_truncated_gzip_reports_checksum_mismatch(tmp_path):
