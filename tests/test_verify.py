@@ -289,3 +289,16 @@ def test_command_bundle_recompute(built, tmp_path, spec_patched, monkeypatch):
     kv = [g for g in js["bundle_recompute"] if g["tables"] == ["kv"]][0]
     assert kv["not_in_bundle"]["samples"] == [{"key": "K3", "table": "kv"}]
     assert not list((tmp_path / "w").iterdir())  # the verify work dir is removed
+
+
+def test_cli_unreadable_parquet_is_an_input_error(tmp_path, capsys):
+    # A truncated Parquet file raises duckdb.Error; the CLI reports it as an input error (exit 2), not as
+    # differences (exit 1).
+    from clinvar_gkm_parquet.cli import main
+    from clinvar_gkm_parquet.compat import TABLE_SPEC_VERSION
+    from clinvar_gkm_parquet.spec import load_spec
+
+    for t in load_spec(TABLE_SPEC_VERSION).tables:
+        (tmp_path / t.file_name).write_bytes(b"PAR1 truncated")
+    assert main(["verify", str(tmp_path)]) == 2
+    assert "error:" in capsys.readouterr().err

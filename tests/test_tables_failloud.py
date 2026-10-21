@@ -215,3 +215,26 @@ def test_extension_struct_without_slot_map_is_a_spec_error():
     t = SPEC.table("evidenceLine")
     with pytest.raises(SpecError, match="extension_slots"):
         render(dataclasses.replace(t, extension_slots={}))
+
+
+def test_unknown_gene_context_qualifier_extension_name():
+    # propositionOncogenicity (the fixture's pathogenicity qualifiers have no extensions): rename the
+    # geneContextQualifier's submittedGeneSymbols extension.
+    def pick(k, rec):
+        exts = rec.get("geneContextQualifier", {}).get("extensions", [])
+        return any(e.get("name") == "submittedGeneSymbols" for e in exts)
+
+    def change(rec):
+        for e in rec["geneContextQualifier"]["extensions"]:
+            if e["name"] == "submittedGeneSymbols":
+                e["name"] = "submittedGeneSymbolsRenamed"
+
+    sections, key = _mutated("propositionOncogenicity", pick, change)
+    _fails(
+        sections,
+        "propositionOncogenicity",
+        "column gene_context_source",
+        f"key {key}",
+        "unknown geneContextQualifier extension name",
+        "submittedGeneSymbolsRenamed",
+    )

@@ -491,6 +491,15 @@ def write_manifest(
         "build_date": ended_at[:10],
         "source_release": source_release,
         "release": source_release,
+        # ClinVar-GKM's line index reads builder, dataset and files[] from this manifest (r2_layout.build_index
+        # @ origin/1.0 25344ba; the shape of its own `parquet-manifest` command). dataset names a BigQuery
+        # dataset, which the tool can't know.
+        "builder": f"clinvar-gkm-parquet {kv['tool_version']}",
+        "dataset": None,
+        "files": [
+            {"name": r.file.name, "size": r.size, "sha256": r.sha256}
+            for r in sorted(results, key=lambda r: r.file.name)
+        ],
         "tool_version": kv["tool_version"],
         "table_spec_version": kv["table_spec_version"],
         "table_spec_status": spec.status,
@@ -556,16 +565,16 @@ def load_inputs(
     if log:
         log(f"staging {inputs.full.name}")
     full = bundle.stage_bundle(inputs.full, work / "stage" / "full")
+    if full.schema_version not in spec.bundle_schema_versions:  # before the deltas are staged
+        raise SchemaVersionError(
+            f"bundle schema_version {full.schema_version} is not one table spec {spec.spec_version} reads "
+            f"({', '.join(spec.bundle_schema_versions)})"
+        )
     staged_deltas = []
     for i, ((d_inp, _), man) in enumerate(zip(inputs.deltas, manifests, strict=True)):
         if log:
             log(f"staging {d_inp.name}")
         staged_deltas.append((bundle.stage_bundle(d_inp, work / "stage" / f"delta-{i:03d}"), man))
-    if full.schema_version not in spec.bundle_schema_versions:
-        raise SchemaVersionError(
-            f"bundle schema_version {full.schema_version} is not one table spec {spec.spec_version} reads "
-            f"({', '.join(spec.bundle_schema_versions)})"
-        )
     con = duckdb.connect(str(work / "state.duckdb"))
     configure(con, memory_limit=memory_limit, threads=threads, temp_directory=work / "duckdb-tmp")
     if log:
@@ -582,11 +591,6 @@ def load_inputs(
             f"bundle section(s) {unknown} are not read by any table of spec {spec.spec_version}; "
             "refusing to drop them"
         )
-    for s in sorted(spec.sections - set(counts)):
-        # The assembler omits an empty section (design plan §4.2): its tables are empty, not missing.
-        if relation_kind(con, f"bundle_{s}") is None:
-            con.execute(f"CREATE TABLE {bundle_table(s)} (key VARCHAR, record VARCHAR)")
-        counts[s] = 0
     return LoadedState(con, full, staged_deltas, counts)
 
 
@@ -610,6 +614,20 @@ def build(
         raise SpecError(f"unknown table(s) {unknown}; the spec lists {sorted(t.name for t in spec.tables)}")
     started_at = _now()
     out_dir = Path(out_dir)
+    # One directory holds one set: building into a directory that already has table files or a manifest could
+    # leave tables from two releases side by side (after a failure, or with --tables).
+    if out_dir.is_dir():
+        existing = sorted(
+            p.name
+            for p in out_dir.iterdir()
+            if p.name == MANIFEST_NAME or p.name.endswith(".parquet") or p.name.endswith(".parquet.tmp")
+        )
+        if existing:
+            raise InputError(
+                f"output directory {out_dir} already holds {', '.join(existing[:5])}"
+                f"{' …' if len(existing) > 5 else ''}; build into an empty or new directory"
+            )
+    out_dir.mkdir(parents=True, exist_ok=True)
     work_root = Path(work_dir) if work_dir else default_work_dir(out_dir)
     created_root = not work_root.exists()
     work = work_root / f"build-{os.getpid()}"
@@ -656,6 +674,12 @@ def build(
             tables=tuple(results),
             manifest_path=manifest_path,
         )
+    except BaseException:
+        # A failed build leaves no partial set: remove the tables this run wrote (the directory held none).
+        for t in spec.tables:
+            (out_dir / t.file_name).unlink(missing_ok=True)
+        (out_dir / MANIFEST_NAME).unlink(missing_ok=True)
+        raise
     finally:
         if state is not None:
             state.con.close()
@@ -687,10 +711,15 @@ def resolve_build_inputs(args) -> BuildInputs:
     deltas_src = list(getattr(args, "delta", None) or [])
     manifests_src = list(getattr(args, "manifest", None) or [])
     if release:
-        if deltas_src or manifests_src or getattr(args, "full_source_release", None):
+        if (
+            deltas_src
+            or manifests_src
+            or getattr(args, "full_source_release", None)
+            or getattr(args, "sha256", None)
+        ):
             raise InputError(
-                "--release resolves the full and deltas itself; don't combine it with --delta, "
-                "--manifest or --full-source-release"
+                "--release resolves the full and deltas (and their checksums) itself; don't combine it with "
+                "--delta, --manifest, --full-source-release or --sha256"
             )
         index = sources.load_index(index_src or sources.DEFAULT_INDEX_URL)
         # Index paths start with the line (v1/1.1/...) and are relative to the index's base_url.

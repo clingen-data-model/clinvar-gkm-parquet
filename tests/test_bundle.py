@@ -150,6 +150,18 @@ def test_truncated_gzip_reports_checksum_mismatch(tmp_path):
     assert list((tmp_path / "work").iterdir()) == []
 
 
+def test_format_error_with_known_checksum_reports_mismatch(tmp_path):
+    # A valid gzip of the wrong content (a grammar-test byte string, not a record): with a checksum known, the
+    # mismatch is reported, not the format error it also causes.
+    wrong = tmp_path / "in" / "wrong.json.gz"
+    wrong.parent.mkdir()
+    wrong.write_bytes(gzip.compress(b'{\n  "schema_version": "1.1.0",\n  not a section line\n}\n', mtime=0))
+    with pytest.raises(InputError, match="sha256 mismatch.*also fails to parse"):
+        stage_bundle(local_input(wrong, sha=sha256_of(FIXTURE)), tmp_path / "work")
+    with pytest.raises(BundleFormatError):
+        stage_bundle(local_input(wrong), tmp_path / "work")
+
+
 def test_not_gzip(tmp_path):
     path = tmp_path / "plain.json.gz"
     path.write_bytes(gzip.decompress(FIXTURE.read_bytes()))

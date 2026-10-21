@@ -196,6 +196,16 @@ def _stage(inp: InputFile, out_dir: Path) -> tuple[str, int, str, dict[str, tupl
                 pass
             _check_sha(inp, hr.sha.hexdigest(), cause=f"; the gzip stream is also invalid ({e})")
             raise BundleFormatError(f"{inp.name}: not a complete gzip stream: {e}") from e
+        except (BundleFormatError, SchemaVersionError) as e:
+            # A wrong or corrupt file can still decompress into lines that fail the grammar. When a checksum is
+            # known, finish hashing first, so a mismatch is reported instead of a misleading format error.
+            if inp.expected_sha256 is not None:
+                try:
+                    hr.drain()
+                except (OSError, EOFError, zlib.error):
+                    pass
+                _check_sha(inp, hr.sha.hexdigest(), cause=f"; the content also fails to parse ({e})")
+            raise
     finally:
         raw.close()
     sha = hr.sha.hexdigest()

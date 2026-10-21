@@ -83,10 +83,17 @@ def _verify(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     handler = {"build": _build, "verify": _verify, "version": _version}[args.command]
+    import duckdb
+
     try:
         return handler(args)
     except ToolError as e:
         print(f"clinvar-gkm-parquet: error: {e}", file=sys.stderr)
+        return 2
+    except (
+        duckdb.Error
+    ) as e:  # e.g. an unreadable or truncated Parquet or staging file: an input error, not a diff
+        print(f"clinvar-gkm-parquet: error: {type(e).__name__}: {e}", file=sys.stderr)
         return 2
 
 

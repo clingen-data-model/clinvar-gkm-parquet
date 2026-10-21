@@ -341,6 +341,31 @@ def test_build_end_to_end_with_stubs(stubbed, tmp_path):
     assert [d["release"] for d in m["inputs"]["deltas"]] == ["2026-10-04", "2026-10-11"]
     for k in ("generated_at", "started_at", "tool_version", "duckdb_version", "note"):
         assert m[k]
+    # the fields ClinVar-GKM's r2_layout.build_index reads (its own parquet-manifest shape)
+    assert m["builder"] == f"clinvar-gkm-parquet {m['tool_version']}" and m["dataset"] is None
+    assert m["files"] == [
+        {"name": n, "size": (out / n).stat().st_size, "sha256": _sha(out / n)}
+        for n in ("evA.parquet", "evB.parquet", "kv.parquet", "thing.parquet")
+    ]
+
+
+def test_build_refuses_an_output_dir_holding_a_set(stubbed, tmp_path):
+    spec, inputs, calls = stubbed
+    out = tmp_path / "out"
+    build(inputs, out, spec=spec)
+    calls["staged"].clear()
+    with pytest.raises(InputError, match="already holds .*manifest.json"):
+        build(inputs, out, spec=spec, tables=["kv"])
+    assert calls["staged"] == []  # refused before any staging
+
+
+def test_failed_build_leaves_no_partial_set(stubbed, tmp_path, monkeypatch):
+    spec, inputs, _ = stubbed
+    monkeypatch.setattr(build_mod.sqltemplate, "render", render_with(thing="SELECT error('boom')"))
+    out = tmp_path / "out"
+    with pytest.raises(SpecError, match="table thing: query failed"):
+        build(inputs, out, spec=spec)  # thing is built last, after evA, evB and kv were written
+    assert list(out.iterdir()) == []
 
 
 def test_build_keep_work_keeps_staging(stubbed, tmp_path):
@@ -393,19 +418,6 @@ def test_build_refuses_unknown_section(stubbed, tmp_path, monkeypatch):
 
     monkeypatch.setattr(build_mod.replay, "load_state", load_state_empty)
     build(inputs, tmp_path / "out", spec=spec, tables=["kv"])
-
-
-def test_build_creates_absent_empty_section(stubbed, tmp_path, monkeypatch):
-    spec, inputs, _ = stubbed
-
-    def load_state(con, full, deltas):
-        rows = section_rows()
-        del rows["kv"]  # the assembler omits an empty section
-        return load_sections(con, rows)
-
-    monkeypatch.setattr(build_mod.replay, "load_state", load_state)
-    res = build(inputs, tmp_path / "out", spec=spec)
-    assert {t.table: t.rows for t in res.tables}["kv"] == 0
 
 
 def test_build_source_release_without_deltas(stubbed, tmp_path):
@@ -475,6 +487,8 @@ def test_resolve_build_inputs_full_and_deltas(monkeypatch):
         resolve_build_inputs(_args(full="f", delta=["a.json.gz", "b.json.gz"], manifest=["m"]))
     with pytest.raises(InputError, match="don't combine"):
         resolve_build_inputs(_args(release="latest", delta=["a.json.gz"]))
+    with pytest.raises(InputError, match="don't combine"):
+        resolve_build_inputs(_args(release="latest", sha256="ab" * 32))
 
 
 def test_resolve_build_inputs_release(monkeypatch):

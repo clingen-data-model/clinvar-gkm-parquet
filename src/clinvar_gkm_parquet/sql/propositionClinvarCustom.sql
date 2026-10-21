@@ -17,6 +17,12 @@ SELECT
     lambda e: list_transform(CAST(json_extract(e, '$.value') AS JSON[]),
       lambda s: cgp_str(s, {{ctx submitted_gene_symbols}}, key, 'submittedGeneSymbols.value[]')))) AS {{type submitted_gene_symbols}}) AS "submitted_gene_symbols",
   CASE
+    -- geneContextQualifier extensions: the two names the columns read; any other name stops the build.
+    WHEN len(list_filter(gcq_ext, lambda e: coalesce(json_extract_string(e, '$.name'), '') NOT IN
+           ('submittedGeneSymbols', 'geneContextSource'))) > 0
+      THEN cgp_fail({{ctx gene_context_source}}, key, concat('unknown geneContextQualifier extension name(s): ',
+        list_transform(list_filter(gcq_ext, lambda e: coalesce(json_extract_string(e, '$.name'), '') NOT IN
+          ('submittedGeneSymbols', 'geneContextSource')), lambda e: json_extract_string(e, '$.name'))::VARCHAR))
     WHEN len(list_filter(gcq_ext, lambda e: json_extract_string(e, '$.name') = 'geneContextSource')) > 1
       THEN cgp_fail({{ctx gene_context_source}}, key, 'more than one geneContextSource extension')
     ELSE cgp_str(json_extract(list_filter(gcq_ext, lambda e: json_extract_string(e, '$.name') = 'geneContextSource')[1], '$.value'),
