@@ -1,8 +1,9 @@
 """Shared helpers for the input-side tests (sources, bundle, replay).
 
-Records always come from the provisional example fixture (real ClinVar-GKM 1.1.0 example records, see
-tests/fixtures/examples-1.1.0/README.md). Hand-made bytes are used only for the grammar around them: section
-lines, commas, the header, and the synthetic keys of synthetic deltas, which are named as such.
+Records always come from the suite's bundle fixture (tests/_fixture.py: the real 1.1.0 excerpt once it is
+committed, else the provisional example fixture, tests/fixtures/examples-1.1.0/README.md). Hand-made bytes are used
+only for the grammar around them: section lines, commas, the header, and the synthetic keys of synthetic deltas,
+which are named as such.
 """
 
 from __future__ import annotations
@@ -12,10 +13,11 @@ import hashlib
 import json
 from pathlib import Path
 
+from _fixture import FIXTURE, PROVENANCE_PATH
+
 from clinvar_gkm_parquet.model import InputFile
 
-FIXTURE = Path(__file__).parent / "fixtures" / "examples-1.1.0" / "clinvar-gkm_examples.json.gz"
-PROVENANCE = FIXTURE.parent / "PROVENANCE.json"
+PROVENANCE = PROVENANCE_PATH
 
 
 def fixture_lines() -> list[bytes]:

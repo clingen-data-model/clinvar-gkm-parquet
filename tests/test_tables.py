@@ -14,6 +14,7 @@ import re
 
 import duckdb
 import pytest
+from _fixture import IS_PROVISIONAL
 from _tables_helpers import SPEC, build, connect, current_shape, describe, read_fixture, rows
 
 from clinvar_gkm_parquet.sqltemplate import canonical_type, render
@@ -232,6 +233,7 @@ def test_fixture_exercises_the_typed_paths(con):
         pytest.param(
             n,
             marks=pytest.mark.xfail(
+                IS_PROVISIONAL,
                 strict=True,
                 raises=duckdb.InvalidInputException,
                 reason="fixture's 2026-10-04 shape: bare condition CURIEs where the current 1.0 code writes "

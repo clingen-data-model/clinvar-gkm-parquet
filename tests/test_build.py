@@ -7,6 +7,7 @@ from pathlib import Path
 import duckdb
 import pytest
 from _build_helpers import KV, SQL, load_sections, make_con, make_spec, render, render_with, section_rows
+from _fixture import COUNTS, FIXTURE, IS_PROVISIONAL
 
 from clinvar_gkm_parquet import build as build_mod
 from clinvar_gkm_parquet.build import (
@@ -22,8 +23,6 @@ from clinvar_gkm_parquet.build import (
 )
 from clinvar_gkm_parquet.errors import InputError, SpecError
 from clinvar_gkm_parquet.model import BuildInputs, DeltaManifest, InputFile, StagedBundle, StagedSection
-
-FIXTURE = Path(__file__).parent / "fixtures" / "examples-1.1.0" / "clinvar-gkm_examples.json.gz"
 
 
 def _sha(p: Path) -> str:
@@ -571,7 +570,7 @@ def test_build_and_verify_real_fixture(tmp_path, monkeypatch):
     b = build(_fixture_inputs(), tmp_path / "b", spec=spec, threads=4, work_dir=tmp_path / "w")
     assert [(t.table, t.sha256) for t in a.tables] == [(t.table, t.sha256) for t in b.tables]
     rows = {t.table: t.rows for t in a.tables}
-    assert sum(rows.values()) == 346 and rows["copyNumberCount"] == rows["therapyGroup"] == 0
+    assert rows == {s: COUNTS.get(s, 0) for s in rows}
     assert verify_dir(tmp_path / "a", spec) == []
     m = json.loads((tmp_path / "a" / "manifest.json").read_text())
     assert m["source_bundle_sha256"] == _fixture_inputs().full.expected_sha256
@@ -584,11 +583,12 @@ def test_build_and_verify_real_fixture(tmp_path, monkeypatch):
 
 
 @pytest.mark.xfail(
+    IS_PROVISIONAL,
     strict=True,
     raises=SpecError,
-    reason="fixture's 2026-10-04 shape: bare condition CURIEs (VCV/RCV proposition objects, minted condition-set "
-    "members) where the current 1.0 code writes #/ pointers; the pointer check stays strict. The same pipeline on "
-    "the fixture moved to the current shape passes: tests/test_tables_build.py",
+    reason="provisional fixture's 2026-10-04 shape: bare condition CURIEs (VCV/RCV proposition objects, minted "
+    "condition-set members) where the current 1.0 code writes #/ pointers; the pointer check stays strict. The "
+    "same pipeline on the fixture moved to the current shape passes: tests/test_tables_build.py",
 )
 def test_build_fixture_end_to_end(tmp_path):
     """The real spec and table SQL on the raw fixture."""
