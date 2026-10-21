@@ -41,7 +41,7 @@ class DeltaManifest:
     """A weekly delta's manifest (clinvar-gkm-delta_YYYY-MMDD.manifest.json)."""
 
     release: str  # YYYY-MM-DD of this delta
-    baseline_release: str  # the release this delta applies on top of
+    baseline_release: str | None  # the release this delta applies on top of (null only on the first release)
     deleted: dict[str, tuple[str, ...]]  # section -> keys deleted in this delta
     checkpoint_full: dict | None  # as published; the official monthly that precedes the delta
     raw: dict = field(repr=False, default_factory=dict)  # the manifest as read, for provenance
@@ -52,6 +52,7 @@ class StagedSection:
     name: str
     path: Path  # staging file (format above)
     records: int
+    max_line_bytes: int = 0  # longest staging line, to size DuckDB's read_csv max_line_size
 
 
 @dataclass(frozen=True)
