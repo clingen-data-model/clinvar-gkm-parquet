@@ -8,8 +8,10 @@ the bundle content with current database tools such as DuckDB, Polars, pandas an
 those Parquet tables from any bundle, including archived releases, so the Parquet for a release can always be
 regenerated from the bundle it came from.
 
-> **Status:** not yet released; there is no code yet. The design is under review:
-> [design plan](docs/plans/2026-10-20-design.md). Until the tool ships, ClinVar-GKM builds its published
+> **Status:** not yet released. The first code (v0, design plan §12 step 1) is merged and tested on a real
+> excerpt of the published 2026-10-18 bundle. Table spec 1.0 is a draft: its names and types match ClinVar-GKM's
+> published 1.1.0 Parquet export, and it is final once the oracle has run against that export
+> ([design plan](docs/plans/2026-10-20-design.md) §3.2, §8.2). Until the tool ships, ClinVar-GKM builds its published
 > Parquet set with its own BigQuery export.
 >
 > ClinVar-GKM publishes **one** Parquet dataset, at `https://data.clinvar-gkm.org/v1/1.1/parquet/`,

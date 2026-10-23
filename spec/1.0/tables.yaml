@@ -1,0 +1,897 @@
+# Table spec 1.0: the 22 tables of ClinVar-GKM's 1.1.0 latest Parquet set (design plan §3).
+# Format: see src/clinvar_gkm_parquet/spec.py. Rules: .claude/rules/table-spec.md. Rendered: README.md (generated
+# by scripts/render-spec-readme.py; don't edit it by hand).
+#
+# status: draft. Names, order and types are taken from ClinVar-GKM's BigQuery export SQL, its 1.1.0 column
+# reference (the "Full nested types" DESCRIBE blocks) and the procedures that build the gkm_dict_* tables that the
+# struct tables copy with `SELECT t.*`, ahead of the first 1.1.0 export. Spec 1.0 is final only once it is
+# captured from that export (scripts/capture-spec.py: DESCRIBE of all 22 files and a scan of every extensions
+# column, design plan §3.2), when status becomes "captured". It is "released" with the tool release that first
+# writes it; after that it is never edited. Columns marked `# unconfirmed:` could not be pinned from a 1.1.0 source.
+#
+# Checked 2026-10-22 against the published 1.1.0 export (v1/1.1/parquet/, BigQuery export of
+# clinvar_2026_10_18_v2_6_0, read from the Parquet footers only): column names, order and full nested types are
+# identical for all 22 tables. Still to capture from the export: the extension slot map (which names occur,
+# filling which slot) and the empty-versus-NULL rules, which need a scan of the data, not just the footers.
+#
+# Rules that hold for every table (design plan §3.4, §3.5):
+# - `data` (therapy/therapyGroup: `value`) is the bundle record, byte for byte as on its bundle line.
+# - Pointers: every bare-id / pointer-section column, and every pointer position a typed copy strips, must hold a
+#   '#/<section>/<id>' string; anything else stops the build.
+# - Typed copies: an object may hold only the fields of its spec struct (else the build stops); inside a typed
+#   value an absent struct or scalar is NULL and an absent list is [] (BigQuery stores no NULL arrays). A struct
+#   with `name` and `value_*` fields is an extension: the bundle's {name, value} goes into the slot that
+#   `extension_slots` names; an unlisted name stops the build. Slots other than the named one are NULL ([] for a
+#   list slot). The []-for-nested-lists rule follows BigQuery's REPEATED semantics and is confirmed by the oracle.
+# - Tables whose columns copy the whole record (BigQuery `SELECT t.*`) stop on a top-level record field that no
+#   column covers.
+spec_version: "1.0"
+status: draft
+bundle_schema_versions: ["1.1.0"]
+sources:
+  - "ClinVar-GKM src/scripts/parquet-schemas/*.sql @ origin/1.0 25344ba6edb639bacbdd8af38bd90a2e6b9f4240"
+  - "ClinVar-GKM src/scripts/export-gkm-dicts.sh, gkm_json_cleanup.py @ origin/1.0 25344ba6edb639bacbdd8af38bd90a2e6b9f4240"
+  - "ClinVar-GKM src/procedures/gkm-{catvar,scv-statement,scv-condition,vcv-statement,rcv-statement}-proc.sql @ origin/1.0 25344ba6edb639bacbdd8af38bd90a2e6b9f4240 (gkm_dict_* column order, nested types, extension names)"
+  - "ClinVar-GKM docs/parquet/tables.md @ docs/release-1.0.2-data-changes c08c8d175eefb32b175fa69358b592b01f6455a6 (PR #146)"
+  - "ClinVar-GKM schema/clinvar-gkm/clinvar-gkm-bundle.schema.json @ origin/1.0 25344ba6edb639bacbdd8af38bd90a2e6b9f4240"
+  - "ClinVar-GKM examples/ @ origin/1.0 25344ba6edb639bacbdd8af38bd90a2e6b9f4240 (record shapes)"
+  - "Published v1/1.1/parquet/ (BigQuery export of clinvar_2026_10_18_v2_6_0, built 2026-10-22T17:58:46Z): DESCRIBE from the Parquet footers, 2026-10-22, identical for all 22 tables"
+writer:
+  compression: snappy
+  row_group_size: 122880
+tables:
+  # ---------------------------------------------------------------- 1 · Variant
+  - name: sequenceReference
+    sections: [sequenceReference]
+    row_filter: null
+    sort_key: id
+    description: Reference sequences that locations are placed on, keyed by their refget accession.
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: The bundle key, SQ.<digest>.
+      - name: type
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: Always SequenceReference.
+      - name: refget_accession
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.refgetAccession, transform: null}
+        description: The refget accession; same value as id.
+      - name: name
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.name, transform: null}
+        description: The RefSeq accession, e.g. NC_000017.11.
+      - name: molecule_type
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.moleculeType, transform: null}
+        description: genomic, mRNA or RNA.
+      - name: residue_alphabet
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.residueAlphabet, transform: null}
+        description: na (nucleic acid).
+      - name: data
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: record, path: null, transform: null}
+        description: The bundle record, byte for byte.
+
+  - name: location
+    sections: [location]
+    row_filter: null
+    sort_key: id
+    description: VRS SequenceLocation records, a span on a reference sequence.
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: The bundle key, ga4gh:SL.<digest>.
+      - name: type
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: Always SequenceLocation.
+      - name: digest
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.digest, transform: null}
+        description: The digest part of the id.
+      - name: loc_start
+        type: BIGINT
+        nulls: when-absent
+        derivation: {kind: computed, path: $.start, transform: "the integer start; NULL when start is a Range ([min, max] list)"}
+        description: Start coordinate (interbase); NULL for an uncertain range.
+      - name: loc_end
+        type: BIGINT
+        nulls: when-absent
+        derivation: {kind: computed, path: $.end, transform: "the integer end; NULL when end is a Range ([min, max] list)"}
+        description: End coordinate (interbase); NULL for an uncertain range.
+      - name: sequence_reference_id
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: bare-id, path: $.sequenceReference, transform: "strip ^#/[^/]+/"}
+        description: SQ.<digest>, joins sequenceReference.id.
+      - name: data
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: record, path: null, transform: null}
+        description: The bundle record, byte for byte.
+      - name: loc_start_min
+        type: BIGINT
+        nulls: when-absent
+        derivation: {kind: computed, path: $.start, transform: "COALESCE(integer start, start[0])"}
+        description: Lower bound of the start; NULL for an open range ([null, max]).
+      - name: loc_start_max
+        type: BIGINT
+        nulls: when-absent
+        derivation: {kind: computed, path: $.start, transform: "COALESCE(integer start, start[1])"}
+        description: Upper bound of the start.
+      - name: loc_end_min
+        type: BIGINT
+        nulls: when-absent
+        derivation: {kind: computed, path: $.end, transform: "COALESCE(integer end, end[0])"}
+        description: Lower bound of the end.
+      - name: loc_end_max
+        type: BIGINT
+        nulls: when-absent
+        derivation: {kind: computed, path: $.end, transform: "COALESCE(integer end, end[1])"}
+        description: Upper bound of the end; NULL for an open range ([min, null]).
+
+  - name: allele
+    sections: [allele]
+    row_filter: null
+    sort_key: id
+    description: VRS Allele records, a sequence change at a location.
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: The bundle key, ga4gh:VA.<digest>.
+      - name: type
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: Always Allele.
+      - name: digest
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.digest, transform: null}
+        description: The digest part of the id.
+      - name: name
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.name, transform: null}
+        description: An HGVS expression for the allele.
+      - name: location_id
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: bare-id, path: $.location, transform: "strip ^#/[^/]+/"}
+        description: ga4gh:SL.<digest>, joins location.id.
+      - name: data
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: record, path: null, transform: null}
+        description: The bundle record, byte for byte.
+
+  - name: copyNumberCount
+    sections: [copyNumberCount]
+    row_filter: null
+    sort_key: id
+    description: VRS CopyNumberCount records, an absolute copy count over a region.
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: The bundle key, ga4gh:CN.<digest>.
+      - name: type
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: Always CopyNumberCount.
+      - name: digest
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.digest, transform: null}
+        description: The digest part of the id.
+      - name: copies
+        type: BIGINT
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.copies, transform: "cast to BIGINT"}
+        description: The absolute copy number.
+      - name: location_id
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: bare-id, path: $.location, transform: "strip ^#/[^/]+/"}
+        description: ga4gh:SL.<digest>, joins location.id.
+      - name: data
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: record, path: null, transform: null}
+        description: The bundle record, byte for byte.
+
+  - name: copyNumberChange
+    sections: [copyNumberChange]
+    row_filter: null
+    sort_key: id
+    description: VRS CopyNumberChange records, a relative copy gain or loss over a region.
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: The bundle key, ga4gh:CX.<digest>.
+      - name: type
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: Always CopyNumberChange.
+      - name: digest
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.digest, transform: null}
+        description: The digest part of the id.
+      - name: copy_change
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.copyChange, transform: null}
+        description: gain or loss.
+      - name: location_id
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: bare-id, path: $.location, transform: "strip ^#/[^/]+/"}
+        description: ga4gh:SL.<digest>, joins location.id.
+      - name: data
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: record, path: null, transform: null}
+        description: The bundle record, byte for byte.
+
+  - name: gene
+    sections: [gene]
+    row_filter: null
+    sort_key: id
+    description: Genes referenced by variants' gene lists and by propositions' gene context, keyed by NCBI Gene id.
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: The bundle key, ncbigene:<n>.
+      - name: concept_type
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.conceptType, transform: null}
+        description: Always gene.
+      - name: name
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.name, transform: null}
+        description: The gene symbol.
+      - name: data
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: record, path: null, transform: null}
+        description: The bundle record, byte for byte.
+
+  - name: variation
+    sections: [variation]
+    row_filter: null
+    sort_key: id
+    description: ClinVar variants as Cat-VRS CategoricalVariant records, one per ClinVar Variation id.
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: The bundle key, clinvar:<variation id>.
+      - name: type
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: Always CategoricalVariant.
+      - name: name
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.name, transform: null}
+        description: ClinVar's preferred name.
+      # Type confirmed by the published export's DESCRIBE (2026-10-22), including
+      # value_hgvs_array.nucleotideExpression.extensions (gkm-catvar-proc.sql:848). value_coding is never set by
+      # any extension (always NULL) but is part of the exported type.
+      - name: extensions
+        type: 'STRUCT("name" VARCHAR, value_string VARCHAR, value_boolean BOOLEAN, value_coding BIGINT, value_hgvs_array STRUCT(nucleotideExpression STRUCT(syntax VARCHAR, "value" VARCHAR, "extensions" STRUCT("name" VARCHAR, value_string VARCHAR, value_boolean BOOLEAN)[]), nucleotideType VARCHAR, maneSelect BOOLEAN, manePlus BOOLEAN, proteinExpression STRUCT(syntax VARCHAR, "value" VARCHAR), molecularConsequence STRUCT(code VARCHAR, "system" VARCHAR, "name" VARCHAR, iris VARCHAR[])[])[], value_gene_array STRUCT(gene VARCHAR, relationship_type VARCHAR, "source" VARCHAR)[])[]'
+        nulls: empty-list
+        derivation: {kind: extension-slot, path: $.extensions, transform: "{name, value} -> {name, value_<slot>} by extension_slots, at every depth; value_gene_array[].gene pointer stripped"}
+        description: Named ClinVar attributes; each element sets only the value_* slot its name maps to.
+      - name: mappings
+        type: 'STRUCT(coding STRUCT("system" VARCHAR, code VARCHAR, iris VARCHAR[]), relation VARCHAR)[]'
+        nulls: empty-list
+        derivation: {kind: typed-copy, path: $.mappings, transform: null}
+        description: Identifiers for this variant in other systems.
+      - name: members
+        type: VARCHAR[]
+        nulls: empty-list
+        derivation: {kind: bare-id, path: $.members, transform: "strip ^#/[^/]+/ from each pointer"}
+        description: VRS ids of the member variants (allele, copyNumberCount or copyNumberChange ids).
+      # Type confirmed by the published export's DESCRIBE (2026-10-22): copyChange is VARCHAR.
+      - name: constraints
+        type: 'STRUCT("type" VARCHAR, allele VARCHAR, "location" VARCHAR, copies BIGINT, copyChange VARCHAR, matchCharacteristic STRUCT("type" VARCHAR, primaryCoding STRUCT(code VARCHAR, "system" VARCHAR, iris VARCHAR[])), relations STRUCT("type" VARCHAR, primaryCoding STRUCT(code VARCHAR, "system" VARCHAR, iris VARCHAR[]))[])[]'
+        nulls: empty-list
+        derivation: {kind: typed-copy, path: $.constraints, transform: "[].allele and [].location pointers stripped"}
+        description: Cat-VRS constraints that define the category.
+      - name: data
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: record, path: null, transform: null}
+        description: The bundle record, byte for byte.
+    # From gkm-catvar-proc.sql (extensions 893-983, hgvs expression extensions 761-784); names in tables.md prose.
+    extension_slots:
+      extensions:
+        categoricalVariationType: value_string
+        definingVrsVariationType: value_string
+        vrsPreProcessingIssue: value_string
+        clinvarVariationType: value_string
+        clinvarSubclassType: value_string
+        clinvarCytogeneticLocation: value_string
+        vrsProcessingException: value_string
+        clinvarHgvsList: value_hgvs_array
+        clinvarGeneList: value_gene_array
+        # in value_hgvs_array[].nucleotideExpression.extensions (names from the procs; unconfirmed until the
+        # capture scan)
+        invalidClinvarExpression: value_string
+        expressionMerged: value_boolean
+        originalClinvarExpression: value_string
+        expressionRepaired: value_boolean
+
+  # ---------------------------------------------------------------- 2 · Condition & therapy
+  - name: condition
+    sections: [condition]
+    row_filter: null
+    sort_key: id
+    description: ClinVar conditions (traits), one per ClinVar trait. camelCase column names, as published.
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: The bundle key, clinvar.trait:<n>.
+      - name: type
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: Always MappableConcept.
+      - name: conceptType
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.conceptType, transform: null}
+        description: Disease, Phenotype, Trait or Condition.
+      - name: name
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.name, transform: null}
+        description: Preferred name.
+      - name: aliases
+        type: VARCHAR[]
+        nulls: empty-list
+        derivation: {kind: typed-copy, path: $.aliases, transform: null}
+        description: Alternate names.
+      - name: primaryCoding
+        type: 'STRUCT("name" VARCHAR, code VARCHAR, "system" VARCHAR, iris VARCHAR[])'
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.primaryCoding, transform: null}
+        description: The MedGen coding; code is the MedGen CUI.
+      - name: mappings
+        type: 'STRUCT(coding STRUCT("name" VARCHAR, code VARCHAR, "system" VARCHAR, iris VARCHAR[]), relation VARCHAR)[]'
+        nulls: empty-list
+        derivation: {kind: typed-copy, path: $.mappings, transform: null}
+        description: Cross-references (MONDO, Orphanet, OMIM, HPO, ...).
+      - name: data
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: record, path: null, transform: null}
+        description: The bundle record, byte for byte.
+
+  - name: conditionSet
+    sections: [conditionSet]
+    # BigQuery's conditionSet.sql keeps sets of more than one concept; the bundle already holds only those (the
+    # assembler's NDJSON applies the same filter), so the tool keeps every bundle row rather than drop any.
+    row_filter: null
+    sort_key: id
+    description: Sets of conditions a proposition is about (accessioned TraitSets and minted VCV sets).
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: The bundle key, clinvar.traitset:<n> or clinvar.conditionset:vcv-<md5>.
+      - name: type
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: Always ConceptSet.
+      - name: conceptSetType
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.conceptSetType, transform: null}
+        description: ClinVar's TraitSet type; NULL on minted sets.
+      - name: membershipOperator
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.membershipOperator, transform: null}
+        description: AND or OR.
+      - name: concepts
+        type: VARCHAR[]
+        nulls: empty-list
+        derivation: {kind: bare-id, path: $.concepts, transform: "strip ^#/[^/]+/ from each pointer"}
+        description: Member ids (clinvar.trait:, or a nested clinvar.traitset:).
+      - name: data
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: record, path: null, transform: null}
+        description: The bundle record, byte for byte.
+
+  - name: therapy
+    sections: [therapy]
+    row_filter: null
+    sort_key: key
+    description: Drug therapies named by therapeutic-response propositions. Id column `key`, record in `value`.
+    columns:
+      - name: key
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: The bundle key, clinvar.therapy:<sha256>.
+      - name: value
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: record, path: null, transform: null}
+        description: The bundle record, byte for byte.
+      - name: name
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.name, transform: null}
+        description: The therapy name.
+      - name: concept_type
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.conceptType, transform: null}
+        description: Always Drug.
+
+  - name: therapyGroup
+    sections: [therapyGroup]
+    row_filter: null
+    sort_key: key
+    description: Combination therapies, a set of therapy members. Id column `key`, record in `value`.
+    columns:
+      - name: key
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: The bundle key, clinvar.therapygroup:<sha256>.
+      - name: value
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: record, path: null, transform: null}
+        description: The bundle record, byte for byte.
+      - name: membership_operator
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.membershipOperator, transform: null}
+        description: Always AND.
+      - name: members
+        type: VARCHAR[]
+        nulls: empty-list
+        derivation: {kind: bare-id, path: $.concepts, transform: "strip ^#/[^/]+/ from each pointer, in order"}
+        description: Member therapy ids, joins therapy.key.
+
+  - name: submitter
+    sections: [submitter]
+    row_filter: null
+    sort_key: id
+    description: The organizations that submit to ClinVar.
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: The bundle key, clinvar.submitter:<n>.
+      - name: type
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: Always Agent.
+      - name: name
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.name, transform: null}
+        description: The organization name.
+      - name: data
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: record, path: null, transform: null}
+        description: The bundle record, byte for byte.
+
+  # ---------------------------------------------------------------- 3 · Proposition (one shared column schema)
+  - name: propositionPathogenicity
+    sections: [propositionPathogenicity]
+    row_filter: null
+    sort_key: id
+    description: Germline pathogenicity propositions (VariantPathogenicityProposition).
+    columns: &proposition_columns
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: The bundle key, SCV<n>-<CODE> or VCV/RCV<n>-<G|S>-<CODE>[-<LEVEL>].
+      - name: type
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: The proposition class.
+      - name: predicate
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.predicate, transform: null}
+        description: The relation, e.g. isCausalFor.
+      - name: subject_variant_id
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: bare-id, path: $.subject, transform: "strip ^#/[^/]+/"}
+        description: clinvar:<n>, joins variation.id.
+      - name: object_id
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: bare-id, path: $.object, transform: "strip ^#/[^/]+/"}
+        description: The object's id; dispatch on object_type.
+      - name: object_type
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: pointer-section, path: $.object, transform: "<section> of ^#/<section>/; a non-pointer object stops the build"}
+        description: condition, conditionSet, therapy or therapyGroup.
+      - name: condition_qualifier_id
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: bare-id, path: $.conditionQualifier, transform: "strip ^#/[^/]+/"}
+        description: Therapeutic response only, the condition context, joins condition.id.
+      - name: gene_context_id
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: computed, path: $.geneContextQualifier.primaryCoding.code, transform: "'ncbigene:' || code; NULL when there is no code"}
+        description: ncbigene:<n> of the gene-context qualifier, joins gene.id. SCV propositions only.
+      - name: gene_context_name
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.geneContextQualifier.name, transform: null}
+        description: Symbol of the gene-context gene (the submitter's symbol for the placeholder).
+      - name: submitted_gene_symbols
+        type: VARCHAR[]
+        nulls: empty-list
+        derivation: {kind: computed, path: $.geneContextQualifier.extensions, transform: "value of every extension named submittedGeneSymbols, flattened in order; [] when none"}
+        description: The submitter's gene symbols, verbatim and in order.
+      - name: gene_context_source
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: computed, path: $.geneContextQualifier.extensions, transform: "value of the extension named geneContextSource; more than one stops the build"}
+        description: submittedSymbolMatches, submittedSymbolDiffers, inferredFromVariant or submittedNotNormalized.
+      - name: mode_of_inheritance
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.modeOfInheritanceQualifier.name, transform: null}
+        description: Mode-of-inheritance qualifier. Germline SCV propositions only.
+      - name: penetrance
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.penetranceQualifier.name, transform: null}
+        description: Penetrance qualifier. Germline SCV propositions only.
+      - name: data
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: record, path: null, transform: null}
+        description: The bundle record, byte for byte.
+
+  - name: propositionOncogenicity
+    sections: [propositionOncogenicity]
+    row_filter: null
+    sort_key: id
+    description: Somatic oncogenicity propositions (VariantOncogenicityProposition).
+    columns: *proposition_columns
+
+  - name: propositionSomaticClinicalImpact
+    sections: [propositionSomaticClinicalImpact]
+    row_filter: null
+    sort_key: id
+    description: Somatic clinical-impact propositions (SCI, and the DIAG, PROG and TR propositions evidence lines target).
+    columns: *proposition_columns
+
+  - name: propositionClinvarCustom
+    sections: [propositionClinvarCustom]
+    row_filter: null
+    sort_key: id
+    description: ClinVar's non-pathogenicity germline propositions (the Clinvar* types).
+    columns: *proposition_columns
+
+  # ---------------------------------------------------------------- 4 · SCV
+  - name: evidenceLine
+    sections: [evidenceLine]
+    row_filter: "keys of shape clinvar.submission:SCV<n>.<v>; a key of no known evidence-line shape stops the build"
+    sort_key: id
+    description: SCV-level evidence lines (somatic clinical impact submissions); the id is the SCV's id.
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: The bundle key, clinvar.submission:SCV<n>.<v> (shared with scv).
+      - name: type
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: Always EvidenceLine.
+      - name: directionOfEvidenceProvided
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.directionOfEvidenceProvided, transform: null}
+        description: supports, disputes or neutral.
+      - name: evidenceOutcome
+        type: 'STRUCT("type" VARCHAR, conceptType VARCHAR, "name" VARCHAR)'
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.evidenceOutcome, transform: null}
+        description: The tier, name Level A/B or Level C/D.
+      - name: extensions
+        type: 'STRUCT("name" VARCHAR, value_submitted_condition_set STRUCT(conditionSet VARCHAR, condition VARCHAR, multiple_condition_explanation VARCHAR, concepts STRUCT(id VARCHAR, "name" VARCHAR, "type" VARCHAR, medgen_id VARCHAR, xrefs STRUCT(code VARCHAR, "system" VARCHAR)[], original_medgen_match STRUCT(id VARCHAR, "name" VARCHAR), direct_match VARCHAR, normalized_match VARCHAR, normalized_resolution VARCHAR, "mapping" STRUCT("type" VARCHAR, "ref" VARCHAR, "value" VARCHAR))[]), value_submitted_condition STRUCT(conditionSet VARCHAR, condition VARCHAR, id VARCHAR, "name" VARCHAR, "type" VARCHAR, medgen_id VARCHAR, xrefs STRUCT(code VARCHAR, "system" VARCHAR)[], original_medgen_match STRUCT(id VARCHAR, "name" VARCHAR), direct_match VARCHAR, normalized_match VARCHAR, normalized_resolution VARCHAR, "mapping" STRUCT("type" VARCHAR, "ref" VARCHAR, "value" VARCHAR)))[]'
+        nulls: empty-list
+        derivation: {kind: extension-slot, path: $.extensions, transform: "{name, value} -> {name, value_<slot>} by extension_slots"}
+        description: The submitter's original condition, in the slot its name maps to.
+      - name: target_proposition_id
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: bare-id, path: $.targetProposition, transform: "strip ^#/[^/]+/"}
+        description: The specific-impact proposition (-DIAG, -PROG or -TR), joins propositionSomaticClinicalImpact.id.
+      - name: data
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: record, path: null, transform: null}
+        description: The bundle record, byte for byte.
+    # From gkm-scv-statement-proc.sql:1250-1252; names in tables.md prose.
+    extension_slots:
+      extensions:
+        submittedConditionSet: value_submitted_condition_set
+        submittedCondition: value_submitted_condition
+
+  - name: scv
+    sections: [scv]
+    row_filter: null
+    sort_key: id
+    description: SCV statements, each submitter's classification of a variant, one per ClinVar submission.
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: The bundle key, clinvar.submission:SCV<n>.<v>.
+      - name: type
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: Always Statement.
+      - name: classification
+        type: 'STRUCT("type" VARCHAR, conceptType VARCHAR, "name" VARCHAR, primaryCoding STRUCT(code VARCHAR, "system" VARCHAR), "extensions" STRUCT("name" VARCHAR, value_string VARCHAR)[])'
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.classification, transform: "nested extensions by extension_slots"}
+        description: The submitted classification (MappableConcept); name is not case-normalized.
+      - name: strength
+        type: 'STRUCT("type" VARCHAR, conceptType VARCHAR, "name" VARCHAR, primaryCoding STRUCT(code VARCHAR, "system" VARCHAR))'
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.strength, transform: null}
+        description: The strength (MappableConcept), or NULL.
+      - name: direction
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.direction, transform: null}
+        description: supports, disputes or neutral.
+      - name: quality
+        type: 'STRUCT("type" VARCHAR, conceptType VARCHAR, "name" VARCHAR)'
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.quality, transform: null}
+        description: The submission level (MappableConcept).
+      - name: description
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.description, transform: null}
+        description: The submitter's comment on the classification.
+      - name: specifiedBy
+        type: 'STRUCT("type" VARCHAR, methodType VARCHAR, "name" VARCHAR, reportedIn STRUCT("type" VARCHAR, pmid VARCHAR, doi VARCHAR, urls VARCHAR[], "name" VARCHAR, documentType VARCHAR, "extensions" STRUCT("name" VARCHAR, value_string VARCHAR, value_boolean BOOLEAN)[]), "extensions" STRUCT("name" VARCHAR, value_document_array STRUCT("type" VARCHAR, pmid VARCHAR, doi VARCHAR, urls VARCHAR[], "name" VARCHAR, documentType VARCHAR, "extensions" STRUCT("name" VARCHAR, value_string VARCHAR, value_boolean BOOLEAN)[])[])[])'
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.specifiedBy, transform: "nested extensions by extension_slots"}
+        description: The method (methodType, criteria name, criteria document, extra citations).
+      - name: reportedIn
+        type: 'STRUCT("type" VARCHAR, pmid VARCHAR, doi VARCHAR, urls VARCHAR[], "name" VARCHAR, documentType VARCHAR, "extensions" STRUCT("name" VARCHAR, value_string VARCHAR, value_boolean BOOLEAN)[])[]'
+        nulls: empty-list
+        derivation: {kind: typed-copy, path: $.reportedIn, transform: "nested extensions by extension_slots"}
+        description: Citations, one Document per ClinVar citation.
+      - name: extensions
+        type: 'STRUCT("name" VARCHAR, value_string VARCHAR, value_submitted_condition_set STRUCT(conditionSet VARCHAR, condition VARCHAR, multiple_condition_explanation VARCHAR, concepts STRUCT(id VARCHAR, "name" VARCHAR, "type" VARCHAR, medgen_id VARCHAR, xrefs STRUCT(code VARCHAR, "system" VARCHAR)[], original_medgen_match STRUCT(id VARCHAR, "name" VARCHAR), direct_match VARCHAR, normalized_match VARCHAR, normalized_resolution VARCHAR, "mapping" STRUCT("type" VARCHAR, "ref" VARCHAR, "value" VARCHAR))[]), value_submitted_condition STRUCT(conditionSet VARCHAR, condition VARCHAR, id VARCHAR, "name" VARCHAR, "type" VARCHAR, medgen_id VARCHAR, xrefs STRUCT(code VARCHAR, "system" VARCHAR)[], original_medgen_match STRUCT(id VARCHAR, "name" VARCHAR), direct_match VARCHAR, normalized_match VARCHAR, normalized_resolution VARCHAR, "mapping" STRUCT("type" VARCHAR, "ref" VARCHAR, "value" VARCHAR)))[]'
+        nulls: empty-list
+        derivation: {kind: extension-slot, path: $.extensions, transform: "{name, value} -> {name, value_<slot>} by extension_slots"}
+        description: Named ClinVar attributes and the submitter's original condition.
+      - name: proposition_id
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: bare-id, path: $.proposition, transform: "strip ^#/[^/]+/"}
+        description: The proposition this statement classifies.
+      - name: proposition_section
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: pointer-section, path: $.proposition, transform: "<section> of ^#/<section>/"}
+        description: The proposition table that holds it.
+      - name: contributions
+        type: 'STRUCT("type" VARCHAR, contributor VARCHAR, date DATE, activityType VARCHAR)[]'
+        nulls: empty-list
+        derivation: {kind: typed-copy, path: $.contributions, transform: "[].contributor pointer stripped; [].date YYYY-MM-DD cast to DATE"}
+        description: Submitted, created and evaluated contributions; contributor joins submitter.id.
+      - name: has_evidence_lines
+        type: VARCHAR[]
+        nulls: empty-list
+        derivation: {kind: bare-id, path: $.hasEvidenceLines, transform: "strip ^#/[^/]+/ from each pointer"}
+        description: Ids of this statement's evidence lines in evidenceLine.
+      - name: data
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: record, path: null, transform: null}
+        description: The bundle record, byte for byte.
+    # From gkm-scv-statement-proc.sql (extensions 1372-1397; classification 1327-1334; method 1081; citation
+    # Documents 989-1011). Top-level and classification names are in tables.md prose; the citation names
+    # (reportedIn / specifiedBy Documents) are from the procs only (unconfirmed until the capture scan).
+    extension_slots:
+      classification:
+        description: value_string
+      specifiedBy:
+        additionalClinvarMethodCitations: value_document_array
+        clinvarCitationText: value_string
+        originalClinvarCitation: value_string
+        originalClinvarCitationSource: value_string
+        citationRepaired: value_boolean
+        clinvarDoi: value_string
+        invalidClinvarCitation: value_string
+        unmappedClinvarCitation: value_string
+      reportedIn:
+        clinvarCitationText: value_string
+        originalClinvarCitation: value_string
+        originalClinvarCitationSource: value_string
+        citationRepaired: value_boolean
+        clinvarDoi: value_string
+        invalidClinvarCitation: value_string
+        unmappedClinvarCitation: value_string
+      extensions:
+        clinvarScvId: value_string
+        clinvarScvVersion: value_string
+        submittedConditionSet: value_submitted_condition_set
+        submittedCondition: value_submitted_condition
+        clinvarScvReviewStatus: value_string
+        submittedScvClassification: value_string
+        submittedScvLocalKey: value_string
+        submissionLevel: value_string
+
+  # ---------------------------------------------------------------- 5 · RCV
+  - name: rcv
+    sections: [rcv]
+    row_filter: null
+    sort_key: id
+    description: RCV aggregate statements, ClinVar's rollup for one variant and one condition.
+    columns: &aggregate_columns
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: The bundle key, <accession>.<v>-<G|S>-<CODE>[-<LEVEL>].
+      - name: type
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: Always Statement.
+      - name: direction
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.direction, transform: null}
+        description: supports, disputes or neutral.
+      - name: strength
+        type: 'STRUCT("type" VARCHAR, conceptType VARCHAR, "name" VARCHAR)'
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.strength, transform: null}
+        description: The strength (MappableConcept), or NULL.
+      - name: quality
+        type: 'STRUCT("type" VARCHAR, conceptType VARCHAR, "name" VARCHAR)'
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.quality, transform: null}
+        description: The aggregate level (MappableConcept).
+      - name: classification
+        type: 'STRUCT("type" VARCHAR, conceptType VARCHAR, "name" VARCHAR, "extensions" STRUCT("name" VARCHAR, "value" VARCHAR)[])'
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.classification, transform: null}
+        description: The aggregate call; extensions carry conflictingExplanation.
+      - name: extensions
+        type: 'STRUCT("name" VARCHAR, "value" VARCHAR)[]'
+        nulls: empty-list
+        derivation: {kind: typed-copy, path: $.extensions, transform: "{name, value} copied as is (no slots)"}
+        description: '{name, value} pairs, e.g. clinvarReviewStatus.'
+      - name: proposition_id
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: bare-id, path: $.proposition, transform: "strip ^#/[^/]+/"}
+        description: The proposition this statement classifies.
+      - name: proposition_section
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: pointer-section, path: $.proposition, transform: "<section> of ^#/<section>/"}
+        description: The proposition table that holds it.
+      - name: has_evidence_lines
+        type: VARCHAR[]
+        nulls: empty-list
+        derivation: {kind: bare-id, path: $.hasEvidenceLines, transform: "strip ^#/[^/]+/ from each pointer"}
+        description: Ids of this statement's evidence lines.
+      - name: data
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: record, path: null, transform: null}
+        description: The bundle record, byte for byte.
+
+  - name: rcv_evidenceLine
+    sections: [evidenceLine]
+    row_filter: "keys of shape RCV<n>.<v>-...; a key of no known evidence-line shape stops the build"
+    sort_key: id
+    description: Evidence lines of RCV statements, which statements each cites and whether they contribute.
+    columns: &aggregate_evidence_line_columns
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: The bundle key, <statement id>.contributing or .non-contributing.
+      - name: type
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: Always EvidenceLine.
+      - name: directionOfEvidenceProvided
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.directionOfEvidenceProvided, transform: null}
+        description: Direction of the evidence relative to the citing statement's proposition.
+      - name: strengthOfEvidenceProvided
+        type: 'STRUCT("type" VARCHAR, conceptType VARCHAR, "name" VARCHAR)'
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.strengthOfEvidenceProvided, transform: null}
+        description: Contributing or Non-contributing (MappableConcept).
+      - name: evidence_items
+        type: VARCHAR[]
+        nulls: empty-list
+        derivation: {kind: bare-id, path: $.hasEvidenceItems, transform: "strip ^#/[^/]+/ from each pointer"}
+        description: The cited statement ids (level statements or SCVs).
+      - name: data
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: record, path: null, transform: null}
+        description: The bundle record, byte for byte.
+
+  # ---------------------------------------------------------------- 6 · VCV
+  - name: vcv
+    sections: [vcv]
+    row_filter: null
+    sort_key: id
+    description: VCV aggregate statements, ClinVar's rollup for one variant across its conditions.
+    columns: *aggregate_columns
+
+  - name: vcv_evidenceLine
+    sections: [evidenceLine]
+    row_filter: "keys of shape VCV<n>.<v>-...; a key of no known evidence-line shape stops the build"
+    sort_key: id
+    description: Evidence lines of VCV statements, which statements each cites and whether they contribute.
+    columns: *aggregate_evidence_line_columns

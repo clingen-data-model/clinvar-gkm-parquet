@@ -8,15 +8,17 @@ paths:
 
 # Python package conventions
 
-The package layout is proposed in the [design plan](../../docs/plans/2026-10-20-design.md) §11. Update this file
-when the implementation settles it.
+The package layout follows the [design plan](../../docs/plans/2026-10-20-design.md) §11, plus `model.py` (the data
+passed between stages, and the staging format), `sources.py` (paths, URLs, checksums, the line index, manifests)
+and `sqltemplate.py` (renders each table's SQL from the spec). Update this file when the layout changes.
 
 ## Layout and tooling
 
 - `src/` layout, package `clinvar_gkm_parquet`, console script `clinvar-gkm-parquet`.
 - Python `>=3.10`. Manage environments with `uv`; lint and format with `ruff`; test with `pytest`.
 - Runtime dependencies stay minimal: `duckdb` (pinned to the exact version that defines the output, see below)
-  and `orjson` (optional speed-up; fall back to the stdlib `json`). Anything else needs a reason in the PR.
+  and `PyYAML` (reads `spec/<version>/tables.yaml`). The reader passes records through as bytes and never parses
+  them in Python, so there is no JSON speed-up dependency. Anything else needs a reason in the PR.
 
 ## Output determinism
 
