@@ -9,6 +9,11 @@
 # column, design plan §3.2), when status becomes "captured". It is "released" with the tool release that first
 # writes it; after that it is never edited. Columns marked `# unconfirmed:` could not be pinned from a 1.1.0 source.
 #
+# Checked 2026-10-22 against the published 1.1.0 export (v1/1.1/parquet/, BigQuery export of
+# clinvar_2026_10_18_v2_6_0, read from the Parquet footers only): column names, order and full nested types are
+# identical for all 22 tables. Still to capture from the export: the extension slot map (which names occur,
+# filling which slot) and the empty-versus-NULL rules, which need a scan of the data, not just the footers.
+#
 # Rules that hold for every table (design plan §3.4, §3.5):
 # - `data` (therapy/therapyGroup: `value`) is the bundle record, byte for byte as on its bundle line.
 # - Pointers: every bare-id / pointer-section column, and every pointer position a typed copy strips, must hold a
@@ -30,6 +35,7 @@ sources:
   - "ClinVar-GKM docs/parquet/tables.md @ docs/release-1.0.2-data-changes c08c8d175eefb32b175fa69358b592b01f6455a6 (PR #146)"
   - "ClinVar-GKM schema/clinvar-gkm/clinvar-gkm-bundle.schema.json @ origin/1.0 25344ba6edb639bacbdd8af38bd90a2e6b9f4240"
   - "ClinVar-GKM examples/ @ origin/1.0 25344ba6edb639bacbdd8af38bd90a2e6b9f4240 (record shapes)"
+  - "Published v1/1.1/parquet/ (BigQuery export of clinvar_2026_10_18_v2_6_0, built 2026-10-22T17:58:46Z): DESCRIBE from the Parquet footers, 2026-10-22, identical for all 22 tables"
 writer:
   compression: snappy
   row_group_size: 122880
@@ -298,9 +304,9 @@ tables:
         nulls: when-absent
         derivation: {kind: scalar-path, path: $.name, transform: null}
         description: ClinVar's preferred name.
-      # unconfirmed: value_hgvs_array.nucleotideExpression.extensions is in the procs (gkm-catvar-proc.sql:848) but
-      # not in the tables.md DESCRIBE block (marked "regenerate after 1.1.0 export"); value_coding is never set
-      # by any extension (always NULL) but kept as the procs and docs have it.
+      # Type confirmed by the published export's DESCRIBE (2026-10-22), including
+      # value_hgvs_array.nucleotideExpression.extensions (gkm-catvar-proc.sql:848). value_coding is never set by
+      # any extension (always NULL) but is part of the exported type.
       - name: extensions
         type: 'STRUCT("name" VARCHAR, value_string VARCHAR, value_boolean BOOLEAN, value_coding BIGINT, value_hgvs_array STRUCT(nucleotideExpression STRUCT(syntax VARCHAR, "value" VARCHAR, "extensions" STRUCT("name" VARCHAR, value_string VARCHAR, value_boolean BOOLEAN)[]), nucleotideType VARCHAR, maneSelect BOOLEAN, manePlus BOOLEAN, proteinExpression STRUCT(syntax VARCHAR, "value" VARCHAR), molecularConsequence STRUCT(code VARCHAR, "system" VARCHAR, "name" VARCHAR, iris VARCHAR[])[])[], value_gene_array STRUCT(gene VARCHAR, relationship_type VARCHAR, "source" VARCHAR)[])[]'
         nulls: empty-list
@@ -316,7 +322,7 @@ tables:
         nulls: empty-list
         derivation: {kind: bare-id, path: $.members, transform: "strip ^#/[^/]+/ from each pointer"}
         description: VRS ids of the member variants (allele, copyNumberCount or copyNumberChange ids).
-      # unconfirmed: copyChange's type comes from an external VRS table the procs don't define; VARCHAR per tables.md.
+      # Type confirmed by the published export's DESCRIBE (2026-10-22): copyChange is VARCHAR.
       - name: constraints
         type: 'STRUCT("type" VARCHAR, allele VARCHAR, "location" VARCHAR, copies BIGINT, copyChange VARCHAR, matchCharacteristic STRUCT("type" VARCHAR, primaryCoding STRUCT(code VARCHAR, "system" VARCHAR, iris VARCHAR[])), relations STRUCT("type" VARCHAR, primaryCoding STRUCT(code VARCHAR, "system" VARCHAR, iris VARCHAR[]))[])[]'
         nulls: empty-list
@@ -339,7 +345,8 @@ tables:
         vrsProcessingException: value_string
         clinvarHgvsList: value_hgvs_array
         clinvarGeneList: value_gene_array
-        # in value_hgvs_array[].nucleotideExpression.extensions (unconfirmed: see the column comment)
+        # in value_hgvs_array[].nucleotideExpression.extensions (names from the procs; unconfirmed until the
+        # capture scan)
         invalidClinvarExpression: value_string
         expressionMerged: value_boolean
         originalClinvarExpression: value_string

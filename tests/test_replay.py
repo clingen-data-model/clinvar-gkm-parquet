@@ -210,13 +210,16 @@ def test_delete_of_a_missing_key_warns(tmp_path, full, recs, caplog):
 
 
 def test_delta_into_a_section_absent_from_the_full(tmp_path, full, recs):
-    assert "therapyGroup" not in full.sections
-    (_, r0) = recs["therapy"][0]
-    d1 = _delta(tmp_path, D1, FULL_SOURCE, {"therapyGroup": [(b'"synthetic:therapygroup-new"', r0)]})
+    absent = [s for s in SECTIONS if s not in full.sections]
+    if not absent:
+        pytest.skip("the fixture has every section")
+    section = absent[0]
+    (_, r0) = next(iter(v for v in recs.values() if v))[0]  # any real record's bytes (replay doesn't parse them)
+    d1 = _delta(tmp_path, D1, FULL_SOURCE, {section: [(b'"synthetic:new-in-delta"', r0)]})
     con = duckdb.connect()
     counts = load_state(con, full, [d1])
-    assert counts["therapyGroup"] == 1
-    assert _state(con, "therapyGroup") == {"synthetic:therapygroup-new": r0.decode()}
+    assert counts[section] == 1
+    assert _state(con, section) == {"synthetic:new-in-delta": r0.decode()}
 
 
 def test_duplicate_key_in_a_delta(tmp_path, full, recs):

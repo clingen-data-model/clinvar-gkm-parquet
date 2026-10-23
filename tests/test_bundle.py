@@ -231,7 +231,8 @@ def test_unknown_section(tmp_path):
     with pytest.raises(BundleFormatError) as e:
         _stage_text(tmp_path, text)
     msg = str(e.value)
-    assert "bad.json.gz: line 7" in msg and "unknown section 'proposition'" in msg
+    line = _line_of(text, b'  "proposition": {')
+    assert f"bad.json.gz: line {line}:" in msg and "unknown section 'proposition'" in msg
 
 
 def test_repeated_section(tmp_path):

@@ -64,8 +64,8 @@ def test_capture_matches_the_spec(con, tmp_path):
     assert slots[("[]", "submittedCondition")] == {"value_submitted_condition"}
     assert slots[("[]", "clinvarScvId")] == {"value_string"}
     assert captured["variation"]["slots"]["extensions"][("[]", "clinvarGeneList")] == {"value_gene_array"}
-    # A name the spec lists but the fixture lacks is a note, not a difference.
-    assert any("expressionRepaired" in n and "not seen" in n for n in notes)
+    # A name the spec lists but the fixture lacks is a note, not a difference (both fixtures lack some).
+    assert any("not seen" in n for n in notes)
 
 
 def test_capture_reports_differences(con, tmp_path):

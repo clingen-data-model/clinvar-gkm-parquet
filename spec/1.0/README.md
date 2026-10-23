@@ -21,6 +21,11 @@ captured from that export (scripts/capture-spec.py: DESCRIBE of all 22 files and
 column, design plan §3.2), when status becomes "captured". It is "released" with the tool release that first
 writes it; after that it is never edited. Columns marked `# unconfirmed:` could not be pinned from a 1.1.0 source.
 
+Checked 2026-10-22 against the published 1.1.0 export (v1/1.1/parquet/, BigQuery export of
+clinvar_2026_10_18_v2_6_0, read from the Parquet footers only): column names, order and full nested types are
+identical for all 22 tables. Still to capture from the export: the extension slot map (which names occur,
+filling which slot) and the empty-versus-NULL rules, which need a scan of the data, not just the footers.
+
 Rules that hold for every table (design plan §3.4, §3.5):
 - `data` (therapy/therapyGroup: `value`) is the bundle record, byte for byte as on its bundle line.
 - Pointers: every bare-id / pointer-section column, and every pointer position a typed copy strips, must hold a
@@ -42,6 +47,7 @@ Rules that hold for every table (design plan §3.4, §3.5):
 - ClinVar-GKM docs/parquet/tables.md @ docs/release-1.0.2-data-changes c08c8d175eefb32b175fa69358b592b01f6455a6 (PR #146)
 - ClinVar-GKM schema/clinvar-gkm/clinvar-gkm-bundle.schema.json @ origin/1.0 25344ba6edb639bacbdd8af38bd90a2e6b9f4240
 - ClinVar-GKM examples/ @ origin/1.0 25344ba6edb639bacbdd8af38bd90a2e6b9f4240 (record shapes)
+- Published v1/1.1/parquet/ (BigQuery export of clinvar_2026_10_18_v2_6_0, built 2026-10-22T17:58:46Z): DESCRIBE from the Parquet footers, 2026-10-22, identical for all 22 tables
 
 ## Tables
 
@@ -175,10 +181,10 @@ ClinVar variants as Cat-VRS CategoricalVariant records, one per ClinVar Variatio
 | 1 | `id` | `VARCHAR` | never | key |  |  | The bundle key, clinvar:&lt;variation id&gt;. |
 | 2 | `type` | `VARCHAR` | when-absent | scalar-path | `$.type` |  | Always CategoricalVariant. |
 | 3 | `name` | `VARCHAR` | when-absent | scalar-path | `$.name` |  | ClinVar's preferred name. |
-| 4 | `extensions` | `STRUCT(name, value_string, value_boolean, value_coding, value_hgvs_array, value_gene_array)[]` | empty-list | extension-slot | `$.extensions` | {name, value} -&gt; {name, value_&lt;slot&gt;} by extension_slots, at every depth; value_gene_array[].gene pointer stripped | Named ClinVar attributes; each element sets only the value_* slot its name maps to. **Unconfirmed:** value_hgvs_array.nucleotideExpression.extensions is in the procs (gkm-catvar-proc.sql:848) but not in the tables.md DESCRIBE block (marked "regenerate after 1.1.0 export"); value_coding is never set by any extension (always NULL) but kept as the procs and docs have it. |
+| 4 | `extensions` | `STRUCT(name, value_string, value_boolean, value_coding, value_hgvs_array, value_gene_array)[]` | empty-list | extension-slot | `$.extensions` | {name, value} -&gt; {name, value_&lt;slot&gt;} by extension_slots, at every depth; value_gene_array[].gene pointer stripped | Named ClinVar attributes; each element sets only the value_* slot its name maps to. |
 | 5 | `mappings` | `STRUCT(coding, relation)[]` | empty-list | typed-copy | `$.mappings` |  | Identifiers for this variant in other systems. |
 | 6 | `members` | `VARCHAR[]` | empty-list | bare-id | `$.members` | strip ^#/[^/]+/ from each pointer | VRS ids of the member variants (allele, copyNumberCount or copyNumberChange ids). |
-| 7 | `constraints` | `STRUCT(type, allele, location, copies, copyChange, matchCharacteristic, relations)[]` | empty-list | typed-copy | `$.constraints` | [].allele and [].location pointers stripped | Cat-VRS constraints that define the category. **Unconfirmed:** copyChange's type comes from an external VRS table the procs don't define; VARCHAR per tables.md. |
+| 7 | `constraints` | `STRUCT(type, allele, location, copies, copyChange, matchCharacteristic, relations)[]` | empty-list | typed-copy | `$.constraints` | [].allele and [].location pointers stripped | Cat-VRS constraints that define the category. |
 | 8 | `data` | `VARCHAR` | never | record |  |  | The bundle record, byte for byte. |
 
 Full nested types:
