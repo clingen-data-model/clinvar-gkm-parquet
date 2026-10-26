@@ -487,8 +487,8 @@ class _Source:
             return slow
         x = f"_t.{_ident(m.group(1))}"
         t = _parse_type(c.type)
-        if not self.has_census:  # a top-level scalar: the slow generator's leaf on the same JSON value
-            return f"CAST({gen.expr(self.json(c), t, '')} AS {c.type})"
+        if not self.has_census:  # the slow expression, on the same JSON value
+            return f"CAST({gen.expr(self.json(c), t, '', top=True)} AS {c.type})"
         fast = _Fast(gen, m.group(1))
         try:
             s, expr, census = fast.walk(x, t, "", top=True)
@@ -537,7 +537,10 @@ class _Source:
 
 
 def _census(table: Table, text: str) -> bool:
-    """The table has a typed copy of nested type at a top-level path: its {{source}} takes a census."""
+    """{{source}} takes a census when the table has a typed copy of nested type at a top-level path, and checks
+    known_keys (else a top-level field no column reads would keep every row on the slow path)."""
+    if not re.search(r"\{\{\s*known_keys\s*\}\}", text):
+        return False
     for m in _PLACEHOLDER.finditer(text):
         if m.group(1) in ("typed", "bare_id"):
             c = table.column(m.group(2).split()[0])

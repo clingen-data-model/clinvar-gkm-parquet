@@ -11,7 +11,6 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-from importlib import resources
 
 import duckdb
 import pytest
@@ -20,7 +19,7 @@ from _tables_helpers import SPEC, build, connect, current_shape, read_fixture, r
 from clinvar_gkm_parquet.sqltemplate import render
 
 BASE = current_shape(read_fixture())
-CENSUS = [t.name for t in SPEC.tables if " AS _ok FROM " in render(t)]
+CENSUS = [t.name for t in SPEC.tables if " AS _ok FROM " in render(t)]  # the tables whose source takes a census
 
 
 def _parquet_sha256(con, table, fast, path):
@@ -49,12 +48,23 @@ def _ok(sections, table, key):
     return connect(sections).execute(f"SELECT _ok FROM {source} WHERE key = ?", [key]).fetchone()[0]
 
 
+def test_the_typed_tables_take_a_census():
+    assert set(CENSUS) == {
+        "variation",
+        "condition",
+        "conditionSet",
+        "evidenceLine",
+        "scv",
+        "rcv",
+        "rcv_evidenceLine",
+        "vcv",
+        "vcv_evidenceLine",
+    }
+
+
 @pytest.mark.parametrize("table", CENSUS)
 def test_the_fixture_takes_the_fast_path(table):
-    t = SPEC.table(table)
-    if "{{known_keys}}" not in resources.files("clinvar_gkm_parquet").joinpath("sql", f"{t.name}.sql").read_text():
-        pytest.skip("no known_keys: a top-level field no column reads keeps the row on the slow path")
-    sql = render(t)
+    sql = render(SPEC.table(table))
     source = sql.split("\nFROM ", 1)[1].split("\nWHERE ", 1)[0]
     where = sql.split("\nWHERE ", 1)[1] if "\nWHERE " in sql else "TRUE"
     con = connect(BASE)
