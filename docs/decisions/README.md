@@ -19,3 +19,4 @@ cover the tool only, and link to those rather than restating them.
 
 - [0001 — Parquet is derived from the bundles; the bundles are the record](0001-parquet-derived-from-bundles.md)
 - [0002 — Tool versioning independent of the bundle schema](0002-independent-tool-versioning.md)
+- [0004 — Selective builds: a driver, a pointer walk and a verbatim mini-bundle](0004-driver-based-selection.md)
