@@ -8,6 +8,6 @@ SELECT
   {{typed strengthOfEvidenceProvided}} AS "strengthOfEvidenceProvided",
   {{bare_id evidence_items}} AS "evidence_items",
   record AS "data"
-FROM bundle_evidenceLine
+FROM {{source}}
 -- CASE, not AND: the field check must see only this table's rows (AND may evaluate both sides).
 WHERE CASE WHEN cgp_evidence_line_table(key, 'table vcv_evidenceLine: row filter') = 'vcv_evidenceLine' THEN {{known_keys}} ELSE FALSE END

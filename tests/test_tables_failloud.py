@@ -35,12 +35,18 @@ def _mutated(section, pick, change, rekey=None):
 
 
 def _fails(sections, table, *needles):
-    con = connect(sections)
-    with pytest.raises(duckdb.InvalidInputException) as exc:
-        build(con, SPEC.table(table))
-    msg = str(exc.value)
+    """The build stops with a message holding every needle, and the slow reference SQL (render(fast=False)) stops
+    with the same message."""
+    msgs = []
+    for fast in (True, False):
+        con = connect(sections)
+        with pytest.raises(duckdb.InvalidInputException) as exc:
+            build(con, SPEC.table(table), fast=fast)
+        msgs.append(str(exc.value))
+    msg = msgs[0]
     for n in needles:
         assert n in msg, msg
+    assert msgs[1] == msg
     return msg
 
 

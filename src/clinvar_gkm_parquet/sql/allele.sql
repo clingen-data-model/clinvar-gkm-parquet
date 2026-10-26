@@ -6,4 +6,4 @@ SELECT
   {{scalar name}} AS "name",
   {{bare_id location_id}} AS "location_id",
   record AS "data"
-FROM bundle_allele
+FROM {{source}}

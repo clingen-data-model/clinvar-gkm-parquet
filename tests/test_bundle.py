@@ -18,7 +18,8 @@ from _input_helpers import (
     write_gz,
 )
 
-from clinvar_gkm_parquet.bundle import SECTIONS, stage_bundle
+from clinvar_gkm_parquet import bundle as bundle_mod
+from clinvar_gkm_parquet.bundle import SECTIONS, SectionWriter, canonical_key, stage_bundle, stream_bundle
 from clinvar_gkm_parquet.errors import BundleFormatError, InputError, SchemaVersionError
 from clinvar_gkm_parquet.sources import resolve_input
 
@@ -339,3 +340,58 @@ def test_error_names_the_key(tmp_path):
     with pytest.raises(BundleFormatError) as e:
         _stage_text(tmp_path, text)
     assert f"line 5, section gene, key {key.decode()}: the record is not a JSON object" in str(e.value)
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# The sink API and chunked staging (what the build pipeline uses)
+
+
+class _Recorder:
+    def __init__(self):
+        self.events = []
+
+    def begin(self, schema_version):
+        self.events.append(("begin", schema_version))
+
+    def open_section(self, section):
+        self.events.append(("open", section))
+        return lambda k, r: self.events.append(("record", section, k, r))
+
+    def close_section(self, section):
+        self.events.append(("close", section))
+
+
+def test_stream_bundle_hands_every_record_to_the_sink():
+    sink = _Recorder()
+    streamed = stream_bundle(resolve_input(str(FIXTURE)), sink)
+    assert streamed.sha256 == sha256_of(FIXTURE) and streamed.schema_version == "1.1.0"
+    secs = fixture_sections()
+    assert streamed.counts == {s: len(r) for s, r in secs.items()}
+    want = [("begin", "1.1.0")]
+    for s, recs in secs.items():
+        want += [("open", s)] + [("record", s, k, r) for k, r in recs] + [("close", s)]
+    assert sink.events == want
+
+
+def test_section_writer_chunks_concatenate_to_one_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(bundle_mod, "_WRITE_CHUNK", 256)
+    secs = fixture_sections()
+    section = max(secs, key=lambda s: len(secs[s]))  # the fixture's largest section, whichever it is
+    recs = secs[section]
+    one = SectionWriter(tmp_path / "one.tsv.gz")
+    many = SectionWriter(tmp_path / section, chunk_bytes=1024)
+    for k, r in recs:
+        one.add(k, r)
+        many.add(k, r)
+    one.close()
+    many.close()
+    assert len(many.paths) > 3 and many.paths[0].name == f"{section}.0000.tsv.gz"
+    joined = b"".join(gzip.decompress(p.read_bytes()) for p in many.paths)
+    assert joined == gzip.decompress(one.paths[0].read_bytes()) == b"".join(k + b"\t" + r + b"\n" for k, r in recs)
+    assert many.records == one.records == len(recs) and many.max_line == one.max_line
+
+
+def test_canonical_key():
+    assert canonical_key(b'"clinvar:123"') == b"clinvar:123"
+    assert canonical_key(b'"caf\\u00e9 \\"q\\""') == 'café "q"'.encode()
+    assert canonical_key('"café"'.encode()) == "café".encode()

@@ -38,6 +38,9 @@ adds a record unconditionally (it must exist).
 After writing, the output is re-read with the tool's own `bundle.stage_bundle` to prove it is a valid bundle,
 and each staged record is compared with the source bytes.
 
+The pass-1 check of re-opened streams (Tap), the pointer regex and the line-layout regexes are shared with the
+selection engine (`clinvar_gkm_parquet.select`, ADR 0004), which does the same pointer walk for selective builds.
+
 Usage (see tests/fixtures/real-1.1.0/README.md):
     scripts/extract-fixtures.py SOURCE --source-url URL --release YYYY-MM-DD [--sha256 HEX] [options]
     gsutil cat gs://.../clinvar-gkm_2026-1018.json.gz | scripts/extract-fixtures.py - \\
@@ -68,6 +71,10 @@ from clinvar_gkm_parquet.bundle import SECTIONS, stage_bundle
 from clinvar_gkm_parquet.compat import ACCEPTED_SCHEMA_VERSIONS, TABLE_SPEC_VERSION
 from clinvar_gkm_parquet.errors import ToolError
 from clinvar_gkm_parquet.model import InputFile
+from clinvar_gkm_parquet.select import SCHEMA_LINE as _SCHEMA_LINE
+from clinvar_gkm_parquet.select import SECTION_OPEN as _SECTION_OPEN
+from clinvar_gkm_parquet.select import SelectionError, Tap, iter_pointers
+from clinvar_gkm_parquet.select import key_end as _key_end
 from clinvar_gkm_parquet.sources import open_stream
 from clinvar_gkm_parquet.spec import load_spec
 
@@ -87,13 +94,6 @@ _READ_BUFFER = 1 << 20
 
 SEC_INDEX = {name: i for i, name in enumerate(SECTIONS)}
 PROPOSITION_SECTIONS = tuple(s for s in SECTIONS if s.startswith("proposition"))
-
-# The assembler's layout (design plan §4.2; bundle.py has the strict reader the output is checked with).
-_SCHEMA_LINE = re.compile(rb'  "schema_version": "([^"\\]*)"(,?)\n')
-_SECTION_OPEN = re.compile(rb'  "([^"\\]*)": \{\n')
-# A string VALUE that starts with "#/": after ':' (object member), '[' or ',' (array element). An escaped
-# quote inside a string is preceded by a backslash, so free text can't match.
-_POINTER = re.compile(rb'(?<=[:\[,])"#/([^"/\\]+)/((?:[^"\\]|\\.)*)"')
 
 
 class ExtractError(Exception):
@@ -281,74 +281,6 @@ def shapes(spec_version: str = TABLE_SPEC_VERSION) -> list[Shape]:
 # Streams
 
 
-class Tap(io.RawIOBase):
-    """Passes compressed bytes through, hashing them. Pass 1 records the sha256 of every CHECKPOINT_BYTES-long
-    prefix; a re-opened stream (`reference` given) must give the same digests at the same offsets."""
-
-    def __init__(self, raw: BinaryIO, every: int, reference: Tap | None = None):
-        self._raw = raw
-        self.every = every
-        self.reference = reference
-        self.sha = hashlib.sha256()
-        self.pos = 0
-        self.digests: list[str] = []
-        self.eof = False
-
-    def readable(self) -> bool:
-        return True
-
-    def readinto(self, b) -> int:
-        n = self._raw.readinto(b) or 0
-        if not n:
-            self.eof = True
-            return 0
-        mv = memoryview(b)[:n]
-        off = 0
-        while off < n:
-            take = min(self.every - self.pos % self.every, n - off)
-            self.sha.update(mv[off : off + take])
-            self.pos += take
-            off += take
-            if self.pos % self.every == 0:
-                self._checkpoint()
-        return n
-
-    def _checkpoint(self) -> None:
-        digest = self.sha.copy().hexdigest()
-        self.digests.append(digest)
-        ref = self.reference
-        if ref is not None:
-            i = len(self.digests) - 1
-            if i >= len(ref.digests) or ref.digests[i] != digest:
-                raise ExtractError(
-                    f"the re-opened source differs from the pass-1 stream within its first {self.pos:,d} bytes "
-                    "(a different or changed file); nothing was written"
-                )
-
-    def drain(self) -> None:
-        buf = bytearray(_READ_BUFFER)
-        while self.readinto(buf):
-            pass
-        self.check_end()
-
-    def settle(self) -> None:
-        """After an early stop: read on to the next checkpoint (or the end), so every byte read is verified."""
-        buf = bytearray(_READ_BUFFER)
-        while self.pos % self.every:
-            n = self.readinto(memoryview(buf)[: min(len(buf), self.every - self.pos % self.every)])
-            if not n:
-                self.check_end()
-                return
-
-    def check_end(self) -> None:
-        ref = self.reference
-        if ref is not None and (self.pos != ref.pos or self.sha.hexdigest() != ref.sha.hexdigest()):
-            raise ExtractError(
-                f"the re-opened source differs from the pass-1 stream: {self.pos:,d} bytes, sha256 "
-                f"{self.sha.hexdigest()}; pass 1 read {ref.pos:,d} bytes, sha256 {ref.sha.hexdigest()}"
-            )
-
-
 def _is_url(s: str) -> bool:
     return s.startswith("https://")  # as sources.open_stream: local paths and https:// URLs only
 
@@ -451,20 +383,6 @@ class State:
     section_records: dict[str, int] = field(default_factory=dict)
 
 
-def _key_end(line: bytes) -> int:
-    """Closing quote of the JSON key that starts at line[4], for keys with escapes (as bundle.py)."""
-    i, n = 5, len(line)
-    while i < n:
-        c = line[i]
-        if c == 0x5C:
-            i += 2
-        elif c == 0x22:
-            return i
-        else:
-            i += 1
-    return -1
-
-
 def _short(line: bytes) -> str:
     text = line.decode("utf-8", "replace")
     return repr(text if len(text) <= 120 else text[:120] + "...")
@@ -486,11 +404,11 @@ def _record_of(line: bytes, q: int, lineno: int) -> bytes:
 
 def _pointers(rec: bytes, lineno: int) -> tuple[tuple[int, bytes], ...]:
     out: dict[tuple[int, bytes], None] = {}
-    for m in _POINTER.finditer(rec):
-        sec = m.group(1).decode("utf-8", "replace")
+    for section, key in iter_pointers(rec):
+        sec = section.decode("utf-8", "replace")
         if sec not in SEC_INDEX:
-            raise ExtractError(f"line {lineno}: pointer to unknown section {sec!r}: {m.group(0).decode()}")
-        out[(SEC_INDEX[sec], b'"' + m.group(2) + b'"')] = None
+            raise ExtractError(f'line {lineno}: pointer to unknown section {sec!r}: "#/{sec}/{key.decode()}"')
+        out[(SEC_INDEX[sec], b'"' + key + b'"')] = None
     return tuple(out)
 
 
@@ -511,6 +429,8 @@ def run_pass(state: State, source: Source, pass_no: int, reference: Tap | None) 
             complete = tap.eof
     except (EOFError, gzip.BadGzipFile, zlib.error) as e:
         raise ExtractError(f"pass {pass_no}: not a complete gzip stream: {e}") from e
+    except SelectionError as e:  # the Tap: a re-opened stream that differs from pass 1
+        raise ExtractError(str(e)) from e
     finally:
         close(complete)
     stats = PassStats(pass_no, time.monotonic() - t0, tap.pos, lines, captured, stopped)

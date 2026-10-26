@@ -6,4 +6,4 @@ SELECT
   {{scalar copy_change}} AS "copy_change",
   {{bare_id location_id}} AS "location_id",
   record AS "data"
-FROM bundle_copyNumberChange
+FROM {{source}}
