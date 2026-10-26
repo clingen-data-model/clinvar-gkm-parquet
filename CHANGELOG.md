@@ -31,3 +31,5 @@ version it writes (ADR 0002). Tags are `vX.Y.Z`.
   the source keys still name the published bundles. `verify --bundle-recompute` checks a selection against its
   mini-bundle (`--full`, whose sha256 must equal `selected_sha256`), and `verify --against` refuses a selection
   or a set not built with `clinvar-gkm`. A build with no driver never runs the selection engine.
+- Python API: `build.build()` called without `spec` now writes the default spec, `baseline`, as the CLI does (it
+  wrote `clinvar-gkm`). Pass the `clinvar-gkm` spec for the published layout.

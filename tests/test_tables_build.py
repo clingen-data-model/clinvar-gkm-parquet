@@ -29,8 +29,8 @@ def _inputs(path):
 def test_build_current_shape_fixture_end_to_end(tmp_path):
     sections = current_shape(read_fixture())
     bundle = write_bundle(sections, tmp_path / "clinvar-gkm_current-shape.json.gz")
-    a = build(_inputs(bundle), tmp_path / "a", threads=1)
-    b = build(_inputs(bundle), tmp_path / "b", threads=4)
+    a = build(_inputs(bundle), tmp_path / "a", spec=SPEC, threads=1)  # clinvar-gkm: build()'s default is baseline
+    b = build(_inputs(bundle), tmp_path / "b", spec=SPEC, threads=4)
     assert [(t.table, t.sha256) for t in a.tables] == [(t.table, t.sha256) for t in b.tables]
     rows = {t.table: t.rows for t in a.tables}
     assert set(rows) == {t.name for t in SPEC.tables}

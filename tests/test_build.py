@@ -627,6 +627,15 @@ def test_run_build_command(monkeypatch, capsys, tmp_path):
     assert kv[KV_PREFIX + "table_spec"] == "baseline" and KV_PREFIX + "selection" not in kv
 
 
+def test_build_api_defaults_to_baseline(tmp_path):
+    """build() with no spec writes the baseline, as the CLI does with no --spec."""
+    res = build(_fixture_inputs(), tmp_path / "o", tables=["gene"])
+    assert [t.table for t in res.tables] == ["gene"]
+    kv = _kv(duckdb.connect(), tmp_path / "o" / "gene.parquet")
+    assert (kv[KV_PREFIX + "table_spec"], kv[KV_PREFIX + "table_spec_version"]) == ("baseline", "1.0")
+    assert KV_PREFIX + "table_spec_builtin" not in kv
+
+
 # --- end to end on the real fixture ----------------------------------------------------------------------------
 
 
@@ -676,11 +685,11 @@ def test_build_fixture_end_to_end(tmp_path):
     if not set(SECTIONS) <= spec.sections:
         pytest.skip("needs spec/1.0 to cover every bundle section (table-spec work package)")
     try:
-        res = build(_fixture_inputs(), tmp_path / "out")
+        res = build(_fixture_inputs(), tmp_path / "out", spec=spec)
     except NotImplementedError as e:
         pytest.skip(f"needs the table-spec work package: {e!r}")
     from clinvar_gkm_parquet.verify import verify_dir
 
     assert verify_dir(tmp_path / "out") == []
-    res2 = build(_fixture_inputs(), tmp_path / "out2", threads=4)
+    res2 = build(_fixture_inputs(), tmp_path / "out2", spec=spec, threads=4)
     assert [t.sha256 for t in res.tables] == [t.sha256 for t in res2.tables]

@@ -36,7 +36,7 @@ from pathlib import Path
 import duckdb
 
 from . import __version__, baseline, bundle, replay, sources, sqltemplate
-from .compat import BUILTIN_SPECS, PUBLISHED_SPEC, schema_sections
+from .compat import BUILTIN_SPECS, schema_sections
 from .errors import BundleFormatError, InputError, SchemaVersionError, SpecError, ToolError
 from .model import (
     BuildInputs,
@@ -987,14 +987,14 @@ def build(
     """Stream the inputs once and build every table section by section (design plan §6.2), then write the
     manifest.
 
-    `spec` defaults to the built-in clinvar-gkm (the CLI's default is baseline: it passes the spec it resolves);
-    `spec_source` (spec.resolve_spec) labels the files, see `spec_kv`. With `driver` (a driver.Driver), the
-    selection runs first, writing a mini-bundle in the work directory, and the tables are built from it (ADR
-    0004): every file and the manifest then carry the selection, while the source keys and `inputs` still name
-    the published bundles. Without one, the selection code is never reached. `render` defaults to
-    `render_table`."""
+    `spec` defaults to the default spec, baseline, as the CLI's does (ADR 0003); a build meant to match the
+    published set passes the clinvar-gkm spec. `spec_source` (spec.resolve_spec) labels the files, see
+    `spec_kv`. With `driver` (a driver.Driver), the selection runs first, writing a mini-bundle in the work
+    directory, and the tables are built from it (ADR 0004): every file and the manifest then carry the
+    selection, while the source keys and `inputs` still name the published bundles. Without one, the selection
+    code is never reached. `render` defaults to `render_table`."""
     if spec is None:
-        spec, spec_source = resolve_spec(PUBLISHED_SPEC)
+        spec, spec_source = resolve_spec(None)
     render = render or render_table
     names = list(dict.fromkeys(tables)) if tables else [t.name for t in spec.tables]
     unknown = [n for n in names if n not in {t.name for t in spec.tables}]
