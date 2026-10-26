@@ -2,8 +2,9 @@
 
 Owned by the build/verify work package. Exit codes (CLI): 0 = pass, 1 = differences, 2 = usage or input error.
 
-Every comparison runs in DuckDB over the Parquet files (and, for the recompute, the `bundle_<section>` tables),
-one table at a time, so memory stays bounded by DuckDB's `memory_limit` (it spills to the work directory).
+Every comparison runs in DuckDB over the Parquet files (and, for the recompute, the `bundle_<section>` tables,
+one section at a time, streamed by the build's section pipeline), one table at a time, so memory stays bounded
+by DuckDB's `memory_limit` (it spills to the work directory).
 Python sees only counts, samples and, for the `data` comparison, the rows whose bytes differ, streamed in batches.
 """
 
@@ -23,12 +24,12 @@ from .build import (
     KV_KEYS,
     KV_PREFIX,
     MANIFEST_NAME,
+    SectionPipeline,
     configure,
     default_work_dir,
     describe_file,
     file_sha256,
     key_column,
-    load_inputs,
     record_column,
     resolve_build_inputs,
     sql_ident,
@@ -275,19 +276,56 @@ def bundle_recompute(
     memory_limit: str | None = None,
     threads: int | None = None,
     log=None,
+    samples: int = SAMPLES,
 ) -> list[dict]:
-    """Stage and replay the bundle(s) as a build would, then `recompute` against the built files."""
-    root = Path(work_dir) if work_dir else default_work_dir(Path(out_dir))
+    """Stream and replay the bundle(s) as a build does (build.SectionPipeline) and, per section, compare the
+    section's (key, record) set with the built tables' (id, data): `recompute`, one section at a time, with no
+    state database."""
+    out_dir = Path(out_dir)
+    names = [t.name for t in spec.tables]
+    groups: list = []
+    for g in table_groups(spec, names).values():
+        if not any(g is x for x in groups):
+            groups.append(g)
+    by_section: dict[str, list] = {}
+    for g in groups:
+        if len(g.sections) != 1:
+            raise SpecError(f"table(s) {', '.join(g.tables)} read sections {list(g.sections)}; one is expected")
+        by_section.setdefault(g.sections[0], []).append(g)
+    found: dict[int, dict] = {}
+    root = Path(work_dir) if work_dir else default_work_dir(out_dir)
     root.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(prefix="verify-", dir=root))
-    state = None
+
+    def process(con: duckdb.DuckDBPyConnection, section: str, rows: int) -> None:
+        for g in by_section.get(section, []):
+            found[id(g)] = _recompute_group(con, spec, g.sections, g.tables, out_dir, samples)
+
+    pipe = SectionPipeline(
+        inputs,
+        spec,
+        work,
+        process=process,
+        needed=set(by_section),
+        memory_limit=memory_limit,
+        threads=threads,
+        log=log,
+    )
     try:
-        state = load_inputs(inputs, work, spec, memory_limit=memory_limit, threads=threads, log=log)
-        return recompute(state.con, spec, out_dir)
+        pipe.run()
     finally:
-        if state is not None:
-            state.con.close()
         shutil.rmtree(work, ignore_errors=True)
+    out = []
+    for g in groups:
+        res = found.get(id(g))
+        if res is None:  # a spec section that is not a bundle section
+            res = {
+                "tables": list(g.tables),
+                "sections": list(g.sections),
+                "problems": [f"not checked: section(s) {', '.join(g.sections)} are not bundle sections"],
+            }
+        out.append(res)
+    return out
 
 
 # --- the oracle ------------------------------------------------------------------------------------------------
