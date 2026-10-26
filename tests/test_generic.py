@@ -506,3 +506,27 @@ def test_malformed_pointer_in_refs_stops_the_build():
     con = connect(sections)
     with pytest.raises(duckdb.InvalidInputException, match="malformed pointer"):
         con.execute(f"SELECT * FROM ({sqltemplate.render_generic(spec.table('variation_summary'))})").fetchall()
+
+
+@real_only
+def test_known_fields_with_refs_and_a_list_path():
+    """known_fields on a table with a refs column and a $.<field>[*] path renders; a record field no column reads
+    stops the build."""
+    raw = _raw()
+    raw["tables"] = [
+        {
+            "name": "scv_known",
+            "sections": ["scv"],
+            "row_filter": None,
+            "sort_key": "id",
+            "known_fields": True,
+            "description": "test",
+            "columns": [
+                _column("id", "VARCHAR", "key", None, "never"),
+                _column("el", "VARCHAR[]", "pointer-section", "$.hasEvidenceLines[*]", "empty-list"),
+                _column("refs", "STRUCT(path VARCHAR, section VARCHAR, id VARCHAR)[]", "refs", "$", "empty-list"),
+                _column("data", "VARCHAR", "record", None, "never"),
+            ],
+        }
+    ]
+    _fails(raw, "scv_known", "table scv_known: record: key clinvar.submission:SCV", "top-level field(s) no column")

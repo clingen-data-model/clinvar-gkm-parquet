@@ -574,8 +574,8 @@ def _known_key_set(table: Table) -> list[str]:
     keys = {"id"}
     for c in table.columns:
         p = c.derivation.path
-        if p and c.derivation.kind != "computed":
-            m = re.fullmatch(r"\$\.(\w+)", p)
+        if p and c.derivation.kind not in ("computed", "refs"):  # refs reads the whole record ($)
+            m = re.fullmatch(r"\$\.(\w+)(?:\[\*\])*", p)
             if not m:
                 raise SpecError(f"table {table.name}: column {c.name}: known_keys needs a top-level path, got {p}")
             keys.add(m.group(1))
