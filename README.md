@@ -29,17 +29,59 @@ different cadences ([ADR 0002](docs/decisions/0002-independent-tool-versioning.m
 
 - the bundle `schema_version`s it accepts as input (the tool reads each bundle's self-declared
   `schema_version` and refuses versions it does not support);
-- the Parquet **table-spec** version it writes, which defines the tables and columns.
+- the built-in Parquet **table specs** it writes, each with its own version, and which one is the default
+  ([ADR 0003](docs/decisions/0003-pluggable-table-specs.md)). A spec defines the tables and columns.
 
-| Tool version | Bundle input (`schema_version`) | Parquet table spec |
+| Tool version | Bundle input (`schema_version`) | Built-in table specs |
 | --- | --- | --- |
 | *(none released yet)* | | |
+| *(unreleased `main`)* | 1.1.0 | `baseline` 1.0 (default; draft), `clinvar-gkm` 1.0 (draft) |
 
-The first planned release reads bundle schema 1.1.0 and writes table spec 1.0; see the
-[design plan](docs/plans/2026-10-20-design.md#92-compatibility-matrix-planned).
+- `baseline`: one table per bundle section (20), each `id`, `refs` (every `#/<section>/<id>` pointer in the
+  record) and `data` (the record, byte for byte).
+- `clinvar-gkm`: the 22 tables of ClinVar-GKM's published Parquet set, with typed columns matching its BigQuery
+  export; the spec the oracle compares and the one ClinVar-GKM's release build names.
 
-Each Parquet file the tool writes will record the tool version, the table-spec version and the source bundle's
-sha256 in its metadata.
+`version --json` gives the same (`table_specs`, `default_table_spec`). See the
+[design plan](docs/plans/2026-10-20-design.md#92-compatibility-matrix-planned) for the planned releases.
+
+Each Parquet file records, in its key-value metadata, the tool version, the spec's name and version (and, for a
+custom spec, the sha256 of its file), the source bundles' sha256s and, for a selective build, the selection
+([design plan](docs/plans/2026-10-20-design.md#72-key-value-metadata-every-file) §7.2).
+
+## Usage (unreleased)
+
+```sh
+# The baseline spec (the default): one table per bundle section
+clinvar-gkm-parquet build --full clinvar-gkm_2026-1018.json.gz --out out/
+
+# ClinVar-GKM's published layout (the BigQuery-parity build), from a monthly plus the weeks after it
+clinvar-gkm-parquet build --spec clinvar-gkm-1.0 --full clinvar-gkm_2026-10.json.gz \
+    --delta clinvar-gkm-delta_2026-1025.json.gz --out out/
+
+# Your own spec file
+clinvar-gkm-parquet build --spec my-tables.yaml --full clinvar-gkm_2026-1018.json.gz --out out/
+
+# A selection: one submitter and every record that points to it (its SCVs)
+clinvar-gkm-parquet build --full clinvar-gkm_2026-1018.json.gz --out omim/ \
+    --driver submitter --where "data->>'\$.name' = 'OMIM'" --follow in --max-depth 1
+
+# The same selection's mini-bundle only (byte-identical to the one the build used)
+clinvar-gkm-parquet select --full clinvar-gkm_2026-1018.json.gz --out omim.json.gz \
+    --driver submitter --where "data->>'\$.name' = 'OMIM'" --follow in --max-depth 1
+
+# Checks: the directory on its own; a full build against its bundle; a selection against its mini-bundle
+clinvar-gkm-parquet verify out/
+clinvar-gkm-parquet verify out/ --bundle-recompute --full clinvar-gkm_2026-1018.json.gz
+clinvar-gkm-parquet verify omim/ --bundle-recompute --full omim.json.gz
+```
+
+Selection options (`build` and `select`): `--driver <table>` (a table of the chosen spec), `--where` (a DuckDB
+boolean expression over that table as the spec builds it), `--ids k1,k2` and `--ids-file` (added to the
+`--where` keys; with neither, every row of the driver table), `--follow out|in|both` (default `out`),
+`--max-depth N` and `--sections a,b,c`. See [ADR 0004](docs/decisions/0004-driver-based-selection.md) and the
+[design plan](docs/plans/2026-10-20-design.md) §4.5 and §10. `verify --spec <file>` is required for a custom
+spec; `verify --against` (the oracle) takes a full `clinvar-gkm` build only.
 
 ## Design records
 
@@ -47,7 +89,9 @@ sha256 in its metadata.
   testing (including the oracle against ClinVar-GKM's current export), rollout, and open decisions.
 - [Architecture decision records](docs/decisions/README.md):
   [0001 — Parquet is derived from the bundles](docs/decisions/0001-parquet-derived-from-bundles.md),
-  [0002 — Independent tool versioning](docs/decisions/0002-independent-tool-versioning.md).
+  [0002 — Independent tool versioning](docs/decisions/0002-independent-tool-versioning.md),
+  [0003 — Pluggable table specs](docs/decisions/0003-pluggable-table-specs.md),
+  [0004 — Driver-based selection](docs/decisions/0004-driver-based-selection.md).
 
 ## Contributing
 

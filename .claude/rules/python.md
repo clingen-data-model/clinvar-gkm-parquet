@@ -9,8 +9,11 @@ paths:
 # Python package conventions
 
 The package layout follows the [design plan](../../docs/plans/2026-10-20-design.md) §11, plus `model.py` (the data
-passed between stages, and the staging format), `sources.py` (paths, URLs, checksums, the line index, manifests)
-and `sqltemplate.py` (renders each table's SQL from the spec). Update this file when the layout changes.
+passed between stages, and the staging format), `sources.py` (paths, URLs, checksums, the line index, manifests),
+`spec.py` (loads and checks table specs, built-in or custom), `sqltemplate.py` (renders each table's SQL from the
+spec), `baseline.py` (renders the baseline spec's id/refs/data tables), `select.py` (the selection engine: pointer
+walk and mini-bundle) and `driver.py` (wires selection into `build` and `select`). Update this file when the
+layout changes.
 
 ## Layout and tooling
 
