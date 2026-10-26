@@ -10,6 +10,10 @@ While the full streams past (build.py), `SectionReplay` applies a section's map:
 holds is dropped (it is replaced or deleted), and at the section's end the map's upserts are appended, in the
 map's order (the order the deltas first touch each key), so the staged section is the final state.
 
+`ReplayedSource` gives the same final state to the selection engine (select.py) as a record stream: the full read
+pass by pass, each section passed through the same SectionReplay, so a selection cut from a full plus deltas sees
+exactly the records the build would stage.
+
 A delete of a key that is not in the state it applies to (the state after the previous delta) is logged as a
 warning, not an error. That is how ClinVar-GKM treats it: the docs' replay example drops it (`pop(pk, None)`) and
 the delta-reconstruction oracle (`oracle-delta-reconstruction.sh`, runbook 1.1.0 §4.4) applies deletes as a
@@ -20,12 +24,13 @@ dropped silently.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 
-from .bundle import canonical_key, stream_bundle
+from . import sources
+from .bundle import SECTIONS, canonical_key, stream_bundle
 from .errors import BundleFormatError, ChainError
-from .model import DeltaBundle, DeltaManifest, InputFile
+from .model import BuildInputs, DeltaBundle, DeltaManifest, InputFile
 
 log = logging.getLogger(__name__)
 
@@ -183,11 +188,13 @@ class SectionReplay:
 
         return add
 
-    def finish(self, write: Write) -> None:
-        """Append the net upserts and log the deletes of keys that were not there."""
+    def finish(self, write: Write, *, warn: bool = True) -> None:
+        """Append the net upserts and (with `warn`) log the deletes of keys that were not there."""
         for v in self.changes.final.values():
             if v is not None:
                 write(*v)
+        if not warn:
+            return
         missing = {seq: list(keys) for seq, keys in self.changes.absent_deletes.items()}
         for ck, seqs in self.changes.full_deletes.items():
             if ck not in self.seen:
@@ -203,3 +210,108 @@ class SectionReplay:
                 self.changes.section,
                 ", ".join(k.decode("utf-8", "replace") for k in keys[:5]),
             )
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# The chain, read once, and the replayed state as a record source
+
+
+@dataclass
+class Chain:
+    """The deltas of a build, checked and read (`load_chain`): what SectionPipeline and ReplayedSource apply."""
+
+    manifests: list[DeltaManifest]
+    deltas: list[tuple[DeltaBundle, DeltaManifest]]
+    changes: dict[str, SectionChanges]
+
+    @property
+    def releases(self) -> list[str]:
+        return [m.release for m in self.manifests]
+
+
+def load_chain(inputs: BuildInputs, log: Callable[[str], None] | None = None) -> Chain:
+    """Check the chain from the manifests (before any bundle is read), read each delta and fold them."""
+    manifests = [sources.load_manifest(m) for _, m in inputs.deltas]
+    check_chain(inputs.full_source_release, manifests)
+    deltas = []
+    for (d_inp, _), man in zip(inputs.deltas, manifests, strict=True):
+        if log:
+            log(f"reading {d_inp.name}")
+        deltas.append((read_delta(d_inp, man), man))
+    return Chain(manifests=manifests, deltas=deltas, changes=fold(deltas))
+
+
+class ReplayedSource:
+    """The final state of a full plus deltas as a select.RecordSource (select.py): every pass streams the full
+    (select.BundleFileSource, so pass 1 checks its sha256 and later passes are checked against pass 1) and
+    applies each section's change map with SectionReplay, as SectionPipeline does: the full's records less the
+    keys the deltas replace or delete, then the net upserts; a section only in the deltas at its place in the
+    bundle order; a section the deltas empty is left out (the assembler never writes an empty section). The
+    deletes of absent keys are logged on pass 1 only."""
+
+    def __init__(self, full: InputFile, chain: Chain):
+        from .select import BundleFileSource, IterRecordSource  # select.py doesn't import this module
+
+        if not chain.deltas:
+            raise ChainError("a replayed source needs at least one delta; read the full itself")
+        self.files = BundleFileSource(full)
+        self.chain = chain
+        self.name = f"{full.name} + {len(chain.deltas)} delta(s) to {chain.releases[-1]}"
+        self.schema_version = chain.deltas[0][0].schema_version
+        self._iter = IterRecordSource(self.name, self.schema_version, self._records)
+
+    @property
+    def sha256(self) -> str | None:
+        """The full's sha256, once pass 1 has read it."""
+        return self.files.sha256
+
+    def open_pass(self, number: int):
+        return self._iter.open_pass(number)
+
+    def _records(self, number: int) -> Iterator[tuple[str, bytes, bytes]]:
+        changes, releases, name = self.chain.changes, self.chain.releases, self.files.name
+        warn = number == 1
+        done: set[str] = set()
+        buf: list[tuple[bytes, bytes]] = []  # what SectionReplay writes, handed on at once
+
+        def push(k: bytes, r: bytes) -> None:
+            buf.append((k, r))
+
+        def only_in_deltas(upto: int) -> Iterator[tuple[str, bytes, bytes]]:
+            for s in SECTIONS[:upto]:
+                if s in done:
+                    continue
+                done.add(s)
+                ch = changes.get(s)
+                if ch is not None:
+                    SectionReplay(ch, name, releases).finish(push, warn=warn)
+                    for k, r in buf:
+                        yield s, k, r
+                    buf.clear()
+
+        order = {s: i for i, s in enumerate(SECTIONS)}
+        with self.files.open_pass(number) as p:
+            if p.schema_version != self.schema_version:
+                raise ChainError(
+                    f"{name} has schema_version {p.schema_version}, the deltas have {self.schema_version}; every "
+                    "input in a chain must have the same one"
+                )
+            for sec in p.sections():
+                yield from only_in_deltas(order[sec.name])
+                done.add(sec.name)
+                ch = changes.get(sec.name)
+                if ch is None:
+                    for k, r in sec:
+                        yield sec.name, k, r
+                    continue
+                rep = SectionReplay(ch, name, releases)
+                add = rep.wrap(push)
+                for k, r in sec:
+                    add(k, r)
+                    if buf:
+                        yield sec.name, *buf.pop()
+                rep.finish(push, warn=warn)
+                for k, r in buf:
+                    yield sec.name, k, r
+                buf.clear()
+            yield from only_in_deltas(len(SECTIONS))

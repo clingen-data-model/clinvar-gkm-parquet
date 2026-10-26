@@ -20,8 +20,10 @@ from pathlib import Path
 
 import duckdb
 
+from . import sources
 from .build import (
     KV_KEYS,
+    KV_ORDER,
     KV_PREFIX,
     MANIFEST_NAME,
     SectionPipeline,
@@ -36,10 +38,10 @@ from .build import (
     sql_str,
     table_groups,
 )
-from .compat import TABLE_SPEC_VERSION
+from .compat import PUBLISHED_SPEC, TABLE_SPEC_VERSION
 from .errors import InputError, SpecError, ToolError
 from .model import BuildInputs
-from .spec import Spec, Table, load_spec
+from .spec import SPEC_KV_KEYS, Spec, Table, load_spec, resolve_spec, spec_from_kv
 
 SAMPLES = 5
 _TRUNCATE = 300
@@ -69,13 +71,49 @@ def read_kv(con: duckdb.DuckDBPyConnection, path: Path) -> dict[str, str]:
     return out
 
 
-def spec_for_dir(con: duckdb.DuckDBPyConnection, out_dir: Path) -> Spec:
-    """The spec named by the files' table_spec_version (one version across the files), else the tool's."""
-    versions = {read_kv(con, p).get("table_spec_version") for p in sorted(out_dir.glob("*.parquet"))}
-    versions.discard(None)
-    if len(versions) == 1:
-        return load_spec(versions.pop())
-    return load_spec(TABLE_SPEC_VERSION)
+def dir_kv(con: duckdb.DuckDBPyConnection, out_dir: Path) -> dict[str, dict[str, str]]:
+    """file name -> its clinvar_gkm_parquet.* key-value metadata, for every .parquet in the directory."""
+    return {p.name: read_kv(con, p) for p in sorted(Path(out_dir).glob("*.parquet"))}
+
+
+def spec_for_dir(con: duckdb.DuckDBPyConnection, out_dir: Path, spec_arg: str | None = None) -> Spec:
+    """The spec that wrote the files, from their key-value metadata (spec.spec_from_kv); every file must name the
+    same one. A file with no table_spec key predates named specs and was written by clinvar-gkm. A custom spec
+    needs `spec_arg` (--spec, its tables.yaml, whose sha256 must equal the recorded one); for a built-in one,
+    `spec_arg` is optional and must name that spec. A directory with no files: `spec_arg`, else clinvar-gkm."""
+    named = {
+        tuple(kv.get(k) for k in SPEC_KV_KEYS)
+        for kv in dir_kv(con, out_dir).values()
+        if kv.get("table_spec_version") is not None
+    }
+    if not named:
+        return resolve_spec(spec_arg)[0] if spec_arg else load_spec(TABLE_SPEC_VERSION)
+    if len(named) > 1:
+        labels = ", ".join(sorted(f"{n or PUBLISHED_SPEC} {v}" for n, v, *_ in named))
+        raise SpecError(f"the files were written by different table specs: {labels}")
+    kv = {k: v for k, v in zip(SPEC_KV_KEYS, named.pop(), strict=True) if v is not None}
+    if "table_spec" not in kv:
+        name, spec = PUBLISHED_SPEC, load_spec(kv["table_spec_version"])
+    else:
+        spec, source = spec_from_kv(kv, spec_arg)
+        if not source.builtin:
+            return spec
+        name = source.name
+    if spec_arg is not None:
+        _, given = resolve_spec(spec_arg)
+        version = kv["table_spec_version"]
+        if (given.name, given.version, given.builtin) != (name, version, True):
+            raise SpecError(f"--spec {spec_arg} is {given.label}, but the files were written by {name} {version}")
+    return spec
+
+
+def dir_selection(kvs: dict[str, dict[str, str]]) -> str | None:
+    """The files' clinvar_gkm_parquet.selection entry (ADR 0004): None for a full build. Files that disagree
+    (some with one, some without, or different ones) are an error: one directory holds one set."""
+    values = {kv.get("selection") for kv in kvs.values()}
+    if len(values) > 1:
+        raise SpecError("the files disagree on clinvar_gkm_parquet.selection: they are not one set")
+    return values.pop() if values else None
 
 
 # --- verify_dir ------------------------------------------------------------------------------------------------
@@ -100,7 +138,7 @@ def verify_dir(out_dir: Path, spec: Spec | None = None) -> list[str]:
         if name not in files:
             problems.append(f"{name}: {name}.parquet is missing")
     for name in sorted(set(files) - set(spec_names)):
-        problems.append(f"{name}: {name}.parquet is not a table of spec {spec.spec_version}")
+        problems.append(f"{name}: {name}.parquet is not a table of spec {spec.label}")
 
     kvs: dict[str, dict[str, str]] = {}
     for name in spec_names:
@@ -120,6 +158,8 @@ def verify_dir(out_dir: Path, spec: Spec | None = None) -> list[str]:
             problems.append(f"{name}: key-value metadata names table {kv['table']!r}")
         if "table_spec_version" in kv and kv["table_spec_version"] != spec.spec_version:
             problems.append(f"{name}: table_spec_version {kv['table_spec_version']} != spec {spec.spec_version}")
+        if spec.name and kv.get("table_spec", spec.name) != spec.name:
+            problems.append(f"{name}: table_spec {kv['table_spec']} != spec {spec.name}")
         if "bundle_schema_version" in kv and kv["bundle_schema_version"] not in spec.bundle_schema_versions:
             problems.append(
                 f"{name}: bundle_schema_version {kv['bundle_schema_version']} is not one spec "
@@ -131,28 +171,35 @@ def verify_dir(out_dir: Path, spec: Spec | None = None) -> list[str]:
                     raise ValueError
             except ValueError:
                 problems.append(f"{name}: source_deltas is not a JSON array: {_trunc(kv['source_deltas'])}")
-    for k in KV_KEYS:
+    for k in KV_ORDER:
         if k == "table":
             continue
-        values = {kv[k] for kv in kvs.values() if k in kv}
+        # A required key missing from a file is reported above; an optional one (the spec's name, a custom
+        # spec's keys, the selection) must be on every file or on none.
+        values = {kv[k] for kv in kvs.values() if k in kv} if k in KV_KEYS else {kv.get(k) for kv in kvs.values()}
         if len(values) > 1:
             per = ", ".join(f"{n}={_trunc(kv.get(k))}" for n, kv in sorted(kvs.items()))
             problems.append(f"key-value metadata {KV_PREFIX}{k} differs across files: {per}")
 
     manifest_path = out_dir / MANIFEST_NAME
     if manifest_path.exists():
-        problems.extend(_check_manifest(con, manifest_path, files))
+        selections = {kv.get("selection") for kv in kvs.values()}
+        selection = selections.pop() if len(selections) == 1 else None
+        problems.extend(_check_manifest(con, manifest_path, files, selection))
     con.close()
     return problems
 
 
-def _check_manifest(con, path: Path, files: dict[str, Path]) -> list[str]:
+def _check_manifest(con, path: Path, files: dict[str, Path], selection: str | None = None) -> list[str]:
     try:
         manifest = json.loads(path.read_text(encoding="utf-8"))
         tables = manifest["tables"]
     except (ValueError, KeyError, TypeError) as e:
         return [f"{path.name}: unreadable manifest ({e})"]
     problems = []
+    want = json.loads(selection) if selection is not None else None
+    if manifest.get("selection") != want:
+        problems.append(f"{path.name}: selection {manifest.get('selection')} != the files' {want}")
     for name, entry in sorted(tables.items()):
         if name not in files:
             problems.append(f"{path.name}: lists {name}, but {name}.parquet is missing")
@@ -619,6 +666,8 @@ class VerifyReport:
     spec_problems: list[str] = field(default_factory=list)
     recompute: list[dict] | None = None
     oracle: dict | None = None
+    spec_name: str | None = None
+    selection: dict | None = None  # the files' selection entry (a subset), or None for a full build
 
     @property
     def passed(self) -> bool:
@@ -633,7 +682,9 @@ class VerifyReport:
     def to_dict(self) -> dict:
         return {
             "dir": self.dir,
+            "table_spec": self.spec_name,
             "table_spec_version": self.spec_version,
+            "selection": self.selection,
             "passed": self.passed,
             "spec_check": {"problems": self.spec_problems},
             "bundle_recompute": self.recompute,
@@ -642,7 +693,14 @@ class VerifyReport:
 
     def to_markdown(self) -> str:
         lines = [f"# clinvar-gkm-parquet verify: {self.dir}", ""]
-        lines += [f"Table spec {self.spec_version}. Result: **{'pass' if self.passed else 'differences'}**.", ""]
+        spec = f"{self.spec_name} {self.spec_version}" if self.spec_name else self.spec_version
+        subset = ""
+        if self.selection is not None:
+            subset = (
+                f" A selection: driver {self.selection.get('driver')}, {self.selection.get('selected_records')} "
+                f"records, mini-bundle sha256 {self.selection.get('selected_sha256')}."
+            )
+        lines += [f"Table spec {spec}.{subset} Result: **{'pass' if self.passed else 'differences'}**.", ""]
         lines += ["## Directory check", ""]
         lines += [f"- {p}" for p in self.spec_problems] or ["No problems."]
         lines.append("")
@@ -760,21 +818,62 @@ def run_verify_command(args) -> int:
         return _usage(f"--against {args.against}: not a directory")
 
     meta = duckdb.connect()
-    spec = spec_for_dir(meta, out_dir)
+    spec = spec_for_dir(meta, out_dir, getattr(args, "spec", None))
+    kvs = dir_kv(meta, out_dir)
     meta.close()
-    report = VerifyReport(dir=str(out_dir), spec_version=spec.spec_version)
+    selection = dir_selection(kvs)
+    params = json.loads(selection) if selection is not None else None
+    if args.against is not None:
+        # The oracle compares a full clinvar-gkm build with ClinVar-GKM's published set (design plan §8.2).
+        if params is not None:
+            return _usage(
+                f"--against compares a full build with the published set; {out_dir} is a selection (driver "
+                f"{params.get('driver')}, clinvar_gkm_parquet.selection)"
+            )
+        written_by = {
+            (kv.get("table_spec", PUBLISHED_SPEC), kv.get("table_spec_builtin", "true")) for kv in kvs.values()
+        }
+        if any(name != PUBLISHED_SPEC or builtin == "false" for name, builtin in written_by):
+            names = ", ".join(sorted(n + (" (custom)" if b == "false" else "") for n, b in written_by))
+            return _usage(
+                f"--against needs a set built with the built-in {PUBLISHED_SPEC} spec; {out_dir} has {names}"
+            )
+    report = VerifyReport(dir=str(out_dir), spec_version=spec.spec_version, spec_name=spec.name, selection=params)
     report.spec_problems = verify_dir(out_dir, spec)
     if args.bundle_recompute:
-        inputs = resolve_build_inputs(args)
-        report.recompute = bundle_recompute(
-            out_dir,
-            inputs,
-            spec=spec,
-            work_dir=args.work_dir,
-            memory_limit=args.memory_limit,
-            threads=args.threads,
-            log=lambda m: print(f"clinvar-gkm-parquet: {m}", file=sys.stderr, flush=True),
-        )
+        if params is None:
+            inputs = resolve_build_inputs(args)
+        else:
+            # A selection is recomputed against its mini-bundle (ADR 0004): `--full` names it, and its sha256
+            # must be the recorded selected_sha256. `clinvar-gkm-parquet select` with the recorded options
+            # regenerates it byte for byte.
+            expected = params["selected_sha256"]
+            if args.delta or args.manifest:
+                return _usage(
+                    "these files are a selection: recompute against the mini-bundle alone (--full <mini-bundle>, "
+                    "no --delta); it holds the replayed state. Regenerate it with `clinvar-gkm-parquet select` "
+                    "and the options recorded in clinvar_gkm_parquet.selection"
+                )
+            if args.sha256 and args.sha256.lower() != expected:
+                return _usage(f"--sha256 {args.sha256} is not the selection's selected_sha256 {expected}")
+            inputs = BuildInputs(full=sources.resolve_input(args.full, sha256=expected), full_source_release=None)
+        try:
+            report.recompute = bundle_recompute(
+                out_dir,
+                inputs,
+                spec=spec,
+                work_dir=args.work_dir,
+                memory_limit=args.memory_limit,
+                threads=args.threads,
+                log=lambda m: print(f"clinvar-gkm-parquet: {m}", file=sys.stderr, flush=True),
+            )
+        except InputError as e:
+            if params is not None and "sha256 mismatch" in str(e):
+                raise InputError(
+                    f"--full {args.full} is not the mini-bundle these files were built from (selected_sha256 "
+                    f"{params['selected_sha256']}): {e}"
+                ) from e
+            raise
     if args.against is not None:
         root = Path(args.work_dir) if args.work_dir else None
         tmp = Path(tempfile.mkdtemp(prefix="clinvar-gkm-parquet-oracle-", dir=root))

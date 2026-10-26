@@ -20,7 +20,7 @@ from _build_helpers import (
 from _build_helpers import passthrough_spec as _passthrough_spec
 from _build_helpers import passthrough_sql as _passthrough_sql
 from _fixture import COUNTS, FIXTURE, IS_PROVISIONAL, SOURCE_RELEASE
-from _input_helpers import bundle_bytes, delta_manifest_json, fixture_sections, local_input, write_gz
+from _input_helpers import D1, D2, bundle_bytes, fixture_sections, local_input, two_synthetic_deltas, write_gz
 
 from clinvar_gkm_parquet import build as build_mod
 from clinvar_gkm_parquet.build import (
@@ -275,7 +275,7 @@ def _failing_sql(t) -> str:
 @pytest.fixture
 def passthrough(monkeypatch):
     monkeypatch.setattr(build_mod.sqltemplate, "macros_sql", lambda: "SELECT 1")
-    monkeypatch.setattr(build_mod.sqltemplate, "render", _passthrough_sql)
+    monkeypatch.setattr(build_mod, "render_table", _passthrough_sql)
     return _passthrough_spec()
 
 
@@ -292,30 +292,8 @@ def _fixture_inputs(deltas=(), full: InputFile | None = None) -> BuildInputs:
     return BuildInputs(full=inp, full_source_release=SOURCE_RELEASE, deltas=tuple(deltas))
 
 
-D1, D2 = "2026-10-25", "2026-11-01"
-
-
-def _delta(tmp_path, release, baseline, sections, deleted=None):
-    """A SYNTHETIC delta from the fixture's real records (tests/test_replay.py), with its manifest."""
-    compact = release[:7] + release[8:]
-    path = write_gz(tmp_path / "in" / f"clinvar-gkm-delta_{compact}.json.gz", bundle_bytes(sections))
-    mpath = tmp_path / "in" / f"clinvar-gkm-delta_{compact}.manifest.json"
-    mpath.write_text(json.dumps(delta_manifest_json(release, baseline, deleted)))
-    return local_input(path, release=release), local_input(mpath, release=release)
-
-
 def _two_deltas(tmp_path):
-    s = fixture_sections()
-    (g0, gr0), (_, gr1) = s["gene"][:2]
-    d1 = _delta(
-        tmp_path,
-        D1,
-        SOURCE_RELEASE,
-        {"gene": [(g0, gr1), (b'"synthetic:gene-new"', gr0)]},
-        {"scv": [json.loads(s["scv"][0][0])]},
-    )
-    d2 = _delta(tmp_path, D2, D1, {"rcv": [(s["rcv"][0][0], s["rcv"][1][1])]}, {"gene": ["synthetic:gene-new"]})
-    return [d1, d2]
+    return two_synthetic_deltas(tmp_path, SOURCE_RELEASE)
 
 
 def _stage_dirs(work: Path) -> dict[str, int]:
@@ -391,7 +369,7 @@ def test_failed_build_leaves_no_partial_set(passthrough, tmp_path, monkeypatch):
     def render(t):  # rcv is the last section: every other table has been written when it fails
         return _failing_sql(t) if t.name == "rcv" else _passthrough_sql(t)
 
-    monkeypatch.setattr(build_mod.sqltemplate, "render", render)
+    monkeypatch.setattr(build_mod, "render_table", render)
     out = tmp_path / "out"
     with pytest.raises(SpecError, match="table rcv: query failed.*boom"):
         build(_fixture_inputs(), out, spec=passthrough)
@@ -481,7 +459,7 @@ def test_worker_failure_stops_the_reader(passthrough, tmp_path, monkeypatch):
         return _failing_sql(t) if t.name == "sequenceReference" else _passthrough_sql(t)
 
     monkeypatch.setattr(build_mod.SectionPipeline, "_close", close)
-    monkeypatch.setattr(build_mod.sqltemplate, "render", render)
+    monkeypatch.setattr(build_mod, "render_table", render)
     with pytest.raises(SpecError, match="table sequenceReference: query failed.*boom"):
         build(_fixture_inputs(), tmp_path / "out", spec=passthrough)
     assert len(closed) <= build_mod.QUEUE_SIZE + 2 < len(SECTIONS)  # the reader stopped early
@@ -507,7 +485,7 @@ def test_checksum_mismatch_found_at_the_end_removes_the_tables(passthrough, tmp_
 
 
 def test_worker_failure_with_a_wrong_checksum_reports_the_mismatch(passthrough, tmp_path, monkeypatch):
-    monkeypatch.setattr(build_mod.sqltemplate, "render", _failing_sql)
+    monkeypatch.setattr(build_mod, "render_table", _failing_sql)
     full = local_input(FIXTURE, sha="0" * 64)
     with pytest.raises(InputError, match="sha256 mismatch.*also fails"):
         build(_fixture_inputs(full=full), tmp_path / "out", spec=passthrough)
@@ -530,18 +508,16 @@ def test_full_without_a_checksum_is_hashed_first(passthrough, tmp_path):
     assert kv[KV_PREFIX + "source_bundle_sha256"] == _sha(FIXTURE)
 
 
-def test_build_refuses_unknown_section(tmp_path, monkeypatch):
+def test_spec_may_read_a_subset_of_the_sections(tmp_path, monkeypatch):
+    """A (custom) spec need not read every bundle section: the others are still read, checked and counted, but
+    no table is built from them. A section the bundle schema lacks is refused by the reader (test_bundle.py)."""
     monkeypatch.setattr(build_mod.sqltemplate, "macros_sql", lambda: "SELECT 1")
-    monkeypatch.setattr(build_mod.sqltemplate, "render", _passthrough_sql)
-    with pytest.raises(SpecError, match=r"section\(s\) \['gene'\] are not read by any table"):
-        build(_fixture_inputs(), tmp_path / "out", spec=_passthrough_spec(drop=("gene",)))
+    monkeypatch.setattr(build_mod, "render_table", _passthrough_sql)
+    res = build(_fixture_inputs(), tmp_path / "out", spec=_passthrough_spec(drop=("gene",)))
+    assert "gene" not in {t.table for t in res.tables} and len(res.tables) == len(SECTIONS) - 1
+    m = json.loads((tmp_path / "out" / "manifest.json").read_text())
+    assert m["sections"]["gene"] == COUNTS["gene"]
     assert not (tmp_path / "out.work").exists()
-    # A section no table reads is fine once the deltas empty it.
-    keys = [json.loads(k) for k, _ in fixture_sections()["therapyGroup"]]
-    d1 = _delta(tmp_path, D1, SOURCE_RELEASE, {}, {"therapyGroup": keys})
-    build(
-        _fixture_inputs([d1]), tmp_path / "out2", spec=_passthrough_spec(drop=("therapyGroup",)), tables=["gene"]
-    )
 
 
 def test_build_refuses_sections_out_of_order(passthrough, tmp_path):
@@ -639,14 +615,16 @@ def test_resolve_build_inputs_release(monkeypatch):
     assert got["base_url"] == "https://mirror.example" and got["release"] == "2026-10-18"
 
 
-def test_run_build_command(monkeypatch, capsys, passthrough, tmp_path):
+def test_run_build_command(monkeypatch, capsys, tmp_path):
+    """No --spec: the baseline spec (ADR 0003)."""
     monkeypatch.setattr(build_mod, "resolve_build_inputs", lambda args: _fixture_inputs())
-    monkeypatch.setattr(build_mod, "load_spec", lambda v: passthrough)
     rc = run_build_command(_args(full="x", out=tmp_path / "o", tables="gene, scv,rcv"))
     assert rc == 0
     out = capsys.readouterr().out
     n = COUNTS["gene"] + COUNTS["scv"] + COUNTS["rcv"]
-    assert f"built 3 table(s), {n} rows, source release {SOURCE_RELEASE}" in out
+    assert f"built 3 table(s) of spec baseline 1.0, {n} rows, source release {SOURCE_RELEASE}" in out
+    kv = _kv(duckdb.connect(), tmp_path / "o" / "gene.parquet")
+    assert kv[KV_PREFIX + "table_spec"] == "baseline" and KV_PREFIX + "selection" not in kv
 
 
 # --- end to end on the real fixture ----------------------------------------------------------------------------

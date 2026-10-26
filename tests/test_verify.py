@@ -280,7 +280,7 @@ def test_command_bundle_recompute(tmp_path, monkeypatch):
     the fixture with one row planted that the bundle doesn't have."""
     spec = passthrough_spec()
     monkeypatch.setattr(build_mod.sqltemplate, "macros_sql", lambda: "SELECT 1")
-    monkeypatch.setattr(build_mod.sqltemplate, "render", passthrough_sql)
+    monkeypatch.setattr(build_mod, "render_table", passthrough_sql)
     monkeypatch.setattr(verify_mod, "load_spec", lambda v: spec)
     out = tmp_path / "out"
     build_mod.build(

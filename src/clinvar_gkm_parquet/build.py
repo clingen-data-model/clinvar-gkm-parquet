@@ -35,8 +35,8 @@ from pathlib import Path
 
 import duckdb
 
-from . import __version__, bundle, replay, sources, sqltemplate
-from .compat import TABLE_SPEC_VERSION
+from . import __version__, baseline, bundle, replay, sources, sqltemplate
+from .compat import BUILTIN_SPECS, PUBLISHED_SPEC, schema_sections
 from .errors import BundleFormatError, InputError, SchemaVersionError, SpecError, ToolError
 from .model import (
     BuildInputs,
@@ -48,10 +48,11 @@ from .model import (
     StreamedBundle,
     TableResult,
 )
-from .spec import Spec, Table, load_spec
+from .spec import Spec, SpecSource, Table, load_spec, resolve_spec
+from .spec import kv_metadata as spec_kv_metadata
 
 KV_PREFIX = "clinvar_gkm_parquet."
-# Design plan §7.2, in the order they are written.
+# Design plan §7.2: the keys every file carries.
 KV_KEYS = (
     "tool_version",
     "table_spec_version",
@@ -61,6 +62,23 @@ KV_KEYS = (
     "source_deltas",
     "source_release",
     "duckdb_version",
+)
+# Every key, in the order it is written: KV_KEYS, plus the spec's name (build() always writes it; a file without
+# it predates named specs and was written by clinvar-gkm, spec.spec_from_kv), the two keys of a custom spec
+# (spec.kv_metadata) and, in a selective build only, the selection (ADR 0004; select.SELECTION_METADATA_KEY).
+KV_ORDER = (
+    "tool_version",
+    "table_spec",
+    "table_spec_version",
+    "table_spec_builtin",
+    "table_spec_sha256",
+    "table",
+    "bundle_schema_version",
+    "source_bundle_sha256",
+    "source_deltas",
+    "source_release",
+    "duckdb_version",
+    "selection",
 )
 DERIVED_LABEL = "derived from the bundle; may be regenerated"
 MANIFEST_NAME = "manifest.json"  # provisional (design plan §7.3)
@@ -162,9 +180,13 @@ def kv_metadata(
     source_bundle_sha256: str,
     source_deltas: list[dict],
     source_release: str | None,
+    table_spec: dict[str, str] | None = None,
+    selection: str | None = None,
 ) -> dict[str, str]:
-    """The §7.2 metadata shared by every file of one build (the `table` key is added per file). No timestamps."""
-    return {
+    """The §7.2 metadata shared by every file of one build (the `table` key is added per file). No timestamps.
+    `table_spec` is `spec_kv(...)` (its table_spec_version must agree); `selection` is
+    SelectionResult.metadata_json(), for a selective build only."""
+    kv = {
         "tool_version": __version__,
         "table_spec_version": table_spec_version,
         "bundle_schema_version": bundle_schema_version,
@@ -175,6 +197,34 @@ def kv_metadata(
         "source_release": source_release or "",
         "duckdb_version": duckdb.__version__,
     }
+    if table_spec:
+        if table_spec.get("table_spec_version", table_spec_version) != table_spec_version:
+            raise SpecError(
+                f"table spec entries {table_spec} disagree with table_spec_version {table_spec_version}"
+            )
+        kv.update(table_spec)
+    if selection is not None:
+        kv["selection"] = selection
+    return kv
+
+
+def spec_kv(spec: Spec, source: SpecSource | None) -> dict[str, str]:
+    """The spec's key-value entries (spec.kv_metadata). A spec given without its source is labelled by its own
+    name and version, and marked custom unless it is the built-in of that name and version. An unnamed spec
+    (an in-memory parse_spec mapping, for tests; every spec file has a name) writes its version only."""
+    if source is not None:
+        return spec_kv_metadata(source)
+    if spec.name is None:
+        return {"table_spec_version": spec.spec_version}
+    if BUILTIN_SPECS.get(spec.name) == spec.spec_version and load_spec(spec.spec_version, spec.name) == spec:
+        return {"table_spec": spec.name, "table_spec_version": spec.spec_version}
+    return {"table_spec": spec.name, "table_spec_version": spec.spec_version, "table_spec_builtin": "false"}
+
+
+def render_table(table: Table) -> str:
+    """The table's SELECT: the baseline renderer for key/record/refs tables, else the table's SQL template
+    (baseline.renderer_for)."""
+    return baseline.renderer_for(table)(table)
 
 
 def _kv_sql(kv: dict[str, str], table: str) -> str:
@@ -182,7 +232,10 @@ def _kv_sql(kv: dict[str, str], table: str) -> str:
     missing = [k for k in KV_KEYS if k not in full]
     if missing:
         raise SpecError(f"key-value metadata is missing {missing}")
-    items = ", ".join(f"{sql_str(KV_PREFIX + k)}: {sql_str(full[k])}" for k in KV_KEYS)
+    unknown = sorted(set(full) - set(KV_ORDER))
+    if unknown:
+        raise SpecError(f"unknown key-value metadata {unknown}")
+    items = ", ".join(f"{sql_str(KV_PREFIX + k)}: {sql_str(full[k])}" for k in KV_ORDER if k in full)
     return "{" + items + "}"
 
 
@@ -377,7 +430,7 @@ def build_tables(
     build never leaves a file that looks valid. `on_section_done(section)` is called once no remaining table
     reads that section. Returns the results in build order.
     """
-    render = render or sqltemplate.render
+    render = render or render_table
     unknown = [n for n in table_names if n not in {t.name for t in spec.tables}]
     if unknown:
         raise SpecError(f"unknown table(s) {unknown}; the spec lists {sorted(t.name for t in spec.tables)}")
@@ -553,8 +606,11 @@ class SectionPipeline:
         log: Callable[[str], None] | None = None,
         queue_size: int | None = None,
         chunk_bytes: int | None = None,
+        chain: replay.Chain | None = None,
     ):
         self.inputs, self.spec, self.work = inputs, spec, Path(work)
+        self.chain = chain  # the deltas already read (replay.load_chain), or None to read them here
+        self.schema_version: str | None = None
         self.process, self.needed, self.on_begin = process, needed, on_begin
         self.shared_con = con
         self.memory_limit, self.threads, self.keep_work = memory_limit, threads, keep_work
@@ -580,13 +636,10 @@ class SectionPipeline:
     def run(self) -> StreamState:
         self._stage.mkdir(parents=True, exist_ok=True)
         inputs = self.inputs
-        self.manifests = [sources.load_manifest(m) for _, m in inputs.deltas]
-        replay.check_chain(inputs.full_source_release, self.manifests)  # cheap; before any bundle is read
-        for (d_inp, _), man in zip(inputs.deltas, self.manifests, strict=True):
-            self.log(f"reading {d_inp.name}")
-            self.deltas.append((replay.read_delta(d_inp, man), man))
-        self._changes = replay.fold(self.deltas)
-        self._releases = [m.release for m in self.manifests]
+        # The chain is checked from the manifests before any bundle is read (replay.load_chain).
+        chain = self.chain if self.chain is not None else replay.load_chain(inputs, self.log)
+        self.manifests, self.deltas, self._changes = chain.manifests, chain.deltas, chain.changes
+        self._releases = chain.releases
 
         worker = threading.Thread(target=self._work, name="clinvar-gkm-parquet-worker")
         worker.start()
@@ -679,6 +732,7 @@ class SectionPipeline:
                 f"({', '.join(spec.bundle_schema_versions)})"
             )
         replay.check_schema_versions(self.inputs.full.name, schema_version, self.deltas)
+        self.schema_version = schema_version
         if self.on_begin is not None:
             self.on_begin(self, schema_version)
 
@@ -719,10 +773,11 @@ class SectionPipeline:
         w.close()
         self._writer = self._replay = None
         self.counts[section] = w.records
-        if w.records and section not in self.spec.sections:
+        # A spec may read a subset of the sections (a custom spec); a section the bundle schema doesn't have is
+        # never dropped silently (bundle.py refuses it while reading; this is the guard for the final state).
+        if w.records and section not in schema_sections(self.schema_version):
             raise SpecError(
-                f"bundle section(s) {[section]} are not read by any table of spec {self.spec.spec_version}; "
-                "refusing to drop them"
+                f"section {section} is not a section of bundle schema {self.schema_version}; refusing to drop it"
             )
         if isinstance(w, bundle.SectionWriter):
             self._put(SectionChunks(section, tuple(w.paths), w.records, w.max_line))
@@ -781,17 +836,23 @@ def write_manifest(
     results: list[TableResult],
     started_at: str,
     ended_at: str,
+    spec_sha256: str | None = None,
 ) -> dict:
     """The dataset manifest (design plan §7.3). It carries timestamps, so unlike the Parquet files it is not
-    byte-reproducible."""
+    byte-reproducible. `table_spec` names the spec as the files' key-value metadata does (plus the sha256 of its
+    tables.yaml when known); `selection`, present only for a selective build, is the files' selection entry as
+    an object. `inputs` and the source keys name the published bundles; `sections` counts the state the tables
+    were built from (for a selective build, the mini-bundle's)."""
     source_release = kv["source_release"] or None
+    spec_name = kv.get("table_spec") or spec.name
+    subset = " (a selection; see selection)" if "selection" in kv else ""
     manifest = {
         "label": DERIVED_LABEL,
         "derived": True,
         "note": (
             "Parquet tables derived from the ClinVar-GKM JSON bundle(s) listed under inputs by "
-            f"clinvar-gkm-parquet {kv['tool_version']} (table spec {kv['table_spec_version']}). "
-            "The bundles are the record; these files may be regenerated."
+            f"clinvar-gkm-parquet {kv['tool_version']} (table spec {spec_name} {kv['table_spec_version']})"
+            f"{subset}. The bundles are the record; these files may be regenerated."
         ),
         "build_date": ended_at[:10],
         "source_release": source_release,
@@ -806,6 +867,12 @@ def write_manifest(
             for r in sorted(results, key=lambda r: r.file.name)
         ],
         "tool_version": kv["tool_version"],
+        "table_spec": {
+            "name": spec_name,
+            "version": kv["table_spec_version"],
+            "builtin": kv.get("table_spec_builtin") != "false",
+            "sha256": kv.get("table_spec_sha256") or spec_sha256,
+        },
         "table_spec_version": kv["table_spec_version"],
         "table_spec_status": spec.status,
         "bundle_schema_version": kv["bundle_schema_version"],
@@ -834,6 +901,8 @@ def write_manifest(
         "ended_at": ended_at,
         "generated_at": ended_at,
     }
+    if "selection" in kv:
+        manifest["selection"] = json.loads(kv["selection"])
     path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     return manifest
 
@@ -910,16 +979,34 @@ def build(
     memory_limit: str | None = None,
     threads: int | None = None,
     spec: Spec | None = None,
+    spec_source: SpecSource | None = None,
+    driver=None,
+    render: Callable[[Table], str] | None = None,
     log: Callable[[str], None] | None = None,
 ) -> BuildResult:
     """Stream the inputs once and build every table section by section (design plan §6.2), then write the
-    manifest."""
-    spec = spec or load_spec(TABLE_SPEC_VERSION)
+    manifest.
+
+    `spec` defaults to the built-in clinvar-gkm (the CLI's default is baseline: it passes the spec it resolves);
+    `spec_source` (spec.resolve_spec) labels the files, see `spec_kv`. With `driver` (a driver.Driver), the
+    selection runs first, writing a mini-bundle in the work directory, and the tables are built from it (ADR
+    0004): every file and the manifest then carry the selection, while the source keys and `inputs` still name
+    the published bundles. Without one, the selection code is never reached. `render` defaults to
+    `render_table`."""
+    if spec is None:
+        spec, spec_source = resolve_spec(PUBLISHED_SPEC)
+    render = render or render_table
     names = list(dict.fromkeys(tables)) if tables else [t.name for t in spec.tables]
     unknown = [n for n in names if n not in {t.name for t in spec.tables}]
     if unknown:
         raise SpecError(f"unknown table(s) {unknown}; the spec lists {sorted(t.name for t in spec.tables)}")
     by_section = tables_by_section(spec, names)
+    tspec = spec_kv(spec, spec_source)
+    if driver is not None:
+        from . import driver as driver_mod  # only a selective build needs it
+
+        driver_mod.driver_table(spec, driver)  # checked before anything is read
+        driver_mod.check_tables(spec, names, driver, explicit=bool(tables))
     started_at = _now()
     out_dir = Path(out_dir)
     # One directory holds one set: building into a directory that already has table files or a manifest could
@@ -944,26 +1031,48 @@ def build(
     kv: dict[str, str] = {}
     results: dict[str, TableResult] = {}
     try:
-        full_sha = (inputs.full.expected_sha256 or _prehash(inputs.full, log)).lower()
+        selected = None
+        if driver is not None:
+            selected = driver_mod.run_selection(
+                inputs,
+                spec,
+                driver,
+                work / "selection" / driver_mod.SELECTION_BUNDLE_NAME,
+                work / "selection",
+                memory_limit=memory_limit,
+                threads=threads,
+                log=log,
+            )
+            read = BuildInputs(full=selected.bundle, full_source_release=None)
+            full_sha = selected.full.sha256
+            read_sha = selected.result.sha256
+        else:
+            read = inputs
+            full_sha = read_sha = (inputs.full.expected_sha256 or _prehash(inputs.full, log)).lower()
 
         def on_begin(pipe: SectionPipeline, schema_version: str) -> None:
+            chain = selected.chain if selected else pipe
             kv.update(
                 kv_metadata(
                     table_spec_version=spec.spec_version,
                     bundle_schema_version=schema_version,
                     source_bundle_sha256=full_sha,
-                    source_deltas=[{"release": m.release, "sha256": d.sha256} for d, m in pipe.deltas],
-                    source_release=source_release_of(inputs, pipe.manifests),
+                    source_deltas=[{"release": m.release, "sha256": d.sha256} for d, m in chain.deltas],
+                    source_release=source_release_of(inputs, chain.manifests),
+                    table_spec=tspec,
+                    selection=selected.result.metadata_json() if selected else None,
                 )
             )
 
         def process(con: duckdb.DuckDBPyConnection, section: str, rows: int) -> None:
             con.execute(sqltemplate.macros_sql())
-            done = build_tables(con, spec, by_section[section], out_dir, kv, counts={section: rows}, log=log)
+            done = build_tables(
+                con, spec, by_section[section], out_dir, kv, render=render, counts={section: rows}, log=log
+            )
             results.update((r.table, r) for r in done)
 
         pipe = SectionPipeline(
-            inputs,
+            read,
             spec,
             work,
             process=process,
@@ -975,11 +1084,13 @@ def build(
             log=log,
         )
         state = pipe.run()
-        if state.full.sha256 != full_sha:
+        if state.full.sha256 != read_sha:
             raise InputError(
-                f"{inputs.full.name}: sha256 {state.full.sha256} differs from {full_sha}, computed before the "
+                f"{read.full.name}: sha256 {state.full.sha256} differs from {read_sha}, computed before the "
                 "build; the file changed while it was read"
             )
+        if selected is not None and keep_work and log:
+            log(f"kept the mini-bundle: {selected.bundle.source}")
         ordered = [results[n] for n in names]
         manifest_path = out_dir / MANIFEST_NAME
         write_manifest(
@@ -987,12 +1098,13 @@ def build(
             kv=kv,
             spec=spec,
             inputs=inputs,
-            full=state.full,
-            deltas=state.deltas,
+            full=selected.full if selected else state.full,
+            deltas=selected.chain.deltas if selected else state.deltas,
             counts=state.counts,
             results=ordered,
             started_at=started_at,
             ended_at=_now(),
+            spec_sha256=spec_source.sha256 if spec_source else None,
         )
         return BuildResult(
             out_dir=out_dir,
@@ -1073,7 +1185,12 @@ def _log(msg: str) -> None:
 
 
 def run_build_command(args) -> int:
-    """`clinvar-gkm-parquet build`: resolve the inputs from the CLI arguments, build, print a summary."""
+    """`clinvar-gkm-parquet build`: resolve the spec, the selection options and the inputs from the CLI
+    arguments, build, print a summary. No --spec means the default spec (baseline)."""
+    from .driver import driver_from_args
+
+    spec, source = resolve_spec(getattr(args, "spec", None))
+    driver = driver_from_args(args)
     inputs = resolve_build_inputs(args)
     tables = [t.strip() for t in args.tables.split(",") if t.strip()] if args.tables else None
     result = build(
@@ -1084,10 +1201,17 @@ def run_build_command(args) -> int:
         keep_work=args.keep_work,
         memory_limit=args.memory_limit,
         threads=args.threads,
+        spec=spec,
+        spec_source=source,
+        driver=driver,
         log=_log,
     )
     total = sum(t.rows for t in result.tables)
-    print(f"built {len(result.tables)} table(s), {total} rows, source release {result.source_release or '?'}")
+    subset = f", a selection driven by {driver.table}" if driver else ""
+    print(
+        f"built {len(result.tables)} table(s) of spec {source.label}, {total} rows, source release "
+        f"{result.source_release or '?'}{subset}"
+    )
     for t in result.tables:
         print(f"  {t.table:<36} {t.rows:>12}  {t.sha256[:12]}")
     print(f"manifest: {result.manifest_path}")
