@@ -436,3 +436,28 @@ def test_parameters_and_metadata(tmp_path):
     assert sel.ids_sha256(["b", "a", "a"]) == hashlib.sha256(b"a\nb\n").hexdigest()
     with pytest.raises(sel.SelectionError, match="set by the engine"):
         run(tmp_path, {"vcv": [key]}, name="x.json.gz", provenance={"follow": "in"})
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# The pointer scan
+
+
+def test_pointer_scan_matches_the_parsed_records():
+    for section, recs in SOURCE_LINES.items():
+        for key, rec in recs:
+            want = [tuple(p[2:].split("/", 1)) for p in walk_pointers(json.loads(rec), [])]
+            got = [(SECTIONS[si], json.loads(b'"' + k + b'"')) for si, k in sel.parse_pointers(rec)]
+            assert got == want, (section, key)
+
+
+def test_pointer_text_inside_a_string_is_not_a_pointer():
+    """A real record changed minimally: a free-text value quoting a pointer, before a real pointer."""
+    key, rec = next((k, r) for k, r in SOURCE_LINES["scv"] if b'"#/submitter/' in r)
+    obj = json.loads(rec)
+    obj = {"note": 'see "#/vcv/VCV0.1-G-x" and #/gene/ncbigene:0', **obj}
+    text = json.dumps(obj, separators=(",", ":"), ensure_ascii=False).encode()
+    got = [SECTIONS[si] for si, _ in sel.parse_pointers(text)]
+    assert "vcv" not in got and "gene" not in got and "submitter" in got
+    assert got == [p[2:].split("/", 1)[0] for p in walk_pointers(json.loads(rec), [])]
+    with pytest.raises(BundleFormatError, match='unknown section: "#/nosuch/x"'):
+        sel.parse_pointers(json.dumps({**obj, "x": "#/nosuch/x"}, separators=(",", ":")).encode())

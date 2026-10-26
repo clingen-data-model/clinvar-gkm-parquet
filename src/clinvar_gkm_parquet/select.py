@@ -31,8 +31,8 @@ How it runs (streaming and multi-pass; memory holds the selected keys and the pe
 disk holds the output plus a compressed spool of the selected records, which shrinks as the output is written):
 
 - Each pass streams the source once. Outgoing pointers are found with a regex over a selected record's text;
-  incoming pointers by the same regex over every record of a section that can point into the frontier (a
-  section-to-section pointer map learned in pass 1 tells which), with a substring prefilter in later passes.
+  incoming pointers by the same regex over the records of each section that can point into the frontier (a
+  section-to-section pointer map learned in pass 1 tells which) that hold a `"#/<frontier section>/` substring.
   Records are never JSON-parsed.
 - Depth is the shortest hop count, exactly as a breadth-first search gives it. A pass may assign depth d to a
   record only when every record of depth d - 2 or less is already selected (then no shorter path can exist), so
@@ -92,9 +92,13 @@ _INF = float("inf")
 # The assembler's line layout (design plan §4.2; bundle.py holds the strict reader the output is checked with).
 SCHEMA_LINE = re.compile(rb'  "schema_version": "([^"\\]*)"(,?)\n')
 SECTION_OPEN = re.compile(rb'  "([^"\\]*)": \{\n')
-# A string VALUE that starts with "#/": after ':' (object member), '[' or ',' (array element). An escaped
-# quote inside a string is preceded by a backslash, so free text can't match.
-POINTER = re.compile(rb'(?<=[:\[,])"#/([^"/\\]+)/((?:[^"\\]|\\.)*)"')
+# A string VALUE that starts with "#/": its opening quote follows ':' (object member), '[' or ',' (array
+# element); iter_pointers checks that byte. (A lookbehind in the regex would stop `re` from searching for the
+# literal prefix, about 15 times slower.) An escaped quote inside a string is preceded by a backslash, so free
+# text can't match, and a match starting at one runs only to the end of that string, which holds no pointer.
+_POINTER = re.compile(rb'"#/([^"/\\]+)/((?:[^"\\]|\\.)*)"')
+_POINTER_SECTION = re.compile(rb'"#/([^"/\\]+)/')  # section names only: the pass-1 section map
+_VALUE_START = frozenset(b":[,")
 
 
 class SelectionError(ToolError):
@@ -615,15 +619,24 @@ def _key_text(body: bytes) -> str:
     return json.loads(b'"' + body + b'"')
 
 
+def iter_pointers(record: bytes) -> Iterator[tuple[bytes, bytes]]:
+    """(section name, key body as written) for every `"#/<section>/<key>"` string value in a record, in order."""
+    for m in _POINTER.finditer(record):
+        start = m.start()
+        if start and record[start - 1] in _VALUE_START:
+            yield m.group(1), m.group(2)
+
+
 def parse_pointers(record: bytes) -> list[tuple[int, bytes]]:
     """Every `"#/<section>/<key>"` string value in a record: (section index, canonical key body), in order.
     A pointer to a section the bundle schema doesn't have fails."""
     out = []
-    for m in POINTER.finditer(record):
-        si = SEC_INDEX.get(m.group(1).decode("utf-8", "replace"))
+    for section, body in iter_pointers(record):
+        si = SEC_INDEX.get(section.decode("utf-8", "replace"))
         if si is None:
-            raise BundleFormatError(f"pointer to an unknown section: {m.group(0).decode('utf-8', 'replace')}")
-        out.append((si, _canon(m.group(2))))
+            text = (section + b"/" + body).decode("utf-8", "replace")
+            raise BundleFormatError(f'pointer to an unknown section: "#/{text}"')
+        out.append((si, _canon(body)))
     return out
 
 
@@ -859,6 +872,7 @@ class _Engine:
         self.level_secs: dict[int, set[int]] = {}
         self.in_done: set[int] = set()
         self.points_to: list[set[int]] = [set() for _ in range(n)]  # learned in pass 1 (in/both)
+        self.learned: list[set[bytes]] = [set() for _ in range(n)]  # section names pass 1 saw pointers to
         self.order: list[int] = []
         self.counts: dict[int, int] = {}
         self.schema_version = ""
@@ -899,9 +913,10 @@ class _Engine:
                     continue
             return limit, scan, required
 
-    def _needles(self, limit: int, required: int | None) -> tuple[bytes, ...]:
-        """Substrings a record must hold to point to a record of depth < limit that is not fully scanned."""
-        secs: set[int] = set()
+    def _needles(self, first: bool, limit: int, required: int | None) -> tuple[bytes, ...]:
+        """Substrings a record must hold to point to a record of depth < limit not yet scanned for (pass 1: the
+        seeds)."""
+        secs: set[int] = {si for si, keys in enumerate(self.seeds) if keys} if first else set()
         for j in (required, limit - 1):
             if j is not None:
                 secs |= self.level_secs.get(j, set())
@@ -923,6 +938,9 @@ class _Engine:
             )
         if first_scan:
             self.in_done.add(0)
+            for si, names in enumerate(self.learned):
+                found = (x.decode("utf-8", "replace") for x in names)
+                self.points_to[si] = {SEC_INDEX[n] for n in found if n in SEC_INDEX}
         while True:
             plan = self._plan()
             if plan is None:
@@ -941,7 +959,7 @@ class _Engine:
     def _pass(self, number: int, limit: int, scan: set[int], required: int | None) -> None:
         t0 = time.monotonic()
         first = number == 1
-        needles = () if first else self._needles(limit, required)
+        needles = self._needles(first, limit, required)
         selected_before = self.selected
         records_read = 0
         stopped = None
@@ -1024,7 +1042,7 @@ class _Engine:
         want_s = self.want[si]
         seeds = self.seeds
         follow_in = self.follow_in
-        learn = self.points_to[si] if first and do_scan else None
+        learn = self.learned[si] if first and do_scan else None
         ordinal = -1
         for key, record in sec:
             ordinal += 1
@@ -1045,11 +1063,11 @@ class _Engine:
                 continue
             ptrs = None
             if do_scan or (follow_in and d <= limit):
-                if learn is None and e is None and needles and not any(n in record for n in needles):
+                if learn is not None:
+                    learn.update(_POINTER_SECTION.findall(record))
+                if e is None and not any(n in record for n in needles):
                     continue
                 ptrs = parse_pointers(record)
-                if learn is not None:
-                    learn.update(t for t, _ in ptrs)
                 for ti, tk in ptrs:
                     dd = depth[ti].get(tk)
                     if dd is not None:

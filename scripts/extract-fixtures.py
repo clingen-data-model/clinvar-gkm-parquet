@@ -71,10 +71,9 @@ from clinvar_gkm_parquet.bundle import SECTIONS, stage_bundle
 from clinvar_gkm_parquet.compat import ACCEPTED_SCHEMA_VERSIONS, TABLE_SPEC_VERSION
 from clinvar_gkm_parquet.errors import ToolError
 from clinvar_gkm_parquet.model import InputFile
-from clinvar_gkm_parquet.select import POINTER as _POINTER
 from clinvar_gkm_parquet.select import SCHEMA_LINE as _SCHEMA_LINE
 from clinvar_gkm_parquet.select import SECTION_OPEN as _SECTION_OPEN
-from clinvar_gkm_parquet.select import SelectionError, Tap
+from clinvar_gkm_parquet.select import SelectionError, Tap, iter_pointers
 from clinvar_gkm_parquet.select import key_end as _key_end
 from clinvar_gkm_parquet.sources import open_stream
 from clinvar_gkm_parquet.spec import load_spec
@@ -405,11 +404,11 @@ def _record_of(line: bytes, q: int, lineno: int) -> bytes:
 
 def _pointers(rec: bytes, lineno: int) -> tuple[tuple[int, bytes], ...]:
     out: dict[tuple[int, bytes], None] = {}
-    for m in _POINTER.finditer(rec):
-        sec = m.group(1).decode("utf-8", "replace")
+    for section, key in iter_pointers(rec):
+        sec = section.decode("utf-8", "replace")
         if sec not in SEC_INDEX:
-            raise ExtractError(f"line {lineno}: pointer to unknown section {sec!r}: {m.group(0).decode()}")
-        out[(SEC_INDEX[sec], b'"' + m.group(2) + b'"')] = None
+            raise ExtractError(f'line {lineno}: pointer to unknown section {sec!r}: "#/{sec}/{key.decode()}"')
+        out[(SEC_INDEX[sec], b'"' + key + b'"')] = None
     return tuple(out)
 
 
