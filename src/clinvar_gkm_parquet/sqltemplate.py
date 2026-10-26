@@ -25,6 +25,9 @@ Placeholders in sql/<table>.sql (`{{name args}}`; COL is a spec column, its JSON
                               `.f` = struct field, e.g. `[].value_gene_array[].gene`).
 - `{{known_keys}}`            TRUE, or an error when the record has a top-level field no column's path names
                               (for tables whose columns copy the whole record, BigQuery's `SELECT t.*`).
+- `{{json COL}}`              the JSON value at the column's path (as json_extract gives it), for hand-written
+                              derivations.
+- `{{source}}`                the FROM item: `bundle_<section>`, with each record parsed once (see below).
 
 Typed copy (derivation kinds typed-copy, extension-slot and list bare-id) walks the spec type: every JSON object
 must be an object, every list a list, and an object may hold only the fields its spec struct has, so a bundle
@@ -35,6 +38,12 @@ and `value_*` fields is an extension: the bundle's `{name, value}` is put in the
 Empty versus NULL inside typed values (design plan §3.5): an absent struct or scalar is NULL; an absent list is
 `[]` (BigQuery stores no NULL arrays) when its parent is present, and at the top level follows the column's
 `nulls` rule.
+
+That walk (the slow expression) parses each JSON value again at every level. With `{{source}}` the record is
+parsed once instead, by one json_transform into the spec types (`_t`), and each typed copy gets a fast expression
+that reads `_t`; a census (_Source) decides, per row, whether the fast expressions equal the slow ones, and a row
+it can't vouch for takes the slow expression, which stops with its own message. The output is the same, byte for
+byte, and so is every failure: render(table, fast=False) gives the slow SQL alone, and the tests compare the two.
 """
 
 from __future__ import annotations
@@ -195,10 +204,16 @@ class _Gen:
         packed = f"struct_pack({', '.join(parts)})"
         if not is_ext:
             return packed
+        unknown = self.unknown_name(name_sql, known)
+        return f"CASE WHEN {unknown} THEN {self.name_fail(name_sql, rel)} ELSE {packed} END"
+
+    def unknown_name(self, name_sql: str, known: list[str]) -> str:
         known_sql = "[" + ", ".join(_lit(n) for n in known) + "]"
+        return f"NOT list_contains({known_sql}, coalesce({name_sql}, ''))"
+
+    def name_fail(self, name_sql: str, rel: str) -> str:
         msg = _lit(f"unknown extension name at {rel or '(column)'}: ") + f" || coalesce({name_sql}, '(none)')"
-        unknown = f"NOT list_contains({known_sql}, coalesce({name_sql}, ''))"
-        return f"CASE WHEN {unknown} THEN {self.fail(msg)} ELSE {packed} END"
+        return self.fail(msg)
 
 
 def typed_expr(table: Table, column: Column, pointers: set[str] | None = None) -> tuple[str, _Gen]:
@@ -216,6 +231,321 @@ def typed_expr(table: Table, column: Column, pointers: set[str] | None = None) -
     return f"CAST({body} AS {column.type})", gen
 
 
+# ---------------------------------------------------------------- {{source}}: parse once, check by census
+
+_TOP_PATH = re.compile(r"\$\.(\w+)")
+_JSON_PATH = re.compile(r"\$(\.\w+)+")
+_SOURCE = "\x00source\x00"
+_KNOWN = "\x00known_keys\x00"
+# The census counts nodes, plus _FLAG for each node caught in a way the count alone can't vouch for. Records of
+# _MAX_RECORD bytes or more take the slow expressions, so a record has fewer than 2^23 nodes and a flag can't be
+# balanced (nor the BIGINT sum overflow).
+_FLAG = str(2**24)
+_MAX_RECORD = str(2**23)
+
+
+def _scalar_census(x: str) -> str:
+    """A leaf: an empty object or array read as text ('{}' or '[]', which a string can also be) is flagged, as
+    the count alone doesn't see that it isn't a scalar."""
+    return f"CASE WHEN {x} IS NULL THEN 0 WHEN {x} IN ('{{}}', '[]') THEN {_FLAG} ELSE 1 END"
+
+
+def _pointer_census(x: str) -> str:
+    """A pointer (read as VARCHAR) counts only in cgp_pointer's own shape, so the fast strips below hold."""
+    return f"CASE WHEN {x} IS NULL THEN 0 WHEN regexp_matches({x}, '^#/[^/]+/.') THEN 1 ELSE {_FLAG} END"
+
+
+def _bare_id(x: str) -> str:
+    """regexp_replace(x, '^#/[^/]+/', ''), for x of cgp_pointer's shape."""
+    return f"substr({x}, 3 + strpos(substr({x}, 3), '/'))"
+
+
+def _section(x: str) -> str:
+    """regexp_extract(x, '^#/([^/]+)/', 1), for x of cgp_pointer's shape."""
+    return f"substr({x}, 3, strpos(substr({x}, 3), '/') - 1)"
+
+
+class _Unsupported(Exception):
+    """A typed column the fast expression doesn't cover; it keeps the slow expression alone."""
+
+
+class _Fast:
+    """The fast expression for one typed column: read from the column's value in the record's one json_transform
+    (`_t`), with the census of what that json_transform caught. See _Source."""
+
+    def __init__(self, gen: _Gen, key: str):
+        self.gen = gen
+        self.key = key
+        self.slots: dict[str, tuple[list[str], object]] = {}  # slot -> (names, structure): see _Source.parsed
+
+    def walk(self, x: str, t, rel: str, top: bool = False) -> tuple[object, str, str]:
+        """(json_transform structure, value SQL, census SQL) for x, the json_transform of a value of spec type t;
+        rel is the slow generator's position, for its leaves and messages."""
+        gen = self.gen
+        if t.id == "list":
+            child = t.children[0][1]
+            absent = "NULL" if (top and gen.column.nulls == "when-absent") else f"CAST([] AS {t})"
+            e = gen.var("e")
+            if top and self.name_dependent(child):
+                # The column's own list of name-dependent extensions: read through _Source.parsed.
+                x = _ident(f"_p_{self.key}")
+                s, val, census = self.ext(f"{e}.e", child, f"{rel}[]", e)
+            else:
+                s, val, census = self.walk(e, child, f"{rel}[]")
+            body = x if val == e else f"list_transform({x}, lambda {e}: {val})"
+            if census == _scalar_census(e):
+                # (Two list_contains: list_has_any in a lambda is quadratic in DuckDB 1.5.4.)
+                empty = f"list_contains({x}, '{{}}') OR list_contains({x}, '[]')"
+                inner = f"list_count({x}) + CASE WHEN {empty} THEN {_FLAG} ELSE 0 END"
+            else:
+                inner = f"coalesce(list_sum(list_transform({x}, lambda {e}: {census})), 0)"
+            return (
+                [s],
+                f"CASE WHEN {x} IS NULL THEN {absent} ELSE {body} END",
+                f"CASE WHEN {x} IS NULL THEN 0 ELSE 1 + {inner} END",
+            )
+        if t.id == "struct":
+            if self.is_ext(t):
+                return self.ext(x, t, rel)
+            structure: dict[str, object] = {}
+            vals, counts, same = [], [], True
+            for f, ft in t.children:
+                fx = f"{x}.{_ident(f)}"
+                structure[f], val, census = self.walk(fx, ft, f"{rel}.{f}")
+                same = same and val == fx
+                vals.append(f"{_ident(f)} := {val}")
+                counts.append(census)
+            value = x if same else f"CASE WHEN {x} IS NULL THEN NULL ELSE struct_pack({', '.join(vals)}) END"
+            return structure, value, self.struct_census(x, list(structure), counts)
+        return self.leaf(x, t, rel)
+
+    def leaf(self, x: str, t, rel: str, json_value: bool = False) -> tuple[object, str, str]:
+        """A scalar the census has seen as a scalar (or, for a pointer, in pointer shape), so the slow generator's
+        leaf reduces to a read. json_value: x is JSON text already (an extension value), not a json_transform
+        field this leaf types."""
+        gen = self.gen
+        if t.id not in _SCALARS:
+            raise SpecError(f"{gen.ctx}: unsupported type {t} at {rel or '(column)'}")
+        if rel in gen.pointers:
+            if json_value:
+                return "JSON", gen.expr(x, t, rel), _scalar_census(x)
+            if t.id != "varchar":
+                raise SpecError(f"{gen.ctx}: pointer at {rel or '(column)'} must be VARCHAR")
+            gen.used_pointers.add(rel)
+            return "VARCHAR", _bare_id(x), _pointer_census(x)
+        if t.id == "varchar":  # cgp_str of a scalar
+            return "VARCHAR", f"json_extract_string({x}, '$')" if json_value else x, _scalar_census(x)
+        return "JSON", f"CAST({x} AS {t})", _scalar_census(x)  # cgp_scalar of a scalar, cast
+
+    @staticmethod
+    def is_ext(t) -> bool:
+        names = [f for f, _ in t.children]
+        return "name" in names and any(f.startswith("value_") for f in names)
+
+    def used_slots(self, t) -> dict[str, list[str]]:
+        """{slot: its names} for the slots of extension struct t that some name maps to."""
+        here = [f for f, _ in t.children if f.startswith("value_")]
+        names = {f: sorted(n for n, slot in self.gen.slots.items() if slot == f) for f in here}
+        return {f: ns for f, ns in names.items() if ns}
+
+    def name_dependent(self, t) -> bool:
+        """An extension struct whose value's shape depends on its name (two slots, one nested or more)."""
+        if t.id != "struct" or not self.is_ext(t):
+            return False
+        types = dict(t.children)
+        used = self.used_slots(t)
+        return len(used) > 1 and any(types[f].id in ("list", "struct") for f in used)
+
+    def struct_census(self, x: str, fields: list[str], counts: list[str]) -> str:
+        # A non-NULL struct with every field NULL is flagged: json_transform makes one out of a scalar or an array
+        # (and out of {}, which the bundle doesn't write), and the count alone can't tell it from an object.
+        empty = " AND ".join(f"{x}.{_ident(f)} IS NULL" for f in fields)
+        return f"CASE WHEN {x} IS NULL THEN 0 WHEN {empty} THEN {_FLAG} ELSE 1 + {' + '.join(counts)} END"
+
+    def ext(self, x: str, t, rel: str, parsed: str | None = None) -> tuple[object, str, str]:
+        gen = self.gen
+        types = dict(t.children)
+        known = sorted(n for n, slot in gen.slots.items() if slot in types)
+        used = self.used_slots(t)
+        nested = [f for f in used if types[f].id in ("list", "struct")]
+        if self.name_dependent(t) and parsed is None:
+            raise _Unsupported(rel)  # name-dependent below the column's own list
+        name_sql = f'{x}."name"'
+        v = f'{x}."value"'
+        structure: dict[str, object] = {"name": "VARCHAR", "value": "JSON"}
+        vals, counts, value_counts = [], [], []
+        for f, ft in t.children:
+            frel = f"{rel}.{f}"
+            if f == "name":
+                vals.append(f"{_ident(f)} := {name_sql}")
+                counts.append(_scalar_census(name_sql))
+            elif f in types and f.startswith("value_"):
+                absent = f"CAST([] AS {ft})" if ft.id == "list" else "NULL"
+                if f not in used:
+                    vals.append(f"{_ident(f)} := {absent}")
+                    continue
+                if f in nested and parsed is not None:  # parsed by its name's slot type, in _Source.parsed
+                    s, val, census = self.walk(f"{parsed}.{_ident(f)}", ft, frel)
+                    self.slots[f] = (used[f], s)
+                elif f in nested:  # the one slot: read in the record's json_transform
+                    structure["value"], val, census = self.walk(v, ft, frel)
+                else:
+                    _, val, census = self.leaf(v, ft, frel, json_value=True)
+                cond = f"list_contains([{', '.join(_lit(n) for n in used[f])}], {name_sql})"
+                vals.append(f"{_ident(f)} := CASE WHEN {cond} THEN {val} ELSE {absent} END")
+                value_counts.append(f"WHEN {cond} THEN {census}")
+            else:
+                fx = f"{x}.{_ident(f)}"
+                structure[f], val, census = self.walk(fx, ft, frel)
+                vals.append(f"{_ident(f)} := {val}")
+                counts.append(census)
+        # The value is caught only under a known name; any other name leaves it out of the census.
+        counts.append(f"CASE {' '.join(value_counts)} ELSE 0 END" if value_counts else "0")
+        value = (
+            f"CASE WHEN {x} IS NULL THEN NULL WHEN {gen.unknown_name(name_sql, known)} "
+            f"THEN {gen.name_fail(name_sql, rel)} ELSE struct_pack({', '.join(vals)}) END"
+        )
+        return structure, value, self.struct_census(x, list(structure), counts)
+
+
+class _Source:
+    """{{source}}: the bundle table (after the table's own row filter) with each record parsed once, into `_t`
+    (one json_transform for every placeholder that reads its path) and, when the table has a typed copy of
+    nested type, `_ok`: the row's fast expressions equal its slow ones.
+
+    A fast expression reads its value from `_t`, where json_transform has typed it the spec's way. That drops what
+    the slow expression stops on: a field the spec type lacks, and a JSON kind (object, array, scalar) other than
+    the spec's, which json_transform turns into NULL, a struct of NULLs or the value's JSON text; and it can't tell
+    JSON null from absent. So `_ok` is a census: the record's nodes (json_array_length over `$.**`, one parse)
+    equal the nodes `_t` caught, with none of them flagged. Each caught node is a distinct node of the record, so
+    the counts agree only if every node was caught, JSON null included (a null is never caught). A node caught as
+    the wrong kind is flagged where the count can't see it: a struct of NULLs (what a scalar or an array becomes)
+    and '{}' or '[]' read as a scalar (an empty container where a scalar goes). So is a pointer not of
+    cgp_pointer's shape, so that its fast strip equals the regex. Where the census agrees, every slow leaf check
+    has passed, so a leaf reduces to a read, and the checks that remain (extension names, casts) are the slow
+    generator's own, with its messages. Where it differs, the row takes the slow expressions."""
+
+    def __init__(self, table: Table, census: bool):
+        self.table = table
+        self.has_census = census  # the table has nested typed columns: _ok exists
+        self.structure: dict[str, object] = {}
+        self.census: dict[str, str] = {}  # top-level key -> census SQL of what _t caught there
+        self.fast: list[_Fast] = []
+        self.known_keys = False
+
+    def _put(self, key: str, s: object, census: str) -> None:
+        if self.structure.setdefault(key, s) != s or self.census.setdefault(key, census) != census:
+            raise SpecError(f"table {self.table.name}: path $.{key} is read with two shapes")
+
+    def json(self, c: Column) -> str:
+        """The JSON value at the column's path, as json_extract gives it (or NULL for JSON null, which the leaf
+        macros also take as absent); json_extract itself where _t can't hold the path."""
+        x = self._json_path(c.derivation.path or "")
+        return x or f"json_extract(record, {_path(self.table, c)})"
+
+    def _json_path(self, path: str) -> str | None:
+        if not _JSON_PATH.fullmatch(path):
+            return None
+        keys = path[2:].split(".")
+        x = "_t." + ".".join(_ident(k) for k in keys)
+        if len(keys) == 1:
+            if self.structure.get(keys[0], "JSON") != "JSON":
+                return None
+            self._put(keys[0], "JSON", _scalar_census(x))
+            return x
+        if self.has_census:  # the census reads whole top-level fields
+            return None
+        node = self.structure
+        for k in keys[:-1]:
+            node = node.setdefault(k, {})
+            if not isinstance(node, dict):
+                return None
+        return x if node.setdefault(keys[-1], "JSON") == "JSON" else None
+
+    def scalar(self, c: Column, slow_of, pointer: bool) -> str:
+        """{{scalar}}, or {{pointer_section}} (pointer); slow_of(j) is its macro on the JSON value j."""
+        m = _TOP_PATH.fullmatch(c.derivation.path or "")
+        slow = slow_of(f"json_extract(record, {_path(self.table, c)})")
+        if not self.has_census:  # the macro on the same JSON value is the whole check
+            return slow_of(self.json(c))
+        if not m:
+            return slow
+        x = f"_t.{_ident(m.group(1))}"
+        t = _parse_type(c.type)
+        if pointer:
+            s, fast, census = "VARCHAR", _section(x), _pointer_census(x)
+        elif t.id == "varchar":
+            s, fast, census = "VARCHAR", x, _scalar_census(x)
+        else:
+            s, fast, census = "JSON", f"CAST({x} AS {c.type})", _scalar_census(x)
+        self._put(m.group(1), s, census)
+        return f"CASE WHEN _ok THEN {fast} ELSE {slow} END"
+
+    def typed(self, c: Column, gen: _Gen, slow: str) -> str:
+        m = _TOP_PATH.fullmatch(c.derivation.path or "")
+        if not m:
+            return slow
+        x = f"_t.{_ident(m.group(1))}"
+        t = _parse_type(c.type)
+        if not self.has_census:  # a top-level scalar: the slow generator's leaf on the same JSON value
+            return f"CAST({gen.expr(self.json(c), t, '')} AS {c.type})"
+        fast = _Fast(gen, m.group(1))
+        try:
+            s, expr, census = fast.walk(x, t, "", top=True)
+        except _Unsupported:
+            return slow
+        self._put(m.group(1), s, census)
+        self.fast.append(fast)
+        return f"CASE WHEN _ok THEN CAST({expr} AS {c.type}) ELSE {slow} END"
+
+    def sql(self, row_filter: str | None) -> str:
+        """row_filter: the table's own row filter (its WHERE without the known_keys check), applied first, so
+        the parse and the census see only the table's rows."""
+        bundle = _ident(f"bundle_{self.table.sections[0]}")
+        if row_filter:
+            bundle = f"(SELECT key, record FROM {bundle} WHERE {row_filter})"
+        if not self.structure:
+            return bundle
+        if self.has_census and self.known_keys:
+            # _ok also stands for the known_keys check: a top-level field _t doesn't read is a node it misses.
+            for k in _known_key_set(self.table):
+                if k not in self.structure:
+                    self._put(k, "JSON", _scalar_census(f"_t.{_ident(k)}"))
+        sql = f"SELECT key, record, json_transform(record, {_lit(json.dumps(self.structure))}) AS _t FROM {bundle}"
+        if not self.has_census:
+            return f"({sql}) AS _src"
+        parsed = [self.parsed(f) for f in self.fast if f.slots]
+        if parsed:
+            sql = f"SELECT *, {', '.join(parsed)} FROM ({sql})"
+        record = "len(json_array_length(record, '$.**'))"  # the record's nodes but itself: the cheapest list
+        caught = " + ".join(self.census.values())
+        return f"(SELECT *, strlen(record) < {_MAX_RECORD} AND {record} = {caught} AS _ok FROM ({sql})) AS _src"
+
+    @staticmethod
+    def parsed(fast: _Fast) -> str:
+        """`_p_<col>`: the column's name-dependent extensions, each as {e: the element in _t, <slot>: its value
+        parsed by the slot's type, for a name of that slot}."""
+        x = f"_t.{_ident(fast.key)}"
+        slots = [
+            f'{_ident(f)} := CASE WHEN list_contains([{", ".join(map(_lit, names))}], e."name") '
+            f'THEN json_transform(e."value", {_lit(json.dumps(s))}) END'
+            for f, (names, s) in fast.slots.items()
+        ]
+        return (
+            f"list_transform({x}, lambda e: struct_pack(e := e, {', '.join(slots)})) AS {_ident('_p_' + fast.key)}"
+        )
+
+
+def _census(table: Table, text: str) -> bool:
+    """The table has a typed copy of nested type at a top-level path: its {{source}} takes a census."""
+    for m in _PLACEHOLDER.finditer(text):
+        if m.group(1) in ("typed", "bare_id"):
+            c = table.column(m.group(2).split()[0])
+            if _TOP_PATH.fullmatch(c.derivation.path or "") and _parse_type(c.type).id in ("list", "struct"):
+                return True
+    return False
+
+
 def _col(table: Table, name: str) -> Column:
     return table.column(name)
 
@@ -226,7 +556,7 @@ def _path(table: Table, c: Column) -> str:
     return _lit(c.derivation.path)
 
 
-def _known_keys(table: Table) -> str:
+def _known_key_set(table: Table) -> list[str]:
     keys = {"id"}
     for c in table.columns:
         p = c.derivation.path
@@ -235,50 +565,85 @@ def _known_keys(table: Table) -> str:
             if not m:
                 raise SpecError(f"table {table.name}: column {c.name}: known_keys needs a top-level path, got {p}")
             keys.add(m.group(1))
-    allowed = "[" + ", ".join(_lit(k) for k in sorted(keys)) + "]"
+    return sorted(keys)
+
+
+def _known_keys(table: Table) -> str:
+    allowed = "[" + ", ".join(_lit(k) for k in _known_key_set(table)) + "]"
     return f"cgp_known_keys(record, {allowed}, {_lit('table ' + table.name)}, key)"
 
 
-def render(table: Table) -> str:
-    text = _sql_text(f"{table.name}.sql")
-    slot_cols: dict[str, _Gen] = {}
-
+def _substitute(
+    table: Table, text: str, src: _Source | None, slot_cols: dict[str, _Gen], known: str | None = None
+) -> str:
     def sub(m: re.Match) -> str:
         name, args = m.group(1), m.group(2).split()
         opts = dict(a.split("=", 1) for a in args if "=" in a)
         pos = [a for a in args if "=" not in a]
+        if name == "source":
+            if len(table.sections) != 1:
+                raise SpecError(f"table {table.name}: {m.group(0)} needs exactly one section")
+            return _SOURCE if src else _ident(f"bundle_{table.sections[0]}")
         if name == "known_keys":
-            return _known_keys(table)
+            if known is not None:
+                return known
+            if src is None:
+                return _known_keys(table)
+            src.known_keys = True
+            return _KNOWN
         if len(pos) != 1:
             raise SpecError(f"{table.name}.sql: {m.group(0)}: expected one column argument")
         c = _col(table, pos[0])
         ctx = _lit(f"table {table.name}: column {c.name}")
         if name == "type":
             return c.type
+        if name == "json":
+            return src.json(c) if src else f"json_extract(record, {_path(table, c)})"
         if name == "ctx":
             return ctx
-        if name == "scalar":
+        if name in ("scalar", "pointer_section"):
             t = _parse_type(c.type)
-            if t.id == "varchar":
-                return f"cgp_str(json_extract(record, {_path(table, c)}), {ctx}, key, '(column)')"
-            return f"CAST(cgp_scalar(json_extract(record, {_path(table, c)}), {ctx}, key, '(column)') AS {c.type})"
-        if name == "pointer_section":
-            return f"cgp_pointer_section(json_extract(record, {_path(table, c)}), {ctx}, key)"
-        if name == "bare_id":
-            t = _parse_type(c.type)
-            ptr = {""} if t.id == "varchar" else {"[]"}
-            expr, _ = typed_expr(table, c, ptr)
-            return expr
-        if name == "typed":
-            ptr = set(opts.get("ptr", "").split(",")) - {""}
+
+            def slow_of(j: str) -> str:
+                if name == "pointer_section":
+                    return f"cgp_pointer_section({j}, {ctx}, key)"
+                if t.id == "varchar":
+                    return f"cgp_str({j}, {ctx}, key, '(column)')"
+                return f"CAST(cgp_scalar({j}, {ctx}, key, '(column)') AS {c.type})"
+
+            if src:
+                return src.scalar(c, slow_of, pointer=name == "pointer_section")
+            return slow_of(f"json_extract(record, {_path(table, c)})")
+        if name in ("bare_id", "typed"):
+            if name == "bare_id":
+                ptr = {""} if _parse_type(c.type).id == "varchar" else {"[]"}
+            else:
+                ptr = set(opts.get("ptr", "").split(",")) - {""}
             expr, gen = typed_expr(table, c, ptr)
-            if c.name in table.extension_slots:
+            if name == "typed" and c.name in table.extension_slots:
                 slot_cols[c.name] = gen
-            return expr
+            return src.typed(c, gen, expr) if src else expr
         raise SpecError(f"{table.name}.sql: unknown placeholder {m.group(0)}")
 
-    sql = _PLACEHOLDER.sub(sub, text)
-    if "{{" in sql or "}}" in sql:
+    return _PLACEHOLDER.sub(sub, text)
+
+
+def render(table: Table, fast: bool = True) -> str:
+    """The table's SELECT. fast=False leaves {{source}} out (every placeholder reads the record with json_extract
+    and every typed copy takes the slow expression): the reference the fast SQL must equal, for tests."""
+    text = _sql_text(f"{table.name}.sql")
+    slot_cols: dict[str, _Gen] = {}
+    src = _Source(table, _census(table, text)) if fast and re.search(r"\{\{\s*source\s*\}\}", text) else None
+    sql = _substitute(table, text, src, slot_cols)
+    if src:
+        if src.known_keys:
+            known = _known_keys(table)
+            sql = sql.replace(_KNOWN, f"CASE WHEN _ok THEN TRUE ELSE {known} END" if src.has_census else known)
+        m = re.search(r"^WHERE (.*)$", text, re.M)
+        row_filter = _substitute(table, m.group(1), None, {}, known="TRUE") if m else "TRUE"
+        sql = sql.replace(_SOURCE, src.sql(None if row_filter == "TRUE" else row_filter))
+    rest = _PLACEHOLDER.sub("", text)  # the template, not the SQL: JSON structure literals hold "}}"
+    if "{{" in rest or "}}" in rest:
         raise SpecError(f"{table.name}.sql: unparsed placeholder")
     for col, mapping in table.extension_slots.items():
         gen = slot_cols.get(col)

@@ -6,4 +6,4 @@ SELECT
   {{scalar copies}} AS "copies",
   {{bare_id location_id}} AS "location_id",
   record AS "data"
-FROM bundle_copyNumberCount
+FROM {{source}}
