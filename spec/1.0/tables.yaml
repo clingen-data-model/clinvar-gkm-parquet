@@ -25,6 +25,7 @@
 #   list slot). The []-for-nested-lists rule follows BigQuery's REPEATED semantics and is confirmed by the oracle.
 # - Tables whose columns copy the whole record (BigQuery `SELECT t.*`) stop on a top-level record field that no
 #   column covers.
+name: clinvar-gkm
 spec_version: "1.0"
 status: draft
 bundle_schema_versions: ["1.1.0"]
