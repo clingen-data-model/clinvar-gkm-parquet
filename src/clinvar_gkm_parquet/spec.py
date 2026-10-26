@@ -18,6 +18,7 @@ Format (YAML):
         row_filter: null                  # null, or a description of the row rule (e.g. the evidence-line split)
         sort_key: id                      # the output column the file is ordered by
         sort_key_unique: <text>           # optional: why the sort column is unique, when it isn't the key
+        known_fields: true                # optional (default false): see below
         description: <one line>
         columns:
           - name: id
@@ -26,14 +27,49 @@ Format (YAML):
             derivation:
               kind: key                   # see DERIVATION_KINDS
               path: null                  # bundle JSON path ($.location), $ for refs, null for key / record
-              transform: null             # free text for computed columns, or null
+              transform: null             # free text for computed columns (and notes), or null
+              pointers: ["[*].allele"]    # optional, typed-copy / extension-slot only: see below
             description: <one line>
-        extension_slots:                  # only for tables with extension-slot columns
+        extension_slots:                  # tables with extension-slot columns (or typed copies holding extensions)
           extensions:                     # column name
             clinvarScvId: value_string    # extension name -> the slot field that holds its value
 
 `nulls`: `never` = the value is always present; `when-absent` = NULL when the bundle omits the field;
 `empty-list` = a list column that is `[]`, never NULL, when the bundle omits it (BigQuery's rule, §3.5 item 3).
+
+Paths (`derivation.path`; checked when the spec loads, `path_problems`). Deliberately small, not JSONPath:
+
+- `$.a.b` reads field `b` of field `a` of the record. Field names are letters, digits and `_`.
+- `[*]` after a field means each element of that list: `$.contributions[*].contributor` is the contributor of
+  every contribution, in order. A path may hold several (`$.a[*].b[*]`); each one is one list level of the
+  column type, and the result nests (no flattening).
+- The column type decides the rest: a list type one level deeper than the path's `[*]`s reads the value at the
+  end of the path as a list, so `$.members` and `$.members[*]` mean the same for a `VARCHAR[]` column.
+- Where each kind may use what: `key` and `record` take no path (null); `refs` takes `$` (the whole record);
+  `scalar-path`, `bare-id` and `pointer-section` take any path, `[*]` included; `typed-copy` and
+  `extension-slot` take fields only (`$.a.b`): the column type describes the lists below them; `computed` takes
+  any path, or null (its SQL file says what it reads).
+- Reading: the fields before the first `[*]` read like DuckDB's json_extract (a field of an absent, null or
+  non-object value is absent). From the first `[*]` on, every step is checked: a `[*]` on a value that is not
+  a list, or a field step on a value that is not an object, stops the build (absent and null are absent). An
+  absent list is `[]` inside the column value, and follows `nulls` at the column's top level.
+- At the leaf, `scalar-path` needs a scalar (an object or array stops the build) and casts it to the type;
+  `bare-id` and `pointer-section` need a `#/<section>/<id>` string (anything else stops the build).
+
+`pointers` (typed-copy and extension-slot only): the positions inside the column value that hold
+`#/<section>/<id>` pointers, written in the column type's field names, relative to the value: `[*]` each list
+element, `.f` a struct field (`[*].allele`, `[*].value_gene_array[*].gene`). Each position must be a VARCHAR
+of the type; the copy holds the bare id there, and a non-pointer stops the build.
+
+`known_fields: true`: every top-level field of a record must be read by some column at a path `$.<field>`
+(BigQuery's `SELECT t.*` tables, design plan §3.5); a record with another top-level field stops the build. It
+needs every column with a path to read a top-level field (`$.f`, optionally followed by `[*]`).
+
+Renderers (`baseline.renderer_for`): a table of only key, record and refs columns is rendered by baseline.py; a
+table the tool ships a `sql/<table>.sql` for, by sqltemplate.render; any other table by the generic renderer
+(sqltemplate.render_generic), which builds the SELECT from the derivation kinds alone. The generic renderer
+can't build a `computed` column or a row filter: those need a shipped SQL file, so a custom table with one
+fails when the spec loads.
 
 Two layers of checks:
 
@@ -85,10 +121,17 @@ _TABLE_KEYS = {
     "description",
     "columns",
     "extension_slots",
+    "known_fields",
 }
-_TABLE_OPTIONAL = {"extension_slots", "sort_key_unique"}
+_TABLE_OPTIONAL = {"extension_slots", "sort_key_unique", "known_fields"}
 _COLUMN_KEYS = {"name", "type", "nulls", "derivation", "description"}
-_DERIVATION_KEYS = {"kind", "path", "transform"}
+_DERIVATION_KEYS = {"kind", "path", "transform", "pointers"}
+_DERIVATION_OPTIONAL = {"pointers"}
+# Paths (module docstring). LIST_PATH: fields, each optionally followed by [*]; FIELD_PATH: fields only.
+LIST_PATH_RE = re.compile(r"\$(?:\.\w+(?:\[\*\])*)+")
+FIELD_PATH_RE = re.compile(r"\$(?:\.\w+)+")
+POINTER_POS_RE = re.compile(r"(?:\[\*\]|\.\w+)+")
+_POINTER_KINDS = ("typed-copy", "extension-slot")
 _TOP_KEYS = {"name", "spec_version", "status", "bundle_schema_versions", "sources", "writer", "tables"}
 NAME_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*")
 VERSION_RE = re.compile(r"\d+\.\d+")
@@ -108,6 +151,7 @@ class Derivation:
     kind: str
     path: str | None
     transform: str | None
+    pointers: tuple[str, ...] = ()  # typed-copy / extension-slot: pointer positions in the value (docstring)
 
 
 @dataclass(frozen=True)
@@ -129,6 +173,7 @@ class Table:
     columns: tuple[Column, ...]
     extension_slots: dict[str, dict[str, str]] = field(default_factory=dict)
     sort_key_unique: str | None = None
+    known_fields: bool = False  # every top-level record field must be read by a column (docstring)
 
     @property
     def file_name(self) -> str:
@@ -320,6 +365,34 @@ def spec_from_kv(kv: dict[str, str], spec_arg: str | None = None) -> tuple[Spec,
 # --- format ----------------------------------------------------------------------------------------------------
 
 
+def path_problems(d: Derivation) -> list[str]:
+    """What is wrong with a derivation's path and pointers for its kind (module docstring); empty: nothing. The
+    checks that need the column type (list levels, leaf types, pointer positions) are the renderer's
+    (sqltemplate.generic_problems)."""
+    kind, path = d.kind, d.path
+    out = []
+    if kind in ("key", "record"):
+        if path is not None:
+            out.append(f"a {kind} column takes no path (null), not {path!r}")
+    elif kind == "refs":
+        if path != "$":
+            out.append(f"a refs column takes path $ (the whole record), not {path!r}")
+    elif kind in _POINTER_KINDS:
+        if not (isinstance(path, str) and FIELD_PATH_RE.fullmatch(path)):
+            out.append(f"a {kind} path is fields only ($.a.b), not {path!r}")
+    elif path is not None or kind != "computed":
+        if not (isinstance(path, str) and LIST_PATH_RE.fullmatch(path)):
+            out.append(f"path {path!r} is not $.<field>, optionally with more .<field> and [*] steps")
+    if d.pointers and kind not in _POINTER_KINDS:
+        out.append(f"pointers is for {' and '.join(_POINTER_KINDS)} columns only")
+    for pos in d.pointers:
+        if not POINTER_POS_RE.fullmatch(pos):
+            out.append(f"pointer position {pos!r} is not [*] and .<field> steps (e.g. [*].allele)")
+    if len(set(d.pointers)) != len(d.pointers):
+        out.append("pointers lists a position twice")
+    return out
+
+
 def _keys(obj: object, allowed: set[str], required: set[str], where: str) -> dict:
     if not isinstance(obj, dict):
         raise SpecError(f"{where}: expected a mapping")
@@ -367,15 +440,26 @@ def parse_spec(raw: object, where: str = "tables.yaml", *, require_name: bool = 
             col_names.add(c["name"])
             if c["nulls"] not in NULL_RULES:
                 raise SpecError(f"{cw}: nulls must be one of {NULL_RULES}")
-            d = _keys(c["derivation"], _DERIVATION_KEYS, _DERIVATION_KEYS, f"{cw}: derivation")
+            d = _keys(
+                c["derivation"], _DERIVATION_KEYS, _DERIVATION_KEYS - _DERIVATION_OPTIONAL, f"{cw}: derivation"
+            )
             if d["kind"] not in DERIVATION_KINDS:
                 raise SpecError(f"{cw}: derivation kind must be one of {DERIVATION_KINDS}")
+            pointers = d.get("pointers", [])
+            if not (isinstance(pointers, list) and all(isinstance(x, str) for x in pointers)):
+                raise SpecError(f"{cw}: derivation pointers must be a list of positions")
+            derivation = Derivation(
+                kind=d["kind"], path=d["path"], transform=d["transform"], pointers=tuple(pointers)
+            )
+            bad = path_problems(derivation)
+            if bad:
+                raise SpecError(f"{cw}: {'; '.join(bad)}")
             columns.append(
                 Column(
                     name=c["name"],
                     type=str(c["type"]),
                     nulls=c["nulls"],
-                    derivation=Derivation(kind=d["kind"], path=d["path"], transform=d["transform"]),
+                    derivation=derivation,
                     description=str(c["description"]),
                 )
             )
@@ -393,6 +477,9 @@ def parse_spec(raw: object, where: str = "tables.yaml", *, require_name: bool = 
         for c in columns:
             if c.derivation.kind == "extension-slot" and c.name not in slots:
                 raise SpecError(f"{tw}: column {c.name} is extension-slot but has no extension_slots entry")
+        known_fields = t.get("known_fields", False)
+        if not isinstance(known_fields, bool):
+            raise SpecError(f"{tw}: known_fields must be true or false")
         tables.append(
             Table(
                 name=t["name"],
@@ -403,6 +490,7 @@ def parse_spec(raw: object, where: str = "tables.yaml", *, require_name: bool = 
                 columns=tuple(columns),
                 extension_slots={k: dict(v) for k, v in slots.items()},
                 sort_key_unique=unique_note,
+                known_fields=known_fields,
             )
         )
     return Spec(
@@ -425,7 +513,8 @@ def _has_sql_template(table_name: str) -> bool:
 
 def check_rules(spec: Spec, where: str = "tables.yaml", *, builtin: bool = False) -> None:
     """What a spec must hold to be built (module docstring). Raises SpecError naming every problem found."""
-    from .baseline import problems as baseline_problems  # baseline imports this module
+    from .baseline import problems as baseline_problems  # baseline and sqltemplate import this module
+    from .sqltemplate import generic_problems
 
     errs: list[str] = []
     if spec.name is None:
@@ -475,9 +564,11 @@ def check_rules(spec: Spec, where: str = "tables.yaml", *, builtin: bool = False
         if t.row_filter is not None and not (isinstance(t.row_filter, str) and t.row_filter.strip()):
             errs.append(f"{tw}: row_filter must be null or a description")
         if baseline_problems(t) and not _has_sql_template(t.name):
-            errs.append(
-                f"{tw}: no renderer: the baseline renderer can't build it ({'; '.join(baseline_problems(t))}) "
-                f"and the tool has no sql/{t.name}.sql"
-            )
+            generic = generic_problems(t)
+            if generic:
+                errs.append(
+                    f"{tw}: no renderer: the tool has no sql/{t.name}.sql, and the generic renderer can't build "
+                    f"it: {'; '.join(generic)}"
+                )
     if errs:
         raise SpecError(f"{where}: table spec {spec.label}: " + "; ".join(errs))

@@ -198,9 +198,9 @@ def _bad_cases() -> list[tuple[str, callable, str]]:
         r["tables"][0]["sort_key_unique"] = "test"
         return _drop_kind(r, "key")
 
-    def no_renderer(r):  # a scalar column in a table the tool has no SQL template for
+    def no_renderer(r):  # a computed column in a table the tool has no SQL template for
         r["tables"][0]["name"] = "gene_names"
-        r["tables"][0]["columns"][1]["derivation"] = {"kind": "scalar-path", "path": "$.name", "transform": None}
+        r["tables"][0]["columns"][1]["derivation"] = {"kind": "computed", "path": "$.name", "transform": "upper"}
         r["tables"][0]["columns"][1]["type"] = "VARCHAR"
         return r
 

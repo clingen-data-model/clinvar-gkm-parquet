@@ -1,4 +1,12 @@
-"""Render a table's SQL from sql/<table>.sql and the spec (design plan §3.1).
+"""Render a table's SQL from sql/<table>.sql and the spec (design plan §3.1), or from the spec alone.
+
+`render(table)` renders the table's shipped sql/<table>.sql. `render_generic(table)` (the generic renderer, for
+a table with no such file, e.g. in a user's own spec) writes that file's text from the spec's derivation kinds
+(`generic_template`: one placeholder per column, `WHERE {{known_keys}}` for `known_fields`) and renders it the
+same way, so a hand-written file of generic columns and the generic renderer give the same SQL byte for byte
+(tests/test_generic.py proves it for every such built-in table). It builds key, record, refs (joined on from
+baseline.refs_ctes), scalar-path, bare-id, pointer-section, typed-copy and extension-slot columns, with the path
+rules in spec.py; `computed` columns and row filters need a shipped file (`generic_problems`).
 
 Owned by the table-spec work package. Contract with build.py:
 
@@ -27,6 +35,8 @@ Placeholders in sql/<table>.sql (`{{name args}}`; COL is a spec column, its JSON
                               (for tables whose columns copy the whole record, BigQuery's `SELECT t.*`).
 - `{{json COL}}`              the JSON value at the column's path (as json_extract gives it), for hand-written
                               derivations.
+- `{{walk COL}}`              the value at a path with `[*]` steps (spec.py's path rules), each leaf read by
+                              the column's kind (scalar-path, bare-id or pointer-section), cast to its type.
 - `{{source}}`                the FROM item: `bundle_<section>`, with each record parsed once (see below).
 
 Typed copy (derivation kinds typed-copy, extension-slot and list bare-id) walks the spec type: every JSON object
@@ -50,6 +60,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import replace
 from functools import cache
 from importlib import resources
 
@@ -617,6 +628,8 @@ def _substitute(
             if src:
                 return src.scalar(c, slow_of, pointer=name == "pointer_section")
             return slow_of(f"json_extract(record, {_path(table, c)})")
+        if name == "walk":
+            return _walk_expr(table, c)
         if name in ("bare_id", "typed"):
             if name == "bare_id":
                 ptr = {""} if _parse_type(c.type).id == "varchar" else {"[]"}
@@ -631,10 +644,19 @@ def _substitute(
     return _PLACEHOLDER.sub(sub, text)
 
 
+def has_template(table_name: str) -> bool:
+    """The tool ships sql/<table_name>.sql."""
+    return resources.files("clinvar_gkm_parquet").joinpath("sql", f"{table_name}.sql").is_file()
+
+
 def render(table: Table, fast: bool = True) -> str:
     """The table's SELECT. fast=False leaves {{source}} out (every placeholder reads the record with json_extract
     and every typed copy takes the slow expression): the reference the fast SQL must equal, for tests."""
-    text = _sql_text(f"{table.name}.sql")
+    return _render_text(table, _sql_text(f"{table.name}.sql"), fast)
+
+
+def _render_text(table: Table, text: str, fast: bool) -> str:
+    """render() of a template text: sql/<table>.sql, or generic_template's."""
     slot_cols: dict[str, _Gen] = {}
     src = _Source(table, _census(table, text)) if fast and re.search(r"\{\{\s*source\s*\}\}", text) else None
     sql = _substitute(table, text, src, slot_cols)
@@ -659,3 +681,218 @@ def render(table: Table, fast: bool = True) -> str:
             )
     sql = "\n".join(line for line in sql.splitlines() if not line.lstrip().startswith("--")).strip()
     return sql.rstrip(";")
+
+
+# ---------------------------------------------------------------- the generic renderer (no sql/<table>.sql)
+
+GENERIC_KINDS = (
+    "key",
+    "record",
+    "refs",
+    "scalar-path",
+    "bare-id",
+    "pointer-section",
+    "typed-copy",
+    "extension-slot",
+)
+_RECORD_TYPES = ("JSON", "VARCHAR")
+_GENERIC_NAME = re.compile(r"[^\s{}=]+")  # a column name a placeholder argument can hold
+_TOP_FIELD_PATH = re.compile(r"\$\.\w+(?:\[\*\])*")
+_LEAF_PLACEHOLDER = {"scalar-path": "scalar", "bare-id": "bare_id", "pointer-section": "pointer_section"}
+
+
+def _list_depth(t) -> tuple[int, object]:
+    """(list levels, the type below them)."""
+    d = 0
+    while t.id == "list":
+        t = t.children[0][1]
+        d += 1
+    return d, t
+
+
+def _leaf_path(table: Table, c: Column) -> tuple[str, str]:
+    """(placeholder, path) for a scalar-path, bare-id or pointer-section column. The path gets the implicit
+    trailing [*] when the type has one list level more than the path (spec.py's path rules). A path whose [*]s
+    are all trailing is a plain path read by the template placeholders: scalar / bare_id / pointer_section, or
+    typed for a list of scalars (a typed copy of it is the same rule, with the fast path). Any other takes walk."""
+    kind, path = c.derivation.kind, c.derivation.path
+    where = f"table {table.name}: column {c.name}"
+    d, leaf = _list_depth(_parse_type(c.type))
+    k = path.count("[*]")
+    if d == k + 1:
+        path, k = path + "[*]", k + 1
+    if d != k:
+        raise SpecError(f"{where}: path {c.derivation.path} has {k} list level(s) ([*]); type {c.type} has {d}")
+    if kind == "scalar-path" and leaf.id not in _SCALARS:
+        raise SpecError(
+            f"{where}: a scalar-path type is a scalar or a list of scalars ({', '.join(sorted(_SCALARS))}), "
+            f"not {c.type}"
+        )
+    if kind != "scalar-path" and leaf.id != "varchar":
+        raise SpecError(f"{where}: a {kind} type is VARCHAR or a list of VARCHAR, not {c.type}")
+    plain = path.replace("[*]", "")
+    if k == 0:
+        return _LEAF_PLACEHOLDER[kind], plain
+    if path == plain + "[*]" * k and (kind == "scalar-path" or (kind == "bare-id" and k == 1)):
+        return ("typed" if kind == "scalar-path" else "bare_id"), plain
+    return "walk", path
+
+
+def _walk_expr(table: Table, c: Column) -> str:
+    """{{walk COL}}: the value at a path with [*] steps (spec.py's path rules). The fields before the first [*]
+    are one json_extract; from there each [*] must be a list and each field step an object (absent or JSON null
+    is absent: [] for a list inside the value, the column's nulls rule at its top, NULL for a scalar). Each leaf
+    is read by the column's kind with the macros' own checks."""
+    path = c.derivation.path
+    t = _parse_type(c.type)
+    if _list_depth(t)[0] == path.count("[*]") + 1:
+        path += "[*]"
+    kind = c.derivation.kind
+    ctx = _lit(f"table {table.name}: column {c.name}")
+    i = path.index("[*]")
+    prefix, steps = path[:i], re.findall(r"\[\*\]|\.\w+", path[i:])
+    n = [0]
+
+    def var(p: str) -> str:
+        n[0] += 1
+        return f"{p}{n[0]}"
+
+    def fail(msg: str, x: str) -> str:
+        return f"cgp_fail({ctx}, key, {_lit(msg)} || CAST({x} AS VARCHAR))"
+
+    def leaf(x: str, lt, pos: str) -> str:
+        p = _lit(pos)
+        if kind == "bare-id":
+            return f"cgp_bare_id({x}, {ctx}, key, {p})"
+        if kind == "pointer-section":
+            return f"regexp_extract(cgp_pointer({x}, {ctx}, key, {p}), '^#/([^/]+)/', 1)"
+        if lt.id == "varchar":
+            return f"cgp_str({x}, {ctx}, key, {p})"
+        return f"CAST(cgp_scalar({x}, {ctx}, key, {p}) AS {lt})"
+
+    def go(x: str, rest: list[str], vt, pos: str, top: bool) -> str:
+        if not rest:
+            return leaf(x, vt, pos)
+        step, rest = rest[0], rest[1:]
+        if step == "[*]":
+            absent = "NULL" if top and c.nulls == "when-absent" else f"CAST([] AS {vt})"
+            e = var("e")
+            body = go(e, rest, vt.children[0][1], pos + "[]", False)
+            return (
+                f"CASE coalesce(json_type({x}), 'NULL') WHEN 'NULL' THEN {absent} "
+                f"WHEN 'ARRAY' THEN list_transform(CAST({x} AS JSON[]), lambda {e}: {body}) "
+                f"ELSE {fail(f'expected a list at {pos}, got ', x)} END"
+            )
+        # A field step: only below a [*] (the prefix is the json_extract), so never at the column's top.
+        absent = f"CAST([] AS {vt})" if vt.id == "list" else "NULL"
+        v = var("v")
+        inner = go(v, rest, vt, pos + step, top)
+        field = f"json_extract({x}, {_lit('$' + step)})"
+        return (
+            f"CASE coalesce(json_type({x}), 'NULL') WHEN 'NULL' THEN {absent} "
+            f"WHEN 'OBJECT' THEN (list_transform([{field}], lambda {v}: {inner}))[1] "
+            f"ELSE {fail(f'expected an object at {pos}, got ', x)} END"
+        )
+
+    root = var("v")
+    body = go(root, steps, t, prefix[2:], True)
+    return f"CAST((list_transform([json_extract(record, {_lit(prefix)})], lambda {root}: {body}))[1] AS {c.type})"
+
+
+def _generic_columns(table: Table) -> tuple[Table, list[str]]:
+    """(the table with each plainly read leaf column's path made plain, its SELECT list lines). Refs columns are
+    left out of the lines (render_generic joins them on)."""
+    cols, lines = [], []
+    for c in table.columns:
+        kind, alias = c.derivation.kind, _ident(c.name)
+        if kind == "key":
+            lines.append(f"key AS {alias}")
+        elif kind == "record":
+            lines.append(f"record AS {alias}" if c.type == "VARCHAR" else f"CAST(record AS {c.type}) AS {alias}")
+        elif kind in _LEAF_PLACEHOLDER:
+            placeholder, path = _leaf_path(table, c)
+            if placeholder != "walk" and path != c.derivation.path:
+                c = replace(c, derivation=replace(c.derivation, path=path))
+            lines.append(f"{{{{{placeholder} {c.name}}}}} AS {alias}")
+        elif kind in ("typed-copy", "extension-slot"):
+            ptr = ",".join(p.replace("[*]", "[]") for p in c.derivation.pointers)
+            lines.append(f"{{{{typed {c.name}{' ptr=' + ptr if ptr else ''}}}}} AS {alias}")
+        elif kind != "refs":
+            raise SpecError(f"table {table.name}: column {c.name}: the generic renderer has no kind {kind!r}")
+        cols.append(c)
+    return replace(table, columns=tuple(cols)), lines
+
+
+def generic_template(table: Table) -> tuple[Table, str]:
+    """(the table with plain paths, the sql/<table>.sql text the generic renderer renders for one section): the
+    same placeholders a hand-written file uses, so a hand-written file of generic columns renders the same SQL."""
+    table, lines = _generic_columns(table)
+    text = "SELECT\n" + ",\n".join(f"  {line}" for line in lines) + "\nFROM {{source}}\n"
+    if table.known_fields:
+        text += "WHERE {{known_keys}}\n"
+    return table, text
+
+
+def generic_problems(table: Table) -> list[str]:
+    """Why render_generic can't build `table` (empty: it can). Renders the SQL to find out, so a bad type, an
+    unknown pointer position or an unused extension slot is found when the spec loads."""
+    from .baseline import REFS_TYPE
+
+    out = []
+    if len(table.sections) != 1:
+        out.append(f"it reads {len(table.sections)} sections; the build reads one section per table")
+    if table.row_filter is not None:
+        out.append("it has a row filter (only a shipped SQL file implements one)")
+    other = [c for c in table.columns if c.derivation.kind not in GENERIC_KINDS]
+    if other:
+        out.append(
+            f"column(s) {', '.join(f'{c.name} ({c.derivation.kind})' for c in other)}: only a shipped SQL file "
+            f"implements that kind (the generic renderer builds {', '.join(GENERIC_KINDS)})"
+        )
+    for c in table.columns:
+        kind = c.derivation.kind
+        if kind == "key" and c.type != "VARCHAR":
+            out.append(f"column {c.name} (key) must be VARCHAR, not {c.type}")
+        elif kind == "record" and c.type not in _RECORD_TYPES:
+            out.append(f"column {c.name} (record) must be one of {_RECORD_TYPES}, not {c.type}")
+        elif kind == "refs":
+            if c.type != REFS_TYPE:
+                out.append(f"column {c.name} (refs) must be {REFS_TYPE}, not {c.type}")
+            if c.nulls != "empty-list":
+                out.append(f"column {c.name} (refs) must have nulls: empty-list")
+        if not _GENERIC_NAME.fullmatch(c.name):
+            out.append(f"column name {c.name!r} holds a space, '{{', '}}' or '='")
+        if table.known_fields and kind not in ("key", "record", "refs"):
+            if not _TOP_FIELD_PATH.fullmatch(c.derivation.path or ""):
+                out.append(
+                    f"known_fields needs every column to read a top-level field ($.<field>); column {c.name} "
+                    f"reads {c.derivation.path}"
+                )
+    if not out:
+        try:
+            render_generic(table)
+        except SpecError as e:
+            out.append(str(e).removeprefix(f"table {table.name}: "))
+    return out
+
+
+def render_generic(table: Table, fast: bool = True) -> str:
+    """The table's SELECT built from its spec alone, under render()'s contract: generic_template, rendered as a
+    sql/<table>.sql would be (fast=False: the slow reference). A refs column comes from baseline.refs_ctes,
+    joined on the key."""
+    from .baseline import REFS_TYPE, refs_ctes
+
+    plain, text = generic_template(table)
+    sql = _render_text(plain, text, fast)
+    if not table.columns_of("refs"):
+        return sql
+    key = _ident(table.columns_of("key")[0].name)
+    outer = ", ".join(
+        f"coalesce(r.refs, CAST([] AS {REFS_TYPE})) AS {_ident(c.name)}"
+        if c.derivation.kind == "refs"
+        else f"g.{_ident(c.name)}"
+        for c in table.columns
+    )
+    return (
+        f"{refs_ctes(table, table.sections[0])}\nSELECT {outer}\nFROM (\n{sql}\n) g LEFT JOIN r ON r.k = g.{key}"
+    )

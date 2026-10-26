@@ -81,18 +81,18 @@ def can_render(table: Table) -> bool:
 
 
 def renderer_for(table: Table) -> Callable[[Table], str]:
-    """The renderer build.py should use for `table`: this module's for key/record/refs tables, else
-    sqltemplate's (which needs `sql/<table>.sql`)."""
+    """The renderer build.py should use for `table`: this module's for key/record/refs tables; else the table's
+    shipped `sql/<table>.sql` (sqltemplate.render); else the generic renderer, which builds the SELECT from the
+    spec's derivation kinds alone (sqltemplate.render_generic; spec.check_rules has checked that it can)."""
     if can_render(table):
         return render
     from . import sqltemplate
 
-    return sqltemplate.render
+    return sqltemplate.render if sqltemplate.has_template(table.name) else sqltemplate.render_generic
 
 
 def _section_sql(table: Table, section: str) -> str:
     src = _ident(f"bundle_{section}")
-    ctx = _lit(f"table {table.name}: section {section}: record ")
     refs_col = next((c for c in table.columns if c.derivation.kind == "refs"), None)
     cols = []
     for c in table.columns:
@@ -107,6 +107,15 @@ def _section_sql(table: Table, section: str) -> str:
     select = ",\n       ".join(cols)
     if refs_col is None:
         return f"SELECT {select}\nFROM {src} b"
+    return f"{refs_ctes(table, section)}\nSELECT {select}\nFROM {src} b LEFT JOIN r ON r.k = b.key"
+
+
+def refs_ctes(table: Table, section: str) -> str:
+    """`WITH RECURSIVE ..., r AS (...)`: the CTEs that give `r(k, refs)`, each record's refs list (module
+    docstring), for the records of bundle_<section> that hold a pointer. A query that follows them joins `r` on
+    the key and takes `coalesce(r.refs, [])` (sqltemplate.render_generic does too)."""
+    src = _ident(f"bundle_{section}")
+    ctx = _lit(f"table {table.name}: section {section}: record ")
     # nodes: the pointer strings of every record, plus every node whose key would need quoting (to know which
     # records take the slow path). json_tree's `key` of an array element is its index (digits), never odd.
     return f"""WITH RECURSIVE
@@ -162,9 +171,7 @@ r AS (
                                ' (a string that starts #/ must be #/<section>/<id>)')
                END ORDER BY id) AS refs
     FROM ptrs GROUP BY k
-)
-SELECT {select}
-FROM {src} b LEFT JOIN r ON r.k = b.key"""
+)"""
 
 
 def render(table: Table) -> str:
