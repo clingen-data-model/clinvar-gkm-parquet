@@ -140,6 +140,24 @@ def test_custom_file_with_a_template_table_passes(tmp_path):
     assert [t.name for t in spec.tables] == ["allele"] and not src.builtin
 
 
+def test_custom_table_reusing_a_builtin_name_must_match_it(tmp_path):
+    """A custom table named like a clinvar-gkm table would get that table's shipped SQL, so its definition must
+    match clinvar-gkm's; with other columns it is refused rather than built with the wrong SQL."""
+    raw = yaml.safe_load(CLINVAR_GKM_FILE.read_text(encoding="utf-8"))
+    raw["name"] = "allele-changed"
+    raw["tables"] = [t for t in raw["tables"] if t["name"] == "allele"]
+    raw["tables"][0]["columns"] = [c for c in raw["tables"][0]["columns"] if c["name"] != "digest"]
+    with pytest.raises(SpecError, match="'allele' is a built-in clinvar-gkm table .* differs from it"):
+        resolve_spec(str(_write(tmp_path, raw)))
+    # prose doesn't count: changing only a description keeps it the same table
+    raw = yaml.safe_load(CLINVAR_GKM_FILE.read_text(encoding="utf-8"))
+    raw["name"] = "allele-reworded"
+    raw["tables"] = [t for t in raw["tables"] if t["name"] == "allele"]
+    raw["tables"][0]["description"] = "reworded"
+    spec, _ = resolve_spec(str(_write(tmp_path, raw, "reworded.yaml")))
+    assert spec.table("allele")
+
+
 def test_custom_sort_key_with_documented_uniqueness(tmp_path):
     raw = _custom()
     raw["tables"][0]["sort_key"] = "data"

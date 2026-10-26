@@ -511,6 +511,24 @@ def _has_sql_template(table_name: str) -> bool:
     return resources.files("clinvar_gkm_parquet").joinpath("sql", f"{table_name}.sql").is_file()
 
 
+def _table_shape(t: Table) -> tuple:
+    """What a table builds, without its prose (descriptions, transform notes)."""
+    cols = tuple(
+        (c.name, c.type, c.nulls, c.derivation.kind, c.derivation.path, c.derivation.pointers) for c in t.columns
+    )
+    slots = tuple(sorted((k, tuple(sorted(v.items()))) for k, v in t.extension_slots.items()))
+    return (t.sections, t.row_filter, t.sort_key, t.known_fields, cols, slots)
+
+
+def _same_as_builtin_table(t: Table) -> bool:
+    """True if `t` builds exactly what the built-in clinvar-gkm table of the same name builds."""
+    try:
+        builtin = load_builtin("clinvar-gkm").table(t.name)
+    except SpecError:
+        return False
+    return _table_shape(t) == _table_shape(builtin)
+
+
 def check_rules(spec: Spec, where: str = "tables.yaml", *, builtin: bool = False) -> None:
     """What a spec must hold to be built (module docstring). Raises SpecError naming every problem found."""
     from .baseline import problems as baseline_problems  # baseline and sqltemplate import this module
@@ -563,7 +581,15 @@ def check_rules(spec: Spec, where: str = "tables.yaml", *, builtin: bool = False
                 errs.append(f"{tw}: sort_key {t.sort_key} must have nulls: never")
         if t.row_filter is not None and not (isinstance(t.row_filter, str) and t.row_filter.strip()):
             errs.append(f"{tw}: row_filter must be null or a description")
-        if baseline_problems(t) and not _has_sql_template(t.name):
+        if baseline_problems(t) and _has_sql_template(t.name) and not builtin and not _same_as_builtin_table(t):
+            # The shipped sql/<name>.sql implements the built-in clinvar-gkm table of that name. A custom table
+            # may reuse it only as defined there; with other columns it would silently get that SQL.
+            errs.append(
+                f"{tw}: the name {t.name!r} is a built-in clinvar-gkm table with its own SQL, and this table "
+                "differs from it; reuse it exactly as clinvar-gkm defines it, or give the custom table another "
+                "name"
+            )
+        elif baseline_problems(t) and not _has_sql_template(t.name):
             generic = generic_problems(t)
             if generic:
                 errs.append(
