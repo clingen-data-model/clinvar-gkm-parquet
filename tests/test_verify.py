@@ -5,11 +5,15 @@ from pathlib import Path
 
 import duckdb
 import pytest
-from _build_helpers import KV, make_con, make_spec, render
+from _build_helpers import KV, make_con, make_spec, passthrough_spec, passthrough_sql, render
+from _fixture import FIXTURE, SOURCE_RELEASE
 
+from clinvar_gkm_parquet import build as build_mod
 from clinvar_gkm_parquet import verify as verify_mod
-from clinvar_gkm_parquet.build import KV_KEYS, KV_PREFIX, LoadedState, build_tables
+from clinvar_gkm_parquet.build import KV_KEYS, KV_PREFIX, build_tables
 from clinvar_gkm_parquet.cli import main
+from clinvar_gkm_parquet.model import BuildInputs
+from clinvar_gkm_parquet.sources import resolve_input
 from clinvar_gkm_parquet.verify import (
     _json_first_diff,
     compare_dirs,
@@ -271,24 +275,41 @@ def test_command_spec_problems_exit_1(built, spec_patched):
     assert verify_mod.run_verify_command(_vargs(out)) == 1
 
 
-def test_command_bundle_recompute(built, tmp_path, spec_patched, monkeypatch):
-    _, con, out = built
-    monkeypatch.setattr(verify_mod, "resolve_build_inputs", lambda args: "INPUTS")
-
-    def load_inputs(inputs, work, spec, **kw):
-        assert inputs == "INPUTS" and work.parent == tmp_path / "w"
-        state_con = make_con()
-        state_con.execute("DELETE FROM bundle_kv WHERE key = 'K3'")
-        return LoadedState(state_con, None, [], {})
-
-    monkeypatch.setattr(verify_mod, "load_inputs", load_inputs)
+def test_command_bundle_recompute(tmp_path, monkeypatch):
+    """The streaming recompute (one section at a time, build.SectionPipeline) against a pass-through build of
+    the fixture with one row planted that the bundle doesn't have."""
+    spec = passthrough_spec()
+    monkeypatch.setattr(build_mod.sqltemplate, "macros_sql", lambda: "SELECT 1")
+    monkeypatch.setattr(build_mod.sqltemplate, "render", passthrough_sql)
+    monkeypatch.setattr(verify_mod, "load_spec", lambda v: spec)
+    out = tmp_path / "out"
+    build_mod.build(
+        BuildInputs(full=resolve_input(str(FIXTURE)), full_source_release=SOURCE_RELEASE), out, spec=spec
+    )
+    con = duckdb.connect()
+    kv = {k[len(KV_PREFIX) :]: v for k, v in _file_kv(con, out / "gene.parquet").items()}
+    _rewrite(con, out / "gene.parquet", "SELECT * FROM src UNION ALL SELECT 'synthetic:extra', '{}'", kv=kv)
     report = tmp_path / "rc.md"
-    args = _vargs(out, bundle_recompute=True, full="f.json.gz", report=report, work_dir=tmp_path / "w")
+    args = _vargs(
+        out,
+        bundle_recompute=True,
+        full=str(FIXTURE),
+        full_source_release=SOURCE_RELEASE,
+        report=report,
+        work_dir=tmp_path / "w",
+    )
     assert verify_mod.run_verify_command(args) == 1
     js = json.loads(report.with_suffix(".json").read_text())
-    kv = [g for g in js["bundle_recompute"] if g["tables"] == ["kv"]][0]
-    assert kv["not_in_bundle"]["samples"] == [{"key": "K3", "table": "kv"}]
+    groups = {tuple(g["tables"]): g for g in js["bundle_recompute"]}
+    assert len(groups) == len(spec.tables)
+    assert groups[("gene",)]["not_in_bundle"]["samples"] == [{"key": "synthetic:extra", "table": "gene"}]
+    assert not any(recompute_failed(g) for t, g in groups.items() if t != ("gene",))
     assert not list((tmp_path / "w").iterdir())  # the verify work dir is removed
+
+
+def _file_kv(con, path) -> dict[str, str]:
+    rows = con.execute(f"SELECT key, value FROM parquet_kv_metadata('{path}')").fetchall()
+    return {k.decode(): v.decode() for k, v in rows if k.decode().startswith(KV_PREFIX)}
 
 
 def test_cli_unreadable_parquet_is_an_input_error(tmp_path, capsys):

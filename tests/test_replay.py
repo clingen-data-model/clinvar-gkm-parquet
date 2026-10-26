@@ -1,6 +1,7 @@
-"""replay.check_chain and replay.load_state.
+"""replay: check_chain, read_delta, fold and the in-stream replay, through build.load_inputs (the pipeline that
+streams the full and applies the deltas' change map, with every section's final state left in DuckDB).
 
-The full is the example fixture. There are no real 1.1.0 deltas yet, so the deltas here are SYNTHETIC: built
+The full is the suite's fixture. There are no real 1.1.0 deltas yet, so the deltas here are SYNTHETIC: built
 in the bundle layout from the fixture's real records (an update is one key carrying another real record's
 bytes), with synthetic manifests in build-delta-manifest.py's shape.
 TODO: replace with real replay fixtures from published 1.1.0 deltas (design plan §8.1: keys added, updated
@@ -14,20 +15,22 @@ import datetime
 import json
 import logging
 
-import duckdb
 import pytest
 from _fixture import SOURCE_RELEASE
 from _input_helpers import FIXTURE, bundle_bytes, delta_manifest_json, fixture_sections, local_input, write_gz
 
-from clinvar_gkm_parquet.bundle import SECTIONS, stage_bundle
+from clinvar_gkm_parquet.build import load_inputs
+from clinvar_gkm_parquet.bundle import SECTIONS
 from clinvar_gkm_parquet.errors import BundleFormatError, ChainError
-from clinvar_gkm_parquet.model import DeltaManifest
-from clinvar_gkm_parquet.replay import check_chain, load_state
+from clinvar_gkm_parquet.model import BuildInputs, DeltaManifest, InputFile
+from clinvar_gkm_parquet.replay import check_chain, check_schema_versions, fold, read_delta
 from clinvar_gkm_parquet.sources import load_manifest, resolve_input
+from clinvar_gkm_parquet.spec import load_spec
 
 FULL_SOURCE = SOURCE_RELEASE  # the release the fixture's records come from (tests/_fixture.py)
 # Two synthetic weekly deltas after it.
 D1, D2 = (str(datetime.date.fromisoformat(FULL_SOURCE) + datetime.timedelta(days=d)) for d in (7, 14))
+SPEC = load_spec("1.0")  # reads every bundle section
 
 
 @pytest.fixture(scope="module")
@@ -35,19 +38,20 @@ def recs():
     return fixture_sections()
 
 
-@pytest.fixture
-def full(tmp_path):
-    return stage_bundle(resolve_input(str(FIXTURE)), tmp_path / "work")
-
-
 def _delta(tmp_path, release: str, baseline: str, sections: dict, deleted: dict | None = None, **extra):
-    """A synthetic delta bundle + manifest, staged / loaded."""
+    """A synthetic delta bundle + manifest on disk: (bundle InputFile, manifest InputFile)."""
     compact = release[:7] + release[8:]
     path = write_gz(tmp_path / "in" / f"clinvar-gkm-delta_{compact}.json.gz", bundle_bytes(sections))
-    staged = stage_bundle(local_input(path, release=release), tmp_path / "work")
     mpath = tmp_path / "in" / f"clinvar-gkm-delta_{compact}.manifest.json"
     mpath.write_text(json.dumps(delta_manifest_json(release, baseline, deleted, **extra)))
-    return staged, load_manifest(local_input(mpath, release=release))
+    return local_input(path, release=release), local_input(mpath, release=release)
+
+
+def _load(tmp_path, deltas=(), full=None):
+    inputs = BuildInputs(
+        full=full or resolve_input(str(FIXTURE)), full_source_release=FULL_SOURCE, deltas=tuple(deltas)
+    )
+    return load_inputs(inputs, tmp_path / "work", SPEC)
 
 
 def _state(con, section: str) -> dict[str, str]:
@@ -101,149 +105,187 @@ def test_chain_not_later():
         check_chain("2026-10-04", [_man("2026-10-04", "2026-10-04")])
 
 
+def test_broken_chain_stops_before_any_bundle_is_read(tmp_path, recs):
+    d2 = _delta(tmp_path, D2, D1, {"gene": recs["gene"][:1]})
+    missing = InputFile(str(tmp_path / "missing.json.gz"), "missing.json.gz", FULL_SOURCE, None, None)
+    with pytest.raises(ChainError, match="first delta"):  # not an error about the missing full
+        _load(tmp_path, [d2], full=missing)
+
+
 # ---------------------------------------------------------------------------------------------------------------
-# load_state: the full alone
+# The full alone
 
 
-def test_full_only(full, recs):
-    con = duckdb.connect()
-    counts = load_state(con, full, [])
-    assert set(counts) == set(SECTIONS)
+def test_full_only(tmp_path, recs):
+    state = _load(tmp_path)
+    con = state.con
+    assert set(state.counts) == set(SECTIONS)
     for section in SECTIONS:
         expected = {_key(k): r.decode() for k, r in recs.get(section, [])}
-        assert counts[section] == len(expected)
+        assert state.counts[section] == len(expected)
         assert _state(con, section) == expected  # decoded keys, exact record text
     cols = con.execute("DESCRIBE bundle_scv").fetchall()
     assert [(c[0], c[1]) for c in cols] == [("key", "VARCHAR"), ("record", "VARCHAR")]
+    assert not list((tmp_path / "work" / "stage").glob("**/*.tsv.gz"))
 
 
 def test_escaped_keys_are_decoded(tmp_path, recs):
     key, record = recs["gene"][0]
     odd = b'"synthetic \\"q\\" \\\\ caf\\u00e9 \xc3\xbc \\t"'
     path = write_gz(tmp_path / "b.json.gz", bundle_bytes({"gene": [(odd, record), (key, record)]}))
-    staged = stage_bundle(local_input(path), tmp_path / "work")
-    con = duckdb.connect()
-    load_state(con, staged, [])
-    assert set(_state(con, "gene")) == {'synthetic "q" \\ café ü \t', _key(key)}
+    state = _load(tmp_path, full=local_input(path))
+    assert set(_state(state.con, "gene")) == {'synthetic "q" \\ café ü \t', _key(key)}
 
 
 def test_duplicate_key_in_full(tmp_path, recs):
     gene = recs["gene"]
     path = write_gz(tmp_path / "dup.json.gz", bundle_bytes({"gene": [gene[0], gene[1], gene[0]]}))
-    staged = stage_bundle(local_input(path), tmp_path / "work")
     with pytest.raises(BundleFormatError, match=f"dup.json.gz: section gene, key {_key(gene[0][0])}: appears 2"):
-        load_state(duckdb.connect(), staged, [])
+        _load(tmp_path, full=local_input(path))
+
+
+def test_duplicate_key_in_full_that_a_delta_touches(tmp_path, recs):
+    # A key the change map holds is dropped from the stream, so its repeat is caught there, not in DuckDB.
+    gene = recs["gene"]
+    path = write_gz(tmp_path / "dup.json.gz", bundle_bytes({"gene": [gene[0], gene[1], gene[0]]}))
+    d1 = _delta(tmp_path, D1, FULL_SOURCE, {"gene": [(gene[0][0], gene[1][1])]})
+    with pytest.raises(
+        BundleFormatError, match=f"dup.json.gz: section gene, key {_key(gene[0][0])}: appears more"
+    ):
+        _load(tmp_path, [d1], full=local_input(path))
 
 
 # ---------------------------------------------------------------------------------------------------------------
-# load_state: synthetic deltas over the full
+# Synthetic deltas over the full
 
 
-def test_update_add_delete(tmp_path, full, recs):
+def test_update_add_delete(tmp_path, recs):
     scv = recs["scv"]
     (k0, r0), (k1, r1), (k2, _) = scv[0], scv[1], scv[2]
     new_key = b'"synthetic:SCV-new"'
     d1 = _delta(tmp_path, D1, FULL_SOURCE, {"scv": [(k0, r1), (new_key, r0)]}, deleted={"scv": [_key(k2)]})
-    con = duckdb.connect()
-    check_chain(FULL_SOURCE, [d1[1]])
-    counts = load_state(con, full, [d1])
-    state = _state(con, "scv")
-    assert state[_key(k0)] == r1.decode()  # updated with another real record's bytes
-    assert state[_key(new_key)] == r0.decode()  # added
-    assert _key(k2) not in state  # deleted
-    assert state[_key(k1)] == r1.decode()  # untouched
-    assert counts["scv"] == len(scv)  # +1 added, -1 deleted
+    state = _load(tmp_path, [d1])
+    scv_state = _state(state.con, "scv")
+    assert scv_state[_key(k0)] == r1.decode()  # updated with another real record's bytes
+    assert scv_state[_key(new_key)] == r0.decode()  # added
+    assert _key(k2) not in scv_state  # deleted
+    assert scv_state[_key(k1)] == r1.decode()  # untouched
+    assert state.counts["scv"] == len(scv)  # +1 added, -1 deleted
     # other sections are the full as is
-    assert _state(con, "rcv") == {_key(k): r.decode() for k, r in recs["rcv"]}
+    assert _state(state.con, "rcv") == {_key(k): r.decode() for k, r in recs["rcv"]}
 
 
-def test_highest_seq_wins(tmp_path, full, recs):
+def test_highest_seq_wins(tmp_path, recs):
     (k0, r0), (_, r1), (_, r2) = recs["vcv"][:3]
     d1 = _delta(tmp_path, D1, FULL_SOURCE, {"vcv": [(k0, r1)]})
     d2 = _delta(tmp_path, D2, D1, {"vcv": [(k0, r2)]})
-    con = duckdb.connect()
-    load_state(con, full, [d1, d2])
-    assert _state(con, "vcv")[_key(k0)] == r2.decode()
+    assert _state(_load(tmp_path, [d1, d2]).con, "vcv")[_key(k0)] == r2.decode()
 
 
-def test_delete_then_add_in_a_later_delta(tmp_path, full, recs):
+def test_delete_then_add_in_a_later_delta(tmp_path, recs):
     (k0, r0), (_, r1) = recs["rcv"][:2]
     d1 = _delta(tmp_path, D1, FULL_SOURCE, {}, deleted={"rcv": [_key(k0)]})
     d2 = _delta(tmp_path, D2, D1, {"rcv": [(k0, r1)]})
-    con = duckdb.connect()
-    load_state(con, full, [d1])
-    assert _key(k0) not in _state(con, "rcv")
-    load_state(con, full, [d1, d2])
-    assert _state(con, "rcv")[_key(k0)] == r1.decode()
+    assert _key(k0) not in _state(_load(tmp_path / "a", [d1]).con, "rcv")
+    assert _state(_load(tmp_path / "b", [d1, d2]).con, "rcv")[_key(k0)] == r1.decode()
 
 
-def test_add_then_delete_in_a_later_delta(tmp_path, full, recs):
+def test_add_then_delete_in_a_later_delta(tmp_path, recs):
     (k0, r0) = recs["condition"][0]
     new_key = b'"synthetic:trait-new"'
     d1 = _delta(tmp_path, D1, FULL_SOURCE, {"condition": [(new_key, r0)]})
     d2 = _delta(tmp_path, D2, D1, {}, deleted={"condition": [_key(new_key)]})
-    con = duckdb.connect()
-    load_state(con, full, [d1, d2])
-    assert _key(new_key) not in _state(con, "condition")
+    assert _key(new_key) not in _state(_load(tmp_path, [d1, d2]).con, "condition")
 
 
-def test_upsert_beats_delete_in_the_same_delta(tmp_path, full, recs, caplog):
+def test_upsert_beats_delete_in_the_same_delta(tmp_path, recs, caplog):
     (k0, _), (_, r1) = recs["evidenceLine"][:2]
     d1 = _delta(tmp_path, D1, FULL_SOURCE, {"evidenceLine": [(k0, r1)]}, deleted={"evidenceLine": [_key(k0)]})
-    con = duckdb.connect()
-    load_state(con, full, [d1])
-    assert _state(con, "evidenceLine")[_key(k0)] == r1.decode()
+    assert _state(_load(tmp_path, [d1]).con, "evidenceLine")[_key(k0)] == r1.decode()
     assert "not in the prior state" not in caplog.text
 
 
-def test_delete_of_a_missing_key_warns(tmp_path, full, recs, caplog):
+def test_delete_of_a_missing_key_warns(tmp_path, recs, caplog):
     (k0, _) = recs["submitter"][0]
     d1 = _delta(tmp_path, D1, FULL_SOURCE, {}, deleted={"submitter": [_key(k0), "synthetic:absent"]})
     d2 = _delta(tmp_path, D2, D1, {}, deleted={"submitter": [_key(k0)]})  # already gone
-    con = duckdb.connect()
     with caplog.at_level(logging.WARNING, logger="clinvar_gkm_parquet.replay"):
-        counts = load_state(con, full, [d1, d2])
-    assert counts["submitter"] == len(recs["submitter"]) - 1
-    msgs = [r.getMessage() for r in caplog.records]
+        state = _load(tmp_path, [d1, d2])
+    assert state.counts["submitter"] == len(recs["submitter"]) - 1
+    msgs = [r.getMessage() for r in caplog.records if r.name == "clinvar_gkm_parquet.replay"]
     assert any(f"delta {D1}: 1 deleted submitter key(s)" in m and "synthetic:absent" in m for m in msgs)
     assert any(f"delta {D2}: 1 deleted submitter key(s)" in m and _key(k0) in m for m in msgs)
+    assert len(msgs) == 2
 
 
-def test_delta_into_a_section_absent_from_the_full(tmp_path, full, recs):
-    absent = [s for s in SECTIONS if s not in full.sections]
+def test_delete_after_an_upsert_of_an_absent_key_is_not_a_warning(tmp_path, recs, caplog):
+    (_, r0) = recs["gene"][0]
+    d1 = _delta(tmp_path, D1, FULL_SOURCE, {"gene": [(b'"synthetic:gene-new"', r0)]})
+    d2 = _delta(tmp_path, D2, D1, {}, deleted={"gene": ["synthetic:gene-new"]})
+    with caplog.at_level(logging.WARNING, logger="clinvar_gkm_parquet.replay"):
+        state = _load(tmp_path, [d1, d2])
+    assert "synthetic:gene-new" not in _state(state.con, "gene")
+    assert "not in the prior state" not in caplog.text
+
+
+def test_delta_into_a_section_absent_from_the_full(tmp_path, recs):
+    absent = [s for s in SECTIONS if s not in recs]
     if not absent:
         pytest.skip("the fixture has every section")
     section = absent[0]
     (_, r0) = next(iter(v for v in recs.values() if v))[0]  # any real record's bytes (replay doesn't parse them)
     d1 = _delta(tmp_path, D1, FULL_SOURCE, {section: [(b'"synthetic:new-in-delta"', r0)]})
-    con = duckdb.connect()
-    counts = load_state(con, full, [d1])
-    assert counts[section] == 1
-    assert _state(con, section) == {"synthetic:new-in-delta": r0.decode()}
+    state = _load(tmp_path, [d1])
+    assert state.counts[section] == 1
+    assert _state(state.con, section) == {"synthetic:new-in-delta": r0.decode()}
 
 
-def test_duplicate_key_in_a_delta(tmp_path, full, recs):
+def test_a_delta_can_empty_a_section(tmp_path, recs):
+    keys = [_key(k) for k, _ in recs["therapyGroup"]]
+    d1 = _delta(tmp_path, D1, FULL_SOURCE, {}, deleted={"therapyGroup": keys})
+    state = _load(tmp_path, [d1])
+    assert state.counts["therapyGroup"] == 0 and _state(state.con, "therapyGroup") == {}
+
+
+def test_duplicate_key_in_a_delta(tmp_path, recs):
     (k0, r0), (_, r1) = recs["gene"][:2]
     d1 = _delta(tmp_path, D1, FULL_SOURCE, {"gene": [(k0, r0), (k0, r1)]})
-    with pytest.raises(BundleFormatError, match=f"clinvar-gkm-delta_{D1[:7]}{D1[8:]}.json.gz: section gene"):
-        load_state(duckdb.connect(), full, [d1])
+    name = f"clinvar-gkm-delta_{D1[:7]}{D1[8:]}.json.gz"
+    with pytest.raises(BundleFormatError, match=f"{name}: section gene, key {_key(k0)}: appears 2 times"):
+        _load(tmp_path, [d1])
 
 
-def test_schema_versions_must_match(tmp_path, full, recs):
-    staged, man = _delta(tmp_path, D1, FULL_SOURCE, {"gene": recs["gene"][:1]})
-    other = dataclasses.replace(staged, schema_version="1.1.1")
+def test_schema_versions_must_match(tmp_path, recs):
+    b, m = _delta(tmp_path, D1, FULL_SOURCE, {"gene": recs["gene"][:1]})
+    man = load_manifest(m)
+    delta = read_delta(b, man)
+    check_schema_versions("full.json.gz", "1.1.0", [(delta, man)])
+    other = dataclasses.replace(delta, streamed=dataclasses.replace(delta.streamed, schema_version="1.1.1"))
     with pytest.raises(ChainError, match="same one"):
-        load_state(duckdb.connect(), full, [(other, man)])
+        check_schema_versions("full.json.gz", "1.1.0", [(other, man)])
 
 
-def test_delta_must_match_its_manifest_sha256(tmp_path, full, recs):
-    staged, man = _delta(tmp_path, D1, FULL_SOURCE, {"gene": recs["gene"][:1]}, sha256="0" * 64)
+def test_delta_must_match_its_manifest_sha256(tmp_path, recs):
+    d1 = _delta(tmp_path, D1, FULL_SOURCE, {"gene": recs["gene"][:1]}, sha256="0" * 64)
     with pytest.raises(ChainError, match="differs from the one its manifest"):
-        load_state(duckdb.connect(), full, [(staged, man)])
+        _load(tmp_path, [d1])
 
 
-def test_delta_paired_with_the_wrong_manifest(tmp_path, full, recs):
+def test_delta_paired_with_the_wrong_manifest(tmp_path, recs):
     d1 = _delta(tmp_path, D1, FULL_SOURCE, {"gene": recs["gene"][:1]})
     d2 = _delta(tmp_path, D2, D1, {"gene": recs["gene"][1:2]})
     with pytest.raises(ChainError, match=f"paired with the manifest for {D2}"):
-        load_state(duckdb.connect(), full, [(d1[0], d2[1])])
+        read_delta(d1[0], load_manifest(d2[1]))
+
+
+def test_fold_order_and_tombstones(tmp_path, recs):
+    """The change map without the full: the last delta to touch a key wins, deletes before upserts."""
+    (k0, r0), (k1, r1) = recs["gene"][:2]
+    m1 = load_manifest(_delta(tmp_path, D1, FULL_SOURCE, {}, deleted={"gene": [_key(k0)]})[1])
+    m2 = load_manifest(_delta(tmp_path, D2, D1, {}, deleted={"gene": [_key(k1)]})[1])
+    b1 = read_delta(_delta(tmp_path, D1, FULL_SOURCE, {"gene": [(k1, r0)]}, deleted={"gene": [_key(k0)]})[0], m1)
+    b2 = read_delta(_delta(tmp_path, D2, D1, {"gene": [(k0, r1)]}, deleted={"gene": [_key(k1)]})[0], m2)
+    ch = fold([(b1, m1), (b2, m2)])["gene"]
+    assert ch.final == {_key(k0).encode(): (k0, r1), _key(k1).encode(): None}
+    assert ch.full_deletes == {_key(k0).encode(): [1]}  # D2's delete of k1 follows D1's upsert of it
+    assert ch.absent_deletes == {}

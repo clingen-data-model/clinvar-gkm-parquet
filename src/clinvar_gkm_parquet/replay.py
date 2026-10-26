@@ -1,30 +1,35 @@
-"""Delta chain check and replay into DuckDB (design plan §4.3).
+"""Delta chain check and in-stream delta replay (design plan §4.3).
 
-Owned by the input-side work package. Produces one DuckDB table per bundle section (all 20; a section absent
-from every input is an empty table), `bundle_<section>(key VARCHAR, record VARCHAR)`: `key` is the decoded bundle
-key, `record` the exact record text. With no deltas this is the full as staged. With deltas: per key, the row
-with the highest seq wins (0 = the full, i = the i-th delta); a manifest delete is a tombstone at that seq, and
-within one delta an upsert beats a delete.
+Owned by the input-side work package. Deltas are small (a weekly delta is about 10 MB gzip), so they are read
+into memory before the full streams (`read_deltas`) and folded, oldest first, into one net change map per section
+(`fold`): key -> its final record, or a tombstone. The rule is the one ClinVar-GKM's replay applies: per key, the
+latest delta that touches it wins (seq 0 = the full, i = the i-th delta); within one delta the manifest's deletes
+apply before the bundle's upserts, so an upsert beats a delete of the same key.
 
-A delete of a key that is not in the state it applies to is logged as a warning, not an error. That is how
-ClinVar-GKM treats it: the docs' replay example drops it (`pop(pk, None)`) and the delta-reconstruction oracle
-(`oracle-delta-reconstruction.sh`, runbook 1.1.0 §4.4) applies deletes as a `NOT IN` filter, so a missing
-key changes nothing and the oracle still passes. It removes no data, so nothing is dropped silently.
+While the full streams past (build.py), `SectionReplay` applies a section's map: a full record whose key the map
+holds is dropped (it is replaced or deleted), and at the section's end the map's upserts are appended, in the
+map's order (the order the deltas first touch each key), so the staged section is the final state.
+
+A delete of a key that is not in the state it applies to (the state after the previous delta) is logged as a
+warning, not an error. That is how ClinVar-GKM treats it: the docs' replay example drops it (`pop(pk, None)`) and
+the delta-reconstruction oracle (`oracle-delta-reconstruction.sh`, runbook 1.1.0 §4.4) applies deletes as a
+`NOT IN` filter, so a missing key changes nothing and the oracle still passes. It removes no data, so nothing is
+dropped silently.
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
+from dataclasses import dataclass, field
 
-import duckdb
-
-from .bundle import SECTIONS
-from .errors import BundleFormatError, ChainError, InputError
-from .model import DeltaManifest, StagedBundle, StagedSection
+from .bundle import canonical_key, stream_bundle
+from .errors import BundleFormatError, ChainError
+from .model import DeltaBundle, DeltaManifest, InputFile
 
 log = logging.getLogger(__name__)
 
-_MIN_MAX_LINE = 2_000_000  # DuckDB's default max_line_size
+Write = Callable[[bytes, bytes], None]
 
 
 def check_chain(full_source_release: str | None, manifests: list[DeltaManifest]) -> None:
@@ -50,33 +55,24 @@ def check_chain(full_source_release: str | None, manifests: list[DeltaManifest])
         prev, prev_what = m.release, f"delta {m.release}"
 
 
-def table_name(section: str) -> str:
-    return f"bundle_{section}"
+# ---------------------------------------------------------------------------------------------------------------
+# Reading the deltas
 
 
-def _read_staging(sec: StagedSection) -> str:
-    """SQL reading a staging file as (key, record): the key decoded from its JSON form, the record as is."""
-    path = str(sec.path).replace("'", "''")
-    max_line = max(_MIN_MAX_LINE, sec.max_line_bytes + 1024)
-    return (
-        f"SELECT json_extract_string(k, '$') AS key, record FROM read_csv('{path}', delim='\t', quote='', "
-        f"escape='', header=false, auto_detect=false, new_line='\\n', strict_mode=true, compression='gzip', "
-        f"columns={{'k': 'VARCHAR', 'record': 'VARCHAR'}}, max_line_size={max_line})"
-    )
+class _MemorySink:
+    def __init__(self):
+        self.sections: dict[str, list[tuple[bytes, bytes]]] = {}
 
+    def begin(self, schema_version: str) -> None:
+        pass
 
-def _dup_check(con: duckdb.DuckDBPyConnection, table: str, staged: StagedBundle, section: str, where: str = ""):
-    row = con.execute(
-        f'SELECT key, count(*) FROM "{table}" {where} GROUP BY key HAVING count(*) > 1 ORDER BY key LIMIT 1'
-    ).fetchone()
-    if row:
-        raise BundleFormatError(f"{staged.input.name}: section {section}, key {row[0]}: appears {row[1]} times")
+    def open_section(self, section: str) -> Write:
+        recs: list[tuple[bytes, bytes]] = []
+        self.sections[section] = recs
+        return lambda k, r: recs.append((k, r))
 
-
-def _check_count(con, table: str, staged: StagedBundle, section: str, expected: int, where: str = "") -> None:
-    n = con.execute(f'SELECT count(*) FROM "{table}" {where}').fetchone()[0]
-    if n != expected:
-        raise InputError(f"{staged.input.name}: section {section}: staged {expected} records, loaded {n}")
+    def close_section(self, section: str) -> None:
+        pass
 
 
 def _manifest_sha(m: DeltaManifest) -> str | None:
@@ -84,106 +80,126 @@ def _manifest_sha(m: DeltaManifest) -> str | None:
     return sha.lower() if isinstance(sha, str) else None
 
 
-def load_state(
-    con: duckdb.DuckDBPyConnection,
-    full: StagedBundle,
-    deltas: list[tuple[StagedBundle, DeltaManifest]],
-) -> dict[str, int]:
-    """Create the bundle_<section> tables holding the final state. Returns {section: row count}.
-
-    The caller checks the chain first (check_chain). This checks that every input has the full's
-    schema_version, that each delta is the one its manifest names (release, sha256), and that no key repeats
-    within a section of one input."""
-    for staged, man in deltas:
-        if staged.schema_version != full.schema_version:
-            raise ChainError(
-                f"{staged.input.name} has schema_version {staged.schema_version}, the full "
-                f"{full.input.name} has {full.schema_version}; every input in a chain must have the same one"
-            )
-        if staged.input.release and staged.input.release != man.release:
-            raise ChainError(
-                f"{staged.input.name} (release {staged.input.release}) is paired with the "
-                f"manifest for {man.release}"
-            )
-        msha = _manifest_sha(man)
-        if msha and msha != staged.sha256:
-            raise ChainError(
-                f"{staged.input.name}: sha256 {staged.sha256} differs from the one its manifest "
-                f"({man.release}) names, {msha}"
-            )
-
-    counts: dict[str, int] = {}
-    for section in SECTIONS:
-        t = table_name(section)
-        sec = full.sections.get(section)
-        if sec is None:
-            con.execute(f'CREATE OR REPLACE TABLE "{t}" (key VARCHAR, record VARCHAR)')
-        else:
-            con.execute(f'CREATE OR REPLACE TABLE "{t}" AS {_read_staging(sec)}')
-            _check_count(con, t, full, section, sec.records)
-            _dup_check(con, t, full, section)
-        if deltas:
-            _replay_section(con, section, t, deltas)
-        counts[section] = con.execute(f'SELECT count(*) FROM "{t}"').fetchone()[0]
-    return counts
-
-
-def _replay_section(con, section: str, t: str, deltas: list[tuple[StagedBundle, DeltaManifest]]) -> None:
-    touched = f"_touched_{section}"
-    con.execute(
-        f'CREATE OR REPLACE TEMP TABLE "{touched}" (key VARCHAR, record VARCHAR, seq INTEGER, is_upsert BOOLEAN)'
-    )
-    any_rows = False
-    for seq, (staged, man) in enumerate(deltas, start=1):
-        sec = staged.sections.get(section)
-        if sec is not None:
-            any_rows = True
-            con.execute(f'INSERT INTO "{touched}" SELECT key, record, {seq}, true FROM ({_read_staging(sec)})')
-            where = f"WHERE seq = {seq} AND is_upsert"
-            _check_count(con, touched, staged, section, sec.records, where)
-            _dup_check(con, touched, staged, section, where)
-        keys = man.deleted.get(section)
-        if keys:
-            any_rows = True
-            con.execute(
-                f'INSERT INTO "{touched}" SELECT DISTINCT unnest(?::VARCHAR[]), NULL, {seq}, false', [list(keys)]
-            )
-    if not any_rows:
-        con.execute(f'DROP TABLE "{touched}"')
-        return
-
-    # A delete whose key is absent from the state it applies to (the state after the previous delta).
-    missing = con.execute(
-        f"""
-        WITH tomb AS (SELECT DISTINCT key, seq FROM "{touched}" WHERE NOT is_upsert),
-        ev AS (
-            SELECT key, 0 AS seq, true AS present FROM "{t}" WHERE key IN (SELECT key FROM tomb)
-            UNION ALL
-            SELECT key, seq, bool_or(is_upsert) AS present FROM "{touched}"
-            WHERE key IN (SELECT key FROM tomb) GROUP BY key, seq
-        ),
-        miss AS (
-            SELECT tomb.key, tomb.seq FROM tomb LEFT JOIN ev ON ev.key = tomb.key AND ev.seq < tomb.seq
-            GROUP BY tomb.key, tomb.seq HAVING arg_max(ev.present, ev.seq) IS NOT TRUE
+def read_delta(inp: InputFile, man: DeltaManifest) -> DeltaBundle:
+    """Read one delta bundle into memory and check it is the one its manifest names (release, sha256)."""
+    sink = _MemorySink()
+    streamed = stream_bundle(inp, sink)
+    if inp.release and inp.release != man.release:
+        raise ChainError(f"{inp.name} (release {inp.release}) is paired with the manifest for {man.release}")
+    msha = _manifest_sha(man)
+    if msha and msha != streamed.sha256:
+        raise ChainError(
+            f"{inp.name}: sha256 {streamed.sha256} differs from the one its manifest ({man.release}) names, {msha}"
         )
-        SELECT seq, count(*), list(key ORDER BY key)[1:5] FROM miss GROUP BY seq ORDER BY seq
-        """
-    ).fetchall()
-    for seq, n, keys in missing:
-        log.warning(
-            "delta %s: %d deleted %s key(s) not in the prior state (a no-op, as in ClinVar-GKM's replay), e.g. %s",
-            deltas[seq - 1][1].release,
-            n,
-            section,
-            ", ".join(keys),
-        )
+    return DeltaBundle(streamed=streamed, sections=sink.sections)
 
-    con.execute(f'DELETE FROM "{t}" WHERE key IN (SELECT key FROM "{touched}")')
-    con.execute(
-        f"""
-        INSERT INTO "{t}"
-        SELECT key, record FROM "{touched}"
-        QUALIFY row_number() OVER (PARTITION BY key ORDER BY seq DESC, is_upsert DESC) = 1 AND is_upsert
-        """
-    )
-    con.execute(f'DROP TABLE "{touched}"')
+
+def check_schema_versions(full_name: str, full_version: str, deltas: list[tuple[DeltaBundle, DeltaManifest]]):
+    """Every input in a chain must have the full's schema_version."""
+    for d, _ in deltas:
+        if d.schema_version != full_version:
+            raise ChainError(
+                f"{d.input.name} has schema_version {d.schema_version}, the full {full_name} has "
+                f"{full_version}; every input in a chain must have the same one"
+            )
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Folding the deltas into one change map per section
+
+
+@dataclass
+class SectionChanges:
+    """The net effect of the deltas on one section."""
+
+    section: str
+    # canonical key (model: bundle.canonical_key) -> (key as JSON bytes, record bytes), or None for a tombstone
+    final: dict[bytes, tuple[bytes, bytes] | None] = field(default_factory=dict)
+    # delta seq -> deleted keys known (from earlier deltas) to be absent from the state the delete applies to
+    absent_deletes: dict[int, list[bytes]] = field(default_factory=dict)
+    # key -> seqs of the deletes that apply to the full's state (no earlier delta touched the key)
+    full_deletes: dict[bytes, list[int]] = field(default_factory=dict)
+
+
+def fold(deltas: list[tuple[DeltaBundle, DeltaManifest]]) -> dict[str, SectionChanges]:
+    """Fold the deltas, oldest first, into one SectionChanges per section they touch. Fails on a key that
+    repeats within one section of one delta."""
+    out: dict[str, SectionChanges] = {}
+    status: dict[str, dict[bytes, bool]] = {}  # section -> key -> present after the deltas folded so far
+    for seq, (delta, man) in enumerate(deltas, start=1):
+        sections = list(dict.fromkeys([*delta.sections, *man.deleted]))
+        for section in sections:
+            ch = out.setdefault(section, SectionChanges(section))
+            st = status.setdefault(section, {})
+            ups: dict[bytes, tuple[bytes, bytes]] = {}
+            for kj, rec in delta.sections.get(section, ()):
+                ck = canonical_key(kj)
+                if ck in ups:
+                    n = sum(1 for k, _ in delta.sections[section] if canonical_key(k) == ck)
+                    raise BundleFormatError(
+                        f"{delta.input.name}: section {section}, key {ck.decode('utf-8', 'replace')}: "
+                        f"appears {n} times"
+                    )
+                ups[ck] = (kj, rec)
+            dels = [k.encode("utf-8", "surrogatepass") for k in dict.fromkeys(man.deleted.get(section, ()))]
+            for ck in dels:  # against the state after the previous delta
+                if ck in st:
+                    if not st[ck]:
+                        ch.absent_deletes.setdefault(seq, []).append(ck)
+                else:
+                    ch.full_deletes.setdefault(ck, []).append(seq)
+            for ck in dels:
+                ch.final[ck] = None
+                st[ck] = False
+            for ck, v in ups.items():
+                ch.final[ck] = v
+                st[ck] = True
+    return out
+
+
+class SectionReplay:
+    """Applies one section's SectionChanges while the full streams past (module docstring)."""
+
+    def __init__(self, changes: SectionChanges, full_name: str, releases: list[str]):
+        self.changes = changes
+        self.full_name = full_name
+        self.releases = releases  # releases[seq - 1] is delta seq's release
+        self.seen: set[bytes] = set()
+
+    def wrap(self, write: Write) -> Write:
+        """The per-record function for the full's records of this section."""
+        final, seen, section, name = self.changes.final, self.seen, self.changes.section, self.full_name
+
+        def add(kj: bytes, rec: bytes) -> None:
+            ck = kj[1:-1] if b"\\" not in kj else canonical_key(kj)
+            if ck in final:
+                if ck in seen:
+                    raise BundleFormatError(
+                        f"{name}: section {section}, key {ck.decode('utf-8', 'replace')}: appears more than once"
+                    )
+                seen.add(ck)  # replaced or deleted: the final version, if any, is appended by finish()
+                return
+            write(kj, rec)
+
+        return add
+
+    def finish(self, write: Write) -> None:
+        """Append the net upserts and log the deletes of keys that were not there."""
+        for v in self.changes.final.values():
+            if v is not None:
+                write(*v)
+        missing = {seq: list(keys) for seq, keys in self.changes.absent_deletes.items()}
+        for ck, seqs in self.changes.full_deletes.items():
+            if ck not in self.seen:
+                for seq in seqs:
+                    missing.setdefault(seq, []).append(ck)
+        for seq in sorted(missing):
+            keys = sorted(missing[seq])
+            log.warning(
+                "delta %s: %d deleted %s key(s) not in the prior state (a no-op, as in ClinVar-GKM's replay), "
+                "e.g. %s",
+                self.releases[seq - 1],
+                len(keys),
+                self.changes.section,
+                ", ".join(k.decode("utf-8", "replace") for k in keys[:5]),
+            )
