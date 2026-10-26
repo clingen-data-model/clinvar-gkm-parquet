@@ -8,5 +8,5 @@ SELECT
   {{bare_id members}} AS "members",
   {{typed constraints ptr=[].allele,[].location}} AS "constraints",
   record AS "data"
-FROM bundle_variation
+FROM {{source}}
 WHERE {{known_keys}}

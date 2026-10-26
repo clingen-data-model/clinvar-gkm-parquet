@@ -129,10 +129,12 @@ def connect(sections: dict[str, list[tuple[str, str]]] | None = None) -> duckdb.
     return con
 
 
-def build(con: duckdb.DuckDBPyConnection, table: Table) -> str:
-    """Build the table as build.py will (SELECT * FROM (<sql>) ORDER BY <sort key>); returns its name."""
-    name = f"out_{table.name}"
-    con.execute(f'CREATE OR REPLACE TABLE "{name}" AS SELECT * FROM ({render(table)}) ORDER BY "{table.sort_key}"')
+def build(con: duckdb.DuckDBPyConnection, table: Table, fast: bool = True) -> str:
+    """Build the table as build.py will (SELECT * FROM (<sql>) ORDER BY <sort key>); returns its name. fast=False
+    builds from the slow reference SQL (render(table, fast=False))."""
+    name = f"out_{table.name}" if fast else f"out_{table.name}_slow"
+    sql = render(table, fast=fast)
+    con.execute(f'CREATE OR REPLACE TABLE "{name}" AS SELECT * FROM ({sql}) ORDER BY "{table.sort_key}"')
     return name
 
 
