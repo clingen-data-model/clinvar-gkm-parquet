@@ -59,7 +59,7 @@ clinvar-gkm-parquet build --full clinvar-gkm_2026-1018.json.gz --out out/
 clinvar-gkm-parquet build --spec clinvar-gkm-1.0 --full clinvar-gkm_2026-10.json.gz \
     --delta clinvar-gkm-delta_2026-1025.json.gz --out out/
 
-# Your own spec file
+# Your own spec file: typed tables of any sections, no SQL needed
 clinvar-gkm-parquet build --spec my-tables.yaml --full clinvar-gkm_2026-1018.json.gz --out out/
 
 # A selection: one submitter and every record that points to it (its SCVs)
@@ -82,6 +82,13 @@ boolean expression over that table as the spec builds it), `--ids k1,k2` and `--
 `--max-depth N` and `--sections a,b,c`. See [ADR 0004](docs/decisions/0004-driver-based-selection.md) and the
 [design plan](docs/plans/2026-10-20-design.md) §4.5 and §10. `verify --spec <file>` is required for a custom
 spec; `verify --against` (the oracle) takes a full `clinvar-gkm` build only.
+
+A spec file uses the format of the built-in ones (`spec/1.0/tables.yaml`; reference in
+`src/clinvar_gkm_parquet/spec.py`). Its tables need no SQL: each column names a derivation kind (`scalar-path`,
+`bare-id`, `pointer-section`, `typed-copy`, `extension-slot`, `refs`, plus the `key` and `record` columns) and
+a path such as `$.name` or `$.contributions[*].contributor`. Example:
+[`tests/fixtures/custom-spec/tables.yaml`](tests/fixtures/custom-spec/tables.yaml). Only `computed` columns and
+row filters need a SQL file the tool ships.
 
 ## Design records
 

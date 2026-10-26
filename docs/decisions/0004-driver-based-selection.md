@@ -14,14 +14,15 @@ plan §4.2), so a slice can be found by walking them. The slice must still obey
 
 The maintainer decided the user-facing shape on 2026-10-26 (below). This ADR records it, with the reasons and
 the engine design (`src/clinvar_gkm_parquet/select.py`). The CLI wiring and the `--where` evaluation are
-planned; they come with the integration of the engine into `build`.
+wired (`src/clinvar_gkm_parquet/driver.py`: `build --driver ...` and the `select` command; design plan §4.5,
+§10).
 
 ## Decision
 
 1. **The driver.** A selective run names a driver table of the chosen spec; its bundle section holds the
    starting records. The starting keys come from a SQL `--where` over that table, from explicit `--ids` or
    `--ids-file`, or from both (their union). The engine takes the starting keys as input
-   (`{section: keys}`); evaluating `--where` belongs to integration (step 4 below).
+   (`{section: keys}`); `driver.py` evaluates `--where` (see Consequences).
 2. **`--follow out|in|both`, default `out`.** `out` adds every record that a selected record points to (a
    `#/<section>/<key>` string anywhere in its text). `in` adds every record that holds a pointer to a selected
    record. `both` does both from every reached record.
@@ -58,8 +59,9 @@ planned; they come with the integration of the engine into `build`.
   mini-bundle exactly as it checks a full build against its bundle: id sets equal the mini-bundle's sections,
   and `data` equals each record. The mini-bundle's sha256 must equal `selected_sha256` in the metadata, and
   rerunning the selection with the same driver keys and options must give the same bytes (the engine is
-  deterministic: gzip mtime 0, no file name, source order). Whether the mini-bundle is kept beside the build or
-  regenerated for verify is an integration choice.
+  deterministic: gzip mtime 0, no file name, source order). The mini-bundle is not kept beside the build:
+  `select` regenerates it from the recorded options, and `build --keep-work` keeps it in the work directory
+  (design plan §10).
 - **It works with any spec.** The engine knows bundle sections and pointers only; it knows nothing about tables.
   A pluggable spec gets selective builds for free.
 - **Deltas.** The engine reads any record source that gives `(section, key, record bytes)` in section order, the
@@ -106,9 +108,10 @@ and the mini-bundle; `--tables` then picks which tables the build writes from it
   `selection` object say so, and name the driver, the options and the mini-bundle's sha256. ClinVar-GKM's publish
   step should refuse a dataset that carries the entry, and the oracle (`verify --against`) compares full builds
   only.
-- Integration must wire: the `build` options (`--driver`, `--where`, `--ids`, `--ids-file`, `--follow`,
-  `--max-depth`, `--sections`); the `--where` evaluation, by rendering the driver table's SQL with the spec
-  renderer over the staged driver section (a full stage of one section) and selecting its keys; the key-value
+- Wired (`driver.py`, `build.py`, `verify.py`): the `build` options (`--driver`, `--where`, `--ids`,
+  `--ids-file`, `--follow`, `--max-depth`, `--sections`) and the `select` command; the `--where` evaluation, by
+  rendering the driver table's SQL with the spec's renderer (any spec: built-in, or custom through the generic
+  renderer) over the staged driver section (a full stage of one section) and selecting its keys; the key-value
   entry and the manifest object; and `verify --bundle-recompute` against the mini-bundle.
 - `scripts/extract-fixtures.py` shares the engine's re-open check (`Tap`), pointer scan and line regexes.
 - The engine relies on the one-record-per-line layout, as the reader does (design plan D4).

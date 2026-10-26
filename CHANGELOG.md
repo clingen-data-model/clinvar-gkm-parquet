@@ -33,3 +33,15 @@ version it writes (ADR 0002). Tags are `vX.Y.Z`.
   or a set not built with `clinvar-gkm`. A build with no driver never runs the selection engine.
 - Python API: `build.build()` called without `spec` now writes the default spec, `baseline`, as the CLI does (it
   wrote `clinvar-gkm`). Pass the `clinvar-gkm` spec for the published layout.
+- Faster table SQL (design plan §6.2): each record is parsed once and each row checked by a node census before
+  the parsed values are trusted, with the original expressions as the fallback. The output and every fail-loud
+  message are unchanged. Synthetic benchmark (`scripts/bench-tables.py`): all 22 tables 3.8× faster, `variation`
+  4.6×, `scv` 3.9×; for a full-size build, an estimated 31 → 8 minutes of table SQL.
+- Custom typed tables (ADR 0003): a table with no shipped `sql/<table>.sql` is built by a generic renderer from
+  its derivation kinds alone (`key`, `record`, `refs`, `scalar-path`, `bare-id`, `pointer-section`,
+  `typed-copy`, `extension-slot`), so a user's `tables.yaml` can map any section to typed tables. Paths take
+  `[*]` list steps (`$.contributions[*].contributor`) and are checked when the spec loads; a `computed` column
+  or a row filter still needs a shipped SQL file, and is refused at load otherwise. The spec format gains two
+  optional keys: a typed copy's `pointers` (pointer positions stripped to bare ids) and a table's
+  `known_fields` (every top-level field must be read). `clinvar-gkm` 1.0 (draft) now states both; its output is
+  unchanged, and the generic SQL of its 14 generic tables is byte-identical to the shipped files'.

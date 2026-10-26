@@ -80,11 +80,20 @@ Users also want tables shaped for their own queries. The maintainer decided on 2
   bundle would silently read a schema it was never tested on; the cost of a tool release per bundle version
   stays deliberate.
 - **Default change.** Anyone who built the published layout without `--spec` gets the baseline after this
-  change. ClinVar-GKM's release script, the oracle and parity builds must name `clinvar-gkm-1.0`. The build and
-  `verify` wiring of `--spec` comes after this ADR's code lands (planned; not yet in the CLI).
-- **Custom specs are limited by renderers.** A custom table is rendered by the baseline renderer when its columns
-  are only `key`, `record` and `refs` (any names, order or subset), and otherwise by the template renderer,
-  which needs a `sql/<table>.sql` the tool ships; a table that fits neither is refused when the spec loads.
+  change. ClinVar-GKM's release script, the oracle and parity builds must name `clinvar-gkm-1.0`. `build --spec`
+  and `verify --spec` are wired (design plan §10); the Python `build.build()` called without a spec writes the
+  baseline too.
+- **Custom specs and renderers.** A table is rendered by the baseline renderer when its columns are only `key`,
+  `record` and `refs` (any names, order or subset); else by its `sql/<table>.sql` when the tool ships one; else
+  by the generic renderer (`sqltemplate.render_generic`), which builds the SELECT from the spec's derivation
+  kinds alone: `key`, `record`, `refs`, `scalar-path`, `bare-id`, `pointer-section` (each on a path that may
+  hold `[*]` list steps), `typed-copy` and `extension-slot` (with their `pointers` and `extension_slots`, and
+  the same no-dropped-field checks as the built-in tables), and `known_fields`. So a user's spec can map any
+  section to typed tables. The path syntax and its rules are in `src/clinvar_gkm_parquet/spec.py`. What the
+  generic renderer can't build is a `computed` column or a row filter, which only a shipped SQL file
+  implements; a custom table with one (and no shipped file of its name) is refused when the spec loads. For
+  every built-in table it can build (14 of the 22 `clinvar-gkm` tables), its SQL is byte-identical to the
+  shipped file's (`tests/test_generic.py`), so the shipped files and the generic renderer can't drift apart.
   User-supplied SQL is not part of this decision.
 - **Performance is not measured yet.** `json_tree` visits every node of every record. Its cost on a full monthly
   bundle is an open item for the first full baseline build.
