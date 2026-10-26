@@ -241,10 +241,11 @@ def test_delta_into_a_section_absent_from_the_full(tmp_path, recs):
 
 
 def test_a_delta_can_empty_a_section(tmp_path, recs):
-    keys = [_key(k) for k, _ in recs["therapyGroup"]]
-    d1 = _delta(tmp_path, D1, FULL_SOURCE, {}, deleted={"therapyGroup": keys})
+    section = min((s for s in recs if recs[s]), key=lambda s: len(recs[s]))  # the fixture's smallest section
+    keys = [_key(k) for k, _ in recs[section]]
+    d1 = _delta(tmp_path, D1, FULL_SOURCE, {}, deleted={section: keys})
     state = _load(tmp_path, [d1])
-    assert state.counts["therapyGroup"] == 0 and _state(state.con, "therapyGroup") == {}
+    assert state.counts[section] == 0 and _state(state.con, section) == {}
 
 
 def test_duplicate_key_in_a_delta(tmp_path, recs):

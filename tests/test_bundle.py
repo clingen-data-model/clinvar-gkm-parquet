@@ -375,15 +375,17 @@ def test_stream_bundle_hands_every_record_to_the_sink():
 
 def test_section_writer_chunks_concatenate_to_one_file(tmp_path, monkeypatch):
     monkeypatch.setattr(bundle_mod, "_WRITE_CHUNK", 256)
-    recs = fixture_sections()["gene"]
+    secs = fixture_sections()
+    section = max(secs, key=lambda s: len(secs[s]))  # the fixture's largest section, whichever it is
+    recs = secs[section]
     one = SectionWriter(tmp_path / "one.tsv.gz")
-    many = SectionWriter(tmp_path / "gene", chunk_bytes=1024)
+    many = SectionWriter(tmp_path / section, chunk_bytes=1024)
     for k, r in recs:
         one.add(k, r)
         many.add(k, r)
     one.close()
     many.close()
-    assert len(many.paths) > 3 and many.paths[0].name == "gene.0000.tsv.gz"
+    assert len(many.paths) > 3 and many.paths[0].name == f"{section}.0000.tsv.gz"
     joined = b"".join(gzip.decompress(p.read_bytes()) for p in many.paths)
     assert joined == gzip.decompress(one.paths[0].read_bytes()) == b"".join(k + b"\t" + r + b"\n" for k, r in recs)
     assert many.records == one.records == len(recs) and many.max_line == one.max_line
