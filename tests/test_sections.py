@@ -277,11 +277,12 @@ def test_range_columns_equal_clinvar_gkm():
         assert ranges == 7  # with open ends on both sides ([null, n] starts, [n, null] ends)
         open_start = "SELECT count(*) FROM s WHERE loc_start_min IS NULL AND loc_start_max IS NOT NULL"
         assert con.execute(open_start).fetchone()[0]
-    # copyNumberCount.copies: the same rule, named after the property
+    # copyNumberCount.copies: the producer writes an integer only (an INT64 column), so the spec has no range
+    # columns for it; the plain BIGINT equals clinvar-gkm's.
     con.execute(f"CREATE TABLE gc AS SELECT * FROM ({sqltemplate.render(CLINVAR_GKM.table('copyNumberCount'))})")
     con.execute(f"CREATE TABLE sc AS SELECT * FROM ({render_generic(SPEC.table('copyNumberCount'))})")
-    got = con.execute("SELECT id, copies, copies_min, copies_max FROM sc ORDER BY id").fetchall()
-    want = con.execute("SELECT id, copies, copies, copies FROM gc ORDER BY id").fetchall()  # only integers so far
+    got = con.execute("SELECT id, copies FROM sc ORDER BY id").fetchall()
+    want = con.execute("SELECT id, copies FROM gc ORDER BY id").fetchall()
     assert got == want and len(got) == len(BASE["copyNumberCount"])
 
 
