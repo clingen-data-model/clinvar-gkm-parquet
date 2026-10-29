@@ -1,0 +1,908 @@
+# Table spec sections 1.0: one table per section of the 1.1.0 bundle, each record property its own typed
+# column, no `data` column (ADR 0003). Format: src/clinvar_gkm_parquet/spec.py. Rules:
+# .claude/rules/table-spec.md. Renderer: the generic renderer (sqltemplate.render_generic).
+#
+# PROVISIONAL: written by the engine work (feat/sections-engine) only to test the engine. Shapes come from
+# the real 1.1.0 excerpt (tests/fixtures/real-1.1.0) merged with spec/1.0's nested types, its extension
+# slots converted to slots by JSON type; pointer positions from the excerpt. It does not hold the full 1.1.0
+# column set; the reviewed file replaces it.
+#
+# Rules for every table: column `id` is the bundle key (the record's own `id`, when present, must equal it);
+# every other top-level property is one column named as the property; known_fields stops the build on a
+# property no column reads; an extension {name, value} fills the one value_<kind> slot of its value's JSON
+# type (extension_slots: json-type); a #/<section>/<id> pointer becomes the bare id.
+name: sections
+spec_version: "1.0"
+status: draft
+bundle_schema_versions: ["1.1.0"]
+sources:
+  - "clinvar-gkm 2026-10-18 weekly full excerpt (tests/fixtures/real-1.1.0), record shapes"
+  - "spec/1.0/tables.yaml (clinvar-gkm 1.0) nested types"
+writer:
+  compression: snappy
+  row_group_size: 122880
+tables:
+  - name: sequenceReference
+    sections: [sequenceReference]
+    row_filter: null
+    sort_key: id
+    known_fields: true
+    description: "Every record of bundle section sequenceReference, one typed column per property."
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: "The bundle key of the record in section sequenceReference."
+      - name: type
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: "The record's type."
+      - name: extensions
+        type: "STRUCT(\"name\" VARCHAR, value_string VARCHAR)[]"
+        nulls: empty-list
+        derivation: {kind: extension-slot, path: $.extensions, transform: "extensions by JSON type"}
+        description: "The record's extensions."
+      - name: moleculeType
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.moleculeType, transform: null}
+        description: "The record's moleculeType."
+      - name: name
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.name, transform: null}
+        description: "The record's name."
+      - name: refgetAccession
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.refgetAccession, transform: null}
+        description: "The record's refgetAccession."
+      - name: residueAlphabet
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.residueAlphabet, transform: null}
+        description: "The record's residueAlphabet."
+    extension_slots:
+      extensions: json-type
+  - name: location
+    sections: [location]
+    row_filter: null
+    sort_key: id
+    known_fields: true
+    description: "Every record of bundle section location, one typed column per property."
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: "The bundle key of the record in section location."
+      - name: type
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: "The record's type."
+      - name: loc_start
+        type: BIGINT
+        nulls: when-absent
+        derivation: {kind: range-exact, path: $.start, transform: "the integer; NULL when it is a Range"}
+        description: "start: an integer, or a Range [min, max] (either end may be null)."
+      - name: loc_start_min
+        type: BIGINT
+        nulls: when-absent
+        derivation: {kind: range-min, path: $.start, transform: "the integer, else the Range's [0]"}
+        description: "start: an integer, or a Range [min, max] (either end may be null)."
+      - name: loc_start_max
+        type: BIGINT
+        nulls: when-absent
+        derivation: {kind: range-max, path: $.start, transform: "the integer, else the Range's [1]"}
+        description: "start: an integer, or a Range [min, max] (either end may be null)."
+      - name: loc_end
+        type: BIGINT
+        nulls: when-absent
+        derivation: {kind: range-exact, path: $.end, transform: "the integer; NULL when it is a Range"}
+        description: "end: an integer, or a Range [min, max] (either end may be null)."
+      - name: loc_end_min
+        type: BIGINT
+        nulls: when-absent
+        derivation: {kind: range-min, path: $.end, transform: "the integer, else the Range's [0]"}
+        description: "end: an integer, or a Range [min, max] (either end may be null)."
+      - name: loc_end_max
+        type: BIGINT
+        nulls: when-absent
+        derivation: {kind: range-max, path: $.end, transform: "the integer, else the Range's [1]"}
+        description: "end: an integer, or a Range [min, max] (either end may be null)."
+      - name: digest
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.digest, transform: null}
+        description: "The record's digest."
+      - name: sequenceReference
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: bare-id, path: $.sequenceReference, transform: "strip ^#/[^/]+/"}
+        description: "The record's sequenceReference."
+  - name: allele
+    sections: [allele]
+    row_filter: null
+    sort_key: id
+    known_fields: true
+    description: "Every record of bundle section allele, one typed column per property."
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: "The bundle key of the record in section allele."
+      - name: type
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: "The record's type."
+      - name: digest
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.digest, transform: null}
+        description: "The record's digest."
+      - name: expressions
+        type: "STRUCT(syntax VARCHAR, \"value\" VARCHAR)[]"
+        nulls: empty-list
+        derivation: {kind: typed-copy, path: $.expressions, transform: null}
+        description: "The record's expressions."
+      - name: location
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: bare-id, path: $.location, transform: "strip ^#/[^/]+/"}
+        description: "The record's location."
+      - name: name
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.name, transform: null}
+        description: "The record's name."
+      - name: state
+        type: "STRUCT(\"sequence\" VARCHAR, \"type\" VARCHAR, length BIGINT, repeatSubunitLength BIGINT)"
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.state, transform: null}
+        description: "The record's state."
+  - name: copyNumberCount
+    sections: [copyNumberCount]
+    row_filter: null
+    sort_key: id
+    known_fields: true
+    description: "Every record of bundle section copyNumberCount, one typed column per property."
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: "The bundle key of the record in section copyNumberCount."
+      - name: type
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: "The record's type."
+      - name: copies
+        type: BIGINT
+        nulls: when-absent
+        derivation: {kind: range-exact, path: $.copies, transform: "the integer; NULL when it is a Range"}
+        description: "copies: an integer, or a Range [min, max] (either end may be null)."
+      - name: copies_min
+        type: BIGINT
+        nulls: when-absent
+        derivation: {kind: range-min, path: $.copies, transform: "the integer, else the Range's [0]"}
+        description: "copies: an integer, or a Range [min, max] (either end may be null)."
+      - name: copies_max
+        type: BIGINT
+        nulls: when-absent
+        derivation: {kind: range-max, path: $.copies, transform: "the integer, else the Range's [1]"}
+        description: "copies: an integer, or a Range [min, max] (either end may be null)."
+      - name: digest
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.digest, transform: null}
+        description: "The record's digest."
+      - name: location
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: bare-id, path: $.location, transform: "strip ^#/[^/]+/"}
+        description: "The record's location."
+  - name: copyNumberChange
+    sections: [copyNumberChange]
+    row_filter: null
+    sort_key: id
+    known_fields: true
+    description: "Every record of bundle section copyNumberChange, one typed column per property."
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: "The bundle key of the record in section copyNumberChange."
+      - name: type
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: "The record's type."
+      - name: copyChange
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.copyChange, transform: null}
+        description: "The record's copyChange."
+      - name: digest
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.digest, transform: null}
+        description: "The record's digest."
+      - name: location
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: bare-id, path: $.location, transform: "strip ^#/[^/]+/"}
+        description: "The record's location."
+  - name: gene
+    sections: [gene]
+    row_filter: null
+    sort_key: id
+    known_fields: true
+    description: "Every record of bundle section gene, one typed column per property."
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: "The bundle key of the record in section gene."
+      - name: type
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: "The record's type."
+      - name: conceptType
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.conceptType, transform: null}
+        description: "The record's conceptType."
+      - name: mappings
+        type: "STRUCT(coding STRUCT(code VARCHAR, iris VARCHAR[], \"system\" VARCHAR), relation VARCHAR)[]"
+        nulls: empty-list
+        derivation: {kind: typed-copy, path: $.mappings, transform: null}
+        description: "The record's mappings."
+      - name: name
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.name, transform: null}
+        description: "The record's name."
+      - name: primaryCoding
+        type: "STRUCT(code VARCHAR, iris VARCHAR[], \"name\" VARCHAR, \"system\" VARCHAR)"
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.primaryCoding, transform: null}
+        description: "The record's primaryCoding."
+  - name: variation
+    sections: [variation]
+    row_filter: null
+    sort_key: id
+    known_fields: true
+    description: "Every record of bundle section variation, one typed column per property."
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: "The bundle key of the record in section variation."
+      - name: type
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: "The record's type."
+      - name: name
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.name, transform: null}
+        description: "The record's name."
+      - name: extensions
+        type: "STRUCT(\"name\" VARCHAR, value_string VARCHAR, value_boolean BOOLEAN, value_integer BIGINT, value_object_array STRUCT(gene VARCHAR, relationship_type VARCHAR, \"source\" VARCHAR, nucleotideExpression STRUCT(syntax VARCHAR, \"value\" VARCHAR, \"extensions\" STRUCT(\"name\" VARCHAR, value_string VARCHAR, value_boolean BOOLEAN)[]), nucleotideType VARCHAR, proteinExpression STRUCT(syntax VARCHAR, \"value\" VARCHAR), maneSelect BOOLEAN, molecularConsequence STRUCT(code VARCHAR, iris VARCHAR[], \"name\" VARCHAR, \"system\" VARCHAR)[], manePlus BOOLEAN)[])[]"
+        nulls: empty-list
+        derivation: {kind: extension-slot, path: $.extensions, transform: "extensions by JSON type; pointers stripped to the bare id", pointers: ["[*].value_object_array[*].gene"]}
+        description: "The record's extensions."
+      - name: mappings
+        type: "STRUCT(coding STRUCT(\"system\" VARCHAR, code VARCHAR, iris VARCHAR[]), relation VARCHAR)[]"
+        nulls: empty-list
+        derivation: {kind: typed-copy, path: $.mappings, transform: null}
+        description: "The record's mappings."
+      - name: constraints
+        type: "STRUCT(\"location\" VARCHAR, matchCharacteristic STRUCT(primaryCoding STRUCT(code VARCHAR, \"system\" VARCHAR, iris VARCHAR[]), \"type\" VARCHAR), relations STRUCT(primaryCoding STRUCT(code VARCHAR, \"system\" VARCHAR, iris VARCHAR[]), \"type\" VARCHAR)[], \"type\" VARCHAR, copies BIGINT, allele VARCHAR, copyChange VARCHAR)[]"
+        nulls: empty-list
+        derivation: {kind: typed-copy, path: $.constraints, transform: "pointers stripped to the bare id", pointers: ["[*].location", "[*].allele"]}
+        description: "The record's constraints."
+      - name: members
+        type: "VARCHAR[]"
+        nulls: empty-list
+        derivation: {kind: bare-id, path: $.members, transform: "strip ^#/[^/]+/"}
+        description: "The record's members."
+    extension_slots:
+      extensions: json-type
+  - name: condition
+    sections: [condition]
+    row_filter: null
+    sort_key: id
+    known_fields: true
+    description: "Every record of bundle section condition, one typed column per property."
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: "The bundle key of the record in section condition."
+      - name: type
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: "The record's type."
+      - name: conceptType
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.conceptType, transform: null}
+        description: "The record's conceptType."
+      - name: name
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.name, transform: null}
+        description: "The record's name."
+      - name: aliases
+        type: "VARCHAR[]"
+        nulls: empty-list
+        derivation: {kind: typed-copy, path: $.aliases, transform: null}
+        description: "The record's aliases."
+      - name: primaryCoding
+        type: "STRUCT(\"name\" VARCHAR, code VARCHAR, \"system\" VARCHAR, iris VARCHAR[])"
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.primaryCoding, transform: null}
+        description: "The record's primaryCoding."
+      - name: mappings
+        type: "STRUCT(coding STRUCT(code VARCHAR, \"system\" VARCHAR, iris VARCHAR[], \"name\" VARCHAR), relation VARCHAR)[]"
+        nulls: empty-list
+        derivation: {kind: typed-copy, path: $.mappings, transform: null}
+        description: "The record's mappings."
+  - name: conditionSet
+    sections: [conditionSet]
+    row_filter: null
+    sort_key: id
+    known_fields: true
+    description: "Every record of bundle section conditionSet, one typed column per property."
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: "The bundle key of the record in section conditionSet."
+      - name: type
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: "The record's type."
+      - name: conceptSetType
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.conceptSetType, transform: null}
+        description: "The record's conceptSetType."
+      - name: concepts
+        type: "VARCHAR[]"
+        nulls: empty-list
+        derivation: {kind: bare-id, path: $.concepts, transform: "strip ^#/[^/]+/"}
+        description: "The record's concepts."
+      - name: membershipOperator
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.membershipOperator, transform: null}
+        description: "The record's membershipOperator."
+  - name: therapy
+    sections: [therapy]
+    row_filter: null
+    sort_key: id
+    known_fields: true
+    description: "Every record of bundle section therapy, one typed column per property."
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: "The bundle key of the record in section therapy."
+      - name: type
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: "The record's type."
+      - name: conceptType
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.conceptType, transform: null}
+        description: "The record's conceptType."
+      - name: name
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.name, transform: null}
+        description: "The record's name."
+  - name: therapyGroup
+    sections: [therapyGroup]
+    row_filter: null
+    sort_key: id
+    known_fields: true
+    description: "Every record of bundle section therapyGroup, one typed column per property."
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: "The bundle key of the record in section therapyGroup."
+      - name: type
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: "The record's type."
+      - name: concepts
+        type: "VARCHAR[]"
+        nulls: empty-list
+        derivation: {kind: bare-id, path: $.concepts, transform: "strip ^#/[^/]+/"}
+        description: "The record's concepts."
+      - name: membershipOperator
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.membershipOperator, transform: null}
+        description: "The record's membershipOperator."
+  - name: submitter
+    sections: [submitter]
+    row_filter: null
+    sort_key: id
+    known_fields: true
+    description: "Every record of bundle section submitter, one typed column per property."
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: "The bundle key of the record in section submitter."
+      - name: type
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: "The record's type."
+      - name: name
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.name, transform: null}
+        description: "The record's name."
+  - name: propositionPathogenicity
+    sections: [propositionPathogenicity]
+    row_filter: null
+    sort_key: id
+    known_fields: true
+    description: "Every record of bundle section propositionPathogenicity, one typed column per property."
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: "The bundle key of the record in section propositionPathogenicity."
+      - name: type
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: "The record's type."
+      - name: object
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: bare-id, path: $.object, transform: "strip ^#/[^/]+/"}
+        description: "The record's object."
+      - name: predicate
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.predicate, transform: null}
+        description: "The record's predicate."
+      - name: subject
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: bare-id, path: $.subject, transform: "strip ^#/[^/]+/"}
+        description: "The record's subject."
+      - name: geneContextQualifier
+        type: "STRUCT(conceptType VARCHAR, \"extensions\" STRUCT(\"name\" VARCHAR, value_string VARCHAR, value_string_array VARCHAR[])[], \"name\" VARCHAR, \"type\" VARCHAR, mappings STRUCT(coding STRUCT(code VARCHAR, iris VARCHAR[], \"system\" VARCHAR), relation VARCHAR)[], primaryCoding STRUCT(code VARCHAR, iris VARCHAR[], \"name\" VARCHAR, \"system\" VARCHAR))"
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.geneContextQualifier, transform: "extensions by JSON type"}
+        description: "The record's geneContextQualifier."
+      - name: modeOfInheritanceQualifier
+        type: "STRUCT(conceptType VARCHAR, \"extensions\" STRUCT(\"name\" VARCHAR, value_string VARCHAR)[], \"name\" VARCHAR, primaryCoding STRUCT(code VARCHAR, iris VARCHAR[], \"name\" VARCHAR, \"system\" VARCHAR), \"type\" VARCHAR)"
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.modeOfInheritanceQualifier, transform: "extensions by JSON type"}
+        description: "The record's modeOfInheritanceQualifier."
+      - name: conditionQualifier
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: bare-id, path: $.conditionQualifier, transform: "strip ^#/[^/]+/"}
+        description: "The record's conditionQualifier."
+    extension_slots:
+      geneContextQualifier: json-type
+      modeOfInheritanceQualifier: json-type
+  - name: propositionOncogenicity
+    sections: [propositionOncogenicity]
+    row_filter: null
+    sort_key: id
+    known_fields: true
+    description: "Every record of bundle section propositionOncogenicity, one typed column per property."
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: "The bundle key of the record in section propositionOncogenicity."
+      - name: type
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: "The record's type."
+      - name: object
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: bare-id, path: $.object, transform: "strip ^#/[^/]+/"}
+        description: "The record's object."
+      - name: predicate
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.predicate, transform: null}
+        description: "The record's predicate."
+      - name: subject
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: bare-id, path: $.subject, transform: "strip ^#/[^/]+/"}
+        description: "The record's subject."
+      - name: geneContextQualifier
+        type: "STRUCT(conceptType VARCHAR, \"extensions\" STRUCT(\"name\" VARCHAR, value_string VARCHAR, value_string_array VARCHAR[])[], \"name\" VARCHAR, \"type\" VARCHAR, mappings STRUCT(coding STRUCT(code VARCHAR, iris VARCHAR[], \"system\" VARCHAR), relation VARCHAR)[], primaryCoding STRUCT(code VARCHAR, iris VARCHAR[], \"name\" VARCHAR, \"system\" VARCHAR))"
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.geneContextQualifier, transform: "extensions by JSON type"}
+        description: "The record's geneContextQualifier."
+      - name: modeOfInheritanceQualifier
+        type: "STRUCT(conceptType VARCHAR, \"extensions\" STRUCT(\"name\" VARCHAR, value_string VARCHAR)[], \"name\" VARCHAR, primaryCoding STRUCT(code VARCHAR, iris VARCHAR[], \"name\" VARCHAR, \"system\" VARCHAR), \"type\" VARCHAR)"
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.modeOfInheritanceQualifier, transform: "extensions by JSON type"}
+        description: "The record's modeOfInheritanceQualifier."
+      - name: conditionQualifier
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: bare-id, path: $.conditionQualifier, transform: "strip ^#/[^/]+/"}
+        description: "The record's conditionQualifier."
+    extension_slots:
+      geneContextQualifier: json-type
+      modeOfInheritanceQualifier: json-type
+  - name: propositionSomaticClinicalImpact
+    sections: [propositionSomaticClinicalImpact]
+    row_filter: null
+    sort_key: id
+    known_fields: true
+    description: "Every record of bundle section propositionSomaticClinicalImpact, one typed column per property."
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: "The bundle key of the record in section propositionSomaticClinicalImpact."
+      - name: type
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: "The record's type."
+      - name: object
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: bare-id, path: $.object, transform: "strip ^#/[^/]+/"}
+        description: "The record's object."
+      - name: predicate
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.predicate, transform: null}
+        description: "The record's predicate."
+      - name: subject
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: bare-id, path: $.subject, transform: "strip ^#/[^/]+/"}
+        description: "The record's subject."
+      - name: geneContextQualifier
+        type: "STRUCT(conceptType VARCHAR, \"extensions\" STRUCT(\"name\" VARCHAR, value_string VARCHAR, value_string_array VARCHAR[])[], \"name\" VARCHAR, \"type\" VARCHAR, mappings STRUCT(coding STRUCT(code VARCHAR, iris VARCHAR[], \"system\" VARCHAR), relation VARCHAR)[], primaryCoding STRUCT(code VARCHAR, iris VARCHAR[], \"name\" VARCHAR, \"system\" VARCHAR))"
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.geneContextQualifier, transform: "extensions by JSON type"}
+        description: "The record's geneContextQualifier."
+      - name: modeOfInheritanceQualifier
+        type: "STRUCT(conceptType VARCHAR, \"extensions\" STRUCT(\"name\" VARCHAR, value_string VARCHAR)[], \"name\" VARCHAR, primaryCoding STRUCT(code VARCHAR, iris VARCHAR[], \"name\" VARCHAR, \"system\" VARCHAR), \"type\" VARCHAR)"
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.modeOfInheritanceQualifier, transform: "extensions by JSON type"}
+        description: "The record's modeOfInheritanceQualifier."
+      - name: conditionQualifier
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: bare-id, path: $.conditionQualifier, transform: "strip ^#/[^/]+/"}
+        description: "The record's conditionQualifier."
+    extension_slots:
+      geneContextQualifier: json-type
+      modeOfInheritanceQualifier: json-type
+  - name: propositionClinvarCustom
+    sections: [propositionClinvarCustom]
+    row_filter: null
+    sort_key: id
+    known_fields: true
+    description: "Every record of bundle section propositionClinvarCustom, one typed column per property."
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: "The bundle key of the record in section propositionClinvarCustom."
+      - name: type
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: "The record's type."
+      - name: object
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: bare-id, path: $.object, transform: "strip ^#/[^/]+/"}
+        description: "The record's object."
+      - name: predicate
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.predicate, transform: null}
+        description: "The record's predicate."
+      - name: subject
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: bare-id, path: $.subject, transform: "strip ^#/[^/]+/"}
+        description: "The record's subject."
+      - name: geneContextQualifier
+        type: "STRUCT(conceptType VARCHAR, \"extensions\" STRUCT(\"name\" VARCHAR, value_string VARCHAR, value_string_array VARCHAR[])[], \"name\" VARCHAR, \"type\" VARCHAR, mappings STRUCT(coding STRUCT(code VARCHAR, iris VARCHAR[], \"system\" VARCHAR), relation VARCHAR)[], primaryCoding STRUCT(code VARCHAR, iris VARCHAR[], \"name\" VARCHAR, \"system\" VARCHAR))"
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.geneContextQualifier, transform: "extensions by JSON type"}
+        description: "The record's geneContextQualifier."
+      - name: modeOfInheritanceQualifier
+        type: "STRUCT(conceptType VARCHAR, \"extensions\" STRUCT(\"name\" VARCHAR, value_string VARCHAR)[], \"name\" VARCHAR, primaryCoding STRUCT(code VARCHAR, iris VARCHAR[], \"name\" VARCHAR, \"system\" VARCHAR), \"type\" VARCHAR)"
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.modeOfInheritanceQualifier, transform: "extensions by JSON type"}
+        description: "The record's modeOfInheritanceQualifier."
+      - name: conditionQualifier
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: bare-id, path: $.conditionQualifier, transform: "strip ^#/[^/]+/"}
+        description: "The record's conditionQualifier."
+    extension_slots:
+      geneContextQualifier: json-type
+      modeOfInheritanceQualifier: json-type
+  - name: evidenceLine
+    sections: [evidenceLine]
+    row_filter: null
+    sort_key: id
+    known_fields: true
+    description: "Every record of bundle section evidenceLine, one typed column per property."
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: "The bundle key of the record in section evidenceLine."
+      - name: type
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: "The record's type."
+      - name: targetProposition
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: bare-id, path: $.targetProposition, transform: "strip ^#/[^/]+/"}
+        description: "The record's targetProposition."
+      - name: directionOfEvidenceProvided
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.directionOfEvidenceProvided, transform: null}
+        description: "The record's directionOfEvidenceProvided."
+      - name: evidenceOutcome
+        type: "STRUCT(\"type\" VARCHAR, conceptType VARCHAR, \"name\" VARCHAR)"
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.evidenceOutcome, transform: null}
+        description: "The record's evidenceOutcome."
+      - name: extensions
+        type: "STRUCT(\"name\" VARCHAR, value_object STRUCT(condition VARCHAR, id VARCHAR, \"mapping\" STRUCT(\"ref\" VARCHAR, \"type\" VARCHAR, \"value\" VARCHAR), medgen_id VARCHAR, normalized_match VARCHAR, normalized_resolution VARCHAR, \"type\" VARCHAR, xrefs STRUCT(code VARCHAR, \"system\" VARCHAR)[], conditionSet VARCHAR, multiple_condition_explanation VARCHAR, concepts STRUCT(id VARCHAR, \"name\" VARCHAR, \"type\" VARCHAR, medgen_id VARCHAR, xrefs STRUCT(code VARCHAR, \"system\" VARCHAR)[], original_medgen_match STRUCT(id VARCHAR, \"name\" VARCHAR), direct_match VARCHAR, normalized_match VARCHAR, normalized_resolution VARCHAR, \"mapping\" STRUCT(\"type\" VARCHAR, \"ref\" VARCHAR, \"value\" VARCHAR))[], \"name\" VARCHAR, original_medgen_match STRUCT(id VARCHAR, \"name\" VARCHAR), direct_match VARCHAR))[]"
+        nulls: empty-list
+        derivation: {kind: extension-slot, path: $.extensions, transform: "extensions by JSON type"}
+        description: "The record's extensions."
+      - name: strengthOfEvidenceProvided
+        type: "STRUCT(\"type\" VARCHAR, conceptType VARCHAR, \"name\" VARCHAR)"
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.strengthOfEvidenceProvided, transform: null}
+        description: "The record's strengthOfEvidenceProvided."
+      - name: hasEvidenceItems
+        type: "VARCHAR[]"
+        nulls: empty-list
+        derivation: {kind: bare-id, path: $.hasEvidenceItems, transform: "strip ^#/[^/]+/"}
+        description: "The record's hasEvidenceItems."
+    extension_slots:
+      extensions: json-type
+  - name: scv
+    sections: [scv]
+    row_filter: null
+    sort_key: id
+    known_fields: true
+    description: "Every record of bundle section scv, one typed column per property."
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: "The bundle key of the record in section scv."
+      - name: type
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: "The record's type."
+      - name: proposition
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: bare-id, path: $.proposition, transform: "strip ^#/[^/]+/"}
+        description: "The record's proposition."
+      - name: classification
+        type: "STRUCT(\"type\" VARCHAR, conceptType VARCHAR, \"name\" VARCHAR, primaryCoding STRUCT(code VARCHAR, \"system\" VARCHAR), \"extensions\" STRUCT(\"name\" VARCHAR, value_string VARCHAR)[])"
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.classification, transform: "extensions by JSON type"}
+        description: "The record's classification."
+      - name: strength
+        type: "STRUCT(\"type\" VARCHAR, conceptType VARCHAR, \"name\" VARCHAR, primaryCoding STRUCT(code VARCHAR, \"system\" VARCHAR))"
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.strength, transform: null}
+        description: "The record's strength."
+      - name: direction
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.direction, transform: null}
+        description: "The record's direction."
+      - name: quality
+        type: "STRUCT(\"type\" VARCHAR, conceptType VARCHAR, \"name\" VARCHAR)"
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.quality, transform: null}
+        description: "The record's quality."
+      - name: contributions
+        type: "STRUCT(\"type\" VARCHAR, contributor VARCHAR, date DATE, activityType VARCHAR)[]"
+        nulls: empty-list
+        derivation: {kind: typed-copy, path: $.contributions, transform: "pointers stripped to the bare id", pointers: ["[*].contributor"]}
+        description: "The record's contributions."
+      - name: extensions
+        type: "STRUCT(\"name\" VARCHAR, value_string VARCHAR, value_object STRUCT(concepts STRUCT(id VARCHAR, \"mapping\" STRUCT(\"ref\" VARCHAR, \"type\" VARCHAR, \"value\" VARCHAR), medgen_id VARCHAR, \"name\" VARCHAR, normalized_match VARCHAR, normalized_resolution VARCHAR, \"type\" VARCHAR, original_medgen_match STRUCT(id VARCHAR, \"name\" VARCHAR), xrefs STRUCT(code VARCHAR, \"system\" VARCHAR)[], direct_match VARCHAR)[], conditionSet VARCHAR, condition VARCHAR, id VARCHAR, \"mapping\" STRUCT(\"ref\" VARCHAR, \"type\" VARCHAR, \"value\" VARCHAR), medgen_id VARCHAR, \"name\" VARCHAR, normalized_match VARCHAR, normalized_resolution VARCHAR, \"type\" VARCHAR, xrefs STRUCT(code VARCHAR, \"system\" VARCHAR)[], original_medgen_match STRUCT(id VARCHAR, \"name\" VARCHAR), multiple_condition_explanation VARCHAR, direct_match VARCHAR))[]"
+        nulls: empty-list
+        derivation: {kind: extension-slot, path: $.extensions, transform: "extensions by JSON type"}
+        description: "The record's extensions."
+      - name: description
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.description, transform: null}
+        description: "The record's description."
+      - name: specifiedBy
+        type: "STRUCT(\"type\" VARCHAR, methodType VARCHAR, \"name\" VARCHAR, reportedIn STRUCT(\"type\" VARCHAR, pmid VARCHAR, urls VARCHAR[], \"extensions\" STRUCT(\"name\" VARCHAR, value_string VARCHAR, value_boolean BOOLEAN)[], doi VARCHAR, documentType VARCHAR, \"name\" VARCHAR), \"extensions\" STRUCT(\"name\" VARCHAR, value_object_array STRUCT(\"type\" VARCHAR, pmid VARCHAR, urls VARCHAR[], doi VARCHAR, \"name\" VARCHAR, documentType VARCHAR, \"extensions\" STRUCT(\"name\" VARCHAR, value_string VARCHAR, value_boolean BOOLEAN)[])[])[])"
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.specifiedBy, transform: "extensions by JSON type"}
+        description: "The record's specifiedBy."
+      - name: reportedIn
+        type: "STRUCT(\"type\" VARCHAR, \"extensions\" STRUCT(\"name\" VARCHAR, value_string VARCHAR, value_boolean BOOLEAN)[], doi VARCHAR, urls VARCHAR[], documentType VARCHAR, pmid VARCHAR, \"name\" VARCHAR)[]"
+        nulls: empty-list
+        derivation: {kind: typed-copy, path: $.reportedIn, transform: "extensions by JSON type"}
+        description: "The record's reportedIn."
+      - name: hasEvidenceLines
+        type: "VARCHAR[]"
+        nulls: empty-list
+        derivation: {kind: bare-id, path: $.hasEvidenceLines, transform: "strip ^#/[^/]+/"}
+        description: "The record's hasEvidenceLines."
+    extension_slots:
+      classification: json-type
+      extensions: json-type
+      specifiedBy: json-type
+      reportedIn: json-type
+  - name: vcv
+    sections: [vcv]
+    row_filter: null
+    sort_key: id
+    known_fields: true
+    description: "Every record of bundle section vcv, one typed column per property."
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: "The bundle key of the record in section vcv."
+      - name: type
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: "The record's type."
+      - name: direction
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.direction, transform: null}
+        description: "The record's direction."
+      - name: strength
+        type: "STRUCT(\"type\" VARCHAR, conceptType VARCHAR, \"name\" VARCHAR)"
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.strength, transform: null}
+        description: "The record's strength."
+      - name: quality
+        type: "STRUCT(\"type\" VARCHAR, conceptType VARCHAR, \"name\" VARCHAR)"
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.quality, transform: null}
+        description: "The record's quality."
+      - name: classification
+        type: "STRUCT(\"type\" VARCHAR, conceptType VARCHAR, \"name\" VARCHAR, \"extensions\" STRUCT(\"name\" VARCHAR, value_string VARCHAR)[])"
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.classification, transform: "extensions by JSON type"}
+        description: "The record's classification."
+      - name: proposition
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: bare-id, path: $.proposition, transform: "strip ^#/[^/]+/"}
+        description: "The record's proposition."
+      - name: extensions
+        type: "STRUCT(\"name\" VARCHAR, value_string VARCHAR)[]"
+        nulls: empty-list
+        derivation: {kind: extension-slot, path: $.extensions, transform: "extensions by JSON type"}
+        description: "The record's extensions."
+      - name: hasEvidenceLines
+        type: "VARCHAR[]"
+        nulls: empty-list
+        derivation: {kind: bare-id, path: $.hasEvidenceLines, transform: "strip ^#/[^/]+/"}
+        description: "The record's hasEvidenceLines."
+    extension_slots:
+      classification: json-type
+      extensions: json-type
+  - name: rcv
+    sections: [rcv]
+    row_filter: null
+    sort_key: id
+    known_fields: true
+    description: "Every record of bundle section rcv, one typed column per property."
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: "The bundle key of the record in section rcv."
+      - name: type
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.type, transform: null}
+        description: "The record's type."
+      - name: direction
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.direction, transform: null}
+        description: "The record's direction."
+      - name: strength
+        type: "STRUCT(\"type\" VARCHAR, conceptType VARCHAR, \"name\" VARCHAR)"
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.strength, transform: null}
+        description: "The record's strength."
+      - name: quality
+        type: "STRUCT(\"type\" VARCHAR, conceptType VARCHAR, \"name\" VARCHAR)"
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.quality, transform: null}
+        description: "The record's quality."
+      - name: classification
+        type: "STRUCT(\"type\" VARCHAR, conceptType VARCHAR, \"name\" VARCHAR, \"extensions\" STRUCT(\"name\" VARCHAR, value_string VARCHAR)[])"
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.classification, transform: "extensions by JSON type"}
+        description: "The record's classification."
+      - name: proposition
+        type: "VARCHAR"
+        nulls: when-absent
+        derivation: {kind: bare-id, path: $.proposition, transform: "strip ^#/[^/]+/"}
+        description: "The record's proposition."
+      - name: extensions
+        type: "STRUCT(\"name\" VARCHAR, value_string VARCHAR)[]"
+        nulls: empty-list
+        derivation: {kind: extension-slot, path: $.extensions, transform: "extensions by JSON type"}
+        description: "The record's extensions."
+      - name: hasEvidenceLines
+        type: "VARCHAR[]"
+        nulls: empty-list
+        derivation: {kind: bare-id, path: $.hasEvidenceLines, transform: "strip ^#/[^/]+/"}
+        description: "The record's hasEvidenceLines."
+    extension_slots:
+      classification: json-type
+      extensions: json-type

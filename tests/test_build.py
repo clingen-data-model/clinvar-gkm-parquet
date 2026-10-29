@@ -616,23 +616,23 @@ def test_resolve_build_inputs_release(monkeypatch):
 
 
 def test_run_build_command(monkeypatch, capsys, tmp_path):
-    """No --spec: the baseline spec (ADR 0003)."""
+    """No --spec: the sections spec (ADR 0003)."""
     monkeypatch.setattr(build_mod, "resolve_build_inputs", lambda args: _fixture_inputs())
     rc = run_build_command(_args(full="x", out=tmp_path / "o", tables="gene, scv,rcv"))
     assert rc == 0
     out = capsys.readouterr().out
     n = COUNTS["gene"] + COUNTS["scv"] + COUNTS["rcv"]
-    assert f"built 3 table(s) of spec baseline 1.0, {n} rows, source release {SOURCE_RELEASE}" in out
+    assert f"built 3 table(s) of spec sections 1.0, {n} rows, source release {SOURCE_RELEASE}" in out
     kv = _kv(duckdb.connect(), tmp_path / "o" / "gene.parquet")
-    assert kv[KV_PREFIX + "table_spec"] == "baseline" and KV_PREFIX + "selection" not in kv
+    assert kv[KV_PREFIX + "table_spec"] == "sections" and KV_PREFIX + "selection" not in kv
 
 
-def test_build_api_defaults_to_baseline(tmp_path):
-    """build() with no spec writes the baseline, as the CLI does with no --spec."""
+def test_build_api_defaults_to_sections(tmp_path):
+    """build() with no spec writes the sections spec, as the CLI does with no --spec."""
     res = build(_fixture_inputs(), tmp_path / "o", tables=["gene"])
     assert [t.table for t in res.tables] == ["gene"]
     kv = _kv(duckdb.connect(), tmp_path / "o" / "gene.parquet")
-    assert (kv[KV_PREFIX + "table_spec"], kv[KV_PREFIX + "table_spec_version"]) == ("baseline", "1.0")
+    assert (kv[KV_PREFIX + "table_spec"], kv[KV_PREFIX + "table_spec_version"]) == ("sections", "1.0")
     assert KV_PREFIX + "table_spec_builtin" not in kv
 
 

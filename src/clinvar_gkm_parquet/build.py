@@ -987,7 +987,7 @@ def build(
     """Stream the inputs once and build every table section by section (design plan §6.2), then write the
     manifest.
 
-    `spec` defaults to the default spec, baseline, as the CLI's does (ADR 0003); a build meant to match the
+    `spec` defaults to the default spec, sections, as the CLI's does (ADR 0003); a build meant to match the
     published set passes the clinvar-gkm spec. `spec_source` (spec.resolve_spec) labels the files, see
     `spec_kv`. With `driver` (a driver.Driver), the selection runs first, writing a mini-bundle in the work
     directory, and the tables are built from it (ADR 0004): every file and the manifest then carry the
@@ -1186,7 +1186,7 @@ def _log(msg: str) -> None:
 
 def run_build_command(args) -> int:
     """`clinvar-gkm-parquet build`: resolve the spec, the selection options and the inputs from the CLI
-    arguments, build, print a summary. No --spec means the default spec (baseline)."""
+    arguments, build, print a summary. No --spec means the default spec (sections)."""
     from .driver import driver_from_args
 
     spec, source = resolve_spec(getattr(args, "spec", None))

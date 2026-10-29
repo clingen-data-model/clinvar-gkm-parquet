@@ -42,10 +42,11 @@ SCHEMA_SECTIONS: dict[str, tuple[str, ...]] = {
 
 # The built-in table specs (ADR 0003): name -> the one version of it this release writes.
 BUILTIN_SPECS: dict[str, str] = {
+    "sections": "1.0",
     "baseline": "1.0",
     "clinvar-gkm": "1.0",
 }
-DEFAULT_SPEC = "baseline"  # what a build writes when no --spec is given
+DEFAULT_SPEC = "sections"  # what a build writes when no --spec is given (ADR 0003; baseline until 2026-10-29)
 PUBLISHED_SPEC = "clinvar-gkm"  # the spec of ClinVar-GKM's published set; its release and the oracle name it
 # The version of the clinvar-gkm spec. Kept under this name for build.py, verify.py and version --json, which
 # read it as "the" table-spec version from before specs had names.

@@ -22,6 +22,7 @@ from clinvar_gkm_parquet.spec import (
 
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE_FILE = ROOT / "spec" / "baseline" / "1.0" / "tables.yaml"
+SECTIONS_FILE = ROOT / "spec" / "sections" / "1.0" / "tables.yaml"
 CLINVAR_GKM_FILE = ROOT / "spec" / "1.0" / "tables.yaml"
 
 
@@ -35,7 +36,9 @@ def _sha(p: Path) -> str:
 @pytest.mark.parametrize(
     "arg, name, path",
     [
-        (None, "baseline", BASELINE_FILE),
+        (None, "sections", SECTIONS_FILE),
+        ("sections", "sections", SECTIONS_FILE),
+        ("sections@1.0", "sections", SECTIONS_FILE),
         ("baseline", "baseline", BASELINE_FILE),
         ("baseline-1.0", "baseline", BASELINE_FILE),
         ("baseline@1.0", "baseline", BASELINE_FILE),
@@ -53,7 +56,7 @@ def test_resolve_builtin(arg, name, path):
 
 
 def test_builtins_match_compat():
-    assert compat.DEFAULT_SPEC == "baseline"
+    assert compat.DEFAULT_SPEC == "sections"
     for name, version in compat.BUILTIN_SPECS.items():
         spec, src = resolve_spec(name)
         assert (spec.name, spec.spec_version, src.version) == (name, version, version)
@@ -62,9 +65,15 @@ def test_builtins_match_compat():
     assert spec_dir("1.0") == CLINVAR_GKM_FILE.parent
 
 
-def test_baseline_reads_every_section():
-    spec, _ = resolve_spec(None)
+@pytest.mark.parametrize("name", ["sections", "baseline"])
+def test_one_table_per_section(name):
+    spec, _ = resolve_spec(name)
     assert spec.sections == set(compat.SCHEMA_SECTIONS["1.1.0"])
+    assert (
+        [t.name for t in spec.tables]
+        == [t.sections[0] for t in spec.tables]
+        == list(compat.SCHEMA_SECTIONS["1.1.0"])
+    )
 
 
 def test_schema_sections_match_the_reader():
@@ -94,11 +103,11 @@ def test_baseline_file_is_generated():
 
 
 def test_wheel_includes_the_spec_tree():
-    """The wheel force-includes spec/ as clinvar_gkm_parquet/_spec, so builtin_dir finds both built-ins there."""
+    """The wheel force-includes spec/ as clinvar_gkm_parquet/_spec, so builtin_dir finds every built-in there."""
     tomllib = pytest.importorskip("tomllib")  # Python 3.11+
     py = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     assert py["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"]["spec"] == "clinvar_gkm_parquet/_spec"
-    assert BASELINE_FILE.is_file() and CLINVAR_GKM_FILE.is_file()
+    assert BASELINE_FILE.is_file() and CLINVAR_GKM_FILE.is_file() and SECTIONS_FILE.is_file()
 
 
 # --- custom files ----------------------------------------------------------------------------------------------
@@ -227,6 +236,11 @@ def _bad_cases() -> list[tuple[str, callable, str]]:
         r["tables"][0]["columns"].append(c)
         return r
 
+    def two_records(r):
+        c = next(c for c in r["tables"][0]["columns"] if c["derivation"]["kind"] == "record")
+        r["tables"][0]["columns"].append(dict(c, name="data2"))
+        return r
+
     def bad_writer(r):
         r["writer"] = {"compression": "snappy", "row_group_size": "big"}
         return r
@@ -242,7 +256,7 @@ def _bad_cases() -> list[tuple[str, callable, str]]:
         ("unknown section", unknown_section, "not sections of bundle schema 1.1.0"),
         ("unknown derivation kind", unknown_kind, "derivation kind must be one of"),
         ("no key column", no_key, "exactly one key column"),
-        ("no record column", lambda r: _drop_kind(r, "record"), "exactly one record column"),
+        ("two record columns", two_records, "2 record columns"),
         ("two key columns", two_keys, "exactly one key column"),
         ("nullable key", nullable_key, "must have nulls: never"),
         ("no name", no_name, "missing key"),
@@ -273,7 +287,7 @@ def test_not_yaml(tmp_path):
 
 def test_kv_metadata_builtin_and_custom(tmp_path):
     _, base = resolve_spec(None)
-    assert kv_metadata(base) == {"table_spec": "baseline", "table_spec_version": "1.0"}
+    assert kv_metadata(base) == {"table_spec": "sections", "table_spec_version": "1.0"}
     p = _write(tmp_path, _custom())
     _, custom = resolve_spec(str(p))
     kv = kv_metadata(custom)
@@ -308,9 +322,10 @@ def test_version_info_lists_the_specs():
     assert info["table_spec_version"] == compat.TABLE_SPEC_VERSION == "1.0"
     assert info["table_spec_status"] == load_spec("1.0").status
     assert info["tables"] == sorted(t.name for t in load_spec("1.0").tables)
-    assert info["default_table_spec"] == "baseline"
+    assert info["default_table_spec"] == "sections"
     specs = {s["name"]: s for s in info["table_specs"]}
-    assert set(specs) == {"baseline", "clinvar-gkm"}
-    assert specs["baseline"]["default"] and not specs["clinvar-gkm"]["default"]
+    assert set(specs) == {"sections", "baseline", "clinvar-gkm"}
+    assert [n for n, s in specs.items() if s["default"]] == ["sections"]
+    assert specs["sections"]["version"] == "1.0" and len(specs["sections"]["tables"]) == 20
     assert specs["baseline"]["version"] == "1.0" and len(specs["baseline"]["tables"]) == 20
     assert len(specs["clinvar-gkm"]["tables"]) == 22

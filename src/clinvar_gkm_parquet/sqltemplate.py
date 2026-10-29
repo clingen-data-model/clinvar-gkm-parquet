@@ -5,8 +5,9 @@ a table with no such file, e.g. in a user's own spec) writes that file's text fr
 (`generic_template`: one placeholder per column, `WHERE {{known_keys}}` for `known_fields`) and renders it the
 same way, so a hand-written file of generic columns and the generic renderer give the same SQL byte for byte
 (tests/test_generic.py proves it for every such built-in table). It builds key, record, refs (joined on from
-baseline.refs_ctes), scalar-path, bare-id, pointer-section, typed-copy and extension-slot columns, with the path
-rules in spec.py; `computed` columns and row filters need a shipped file (`generic_problems`).
+baseline.refs_ctes), scalar-path, bare-id, pointer-section, typed-copy, extension-slot and range-exact / range-min
+/ range-max columns, with the path rules in spec.py; `computed` columns and row filters need a shipped file
+(`generic_problems`). The built-in sections spec is rendered this way.
 
 Owned by the table-spec work package. Contract with build.py:
 
@@ -32,7 +33,10 @@ Placeholders in sql/<table>.sql (`{{name args}}`; COL is a spec column, its JSON
                               relative to the column value, of pointer strings to strip (`[]` = list element,
                               `.f` = struct field, e.g. `[].value_gene_array[].gene`).
 - `{{known_keys}}`            TRUE, or an error when the record has a top-level field no column's path names
-                              (for tables whose columns copy the whole record, BigQuery's `SELECT t.*`).
+                              (for tables whose columns copy the whole record, BigQuery's `SELECT t.*`), or
+                              when the record's own `id` (when present) is not its bundle key.
+- `{{range_exact COL}}`, `{{range_min COL}}`, `{{range_max COL}}`  the integer-or-Range at the path (spec.py):
+                              the integer (NULL for a Range), else the Range's [0] / [1]; anything else fails.
 - `{{json COL}}`              the JSON value at the column's path (as json_extract gives it), for hand-written
                               derivations.
 - `{{walk COL}}`              the value at a path with `[*]` steps (spec.py's path rules), each leaf read by
@@ -44,7 +48,9 @@ must be an object, every list a list, and an object may hold only the fields its
 field the spec type lacks stops the build instead of being dropped (DuckDB's json_transform ignores unknown keys,
 and CAST(JSON AS STRUCT) also rejects absent ones, so neither is used on its own). A struct with a `name` field
 and `value_*` fields is an extension: the bundle's `{name, value}` is put in the slot that the table's
-`extension_slots` map gives for that name, and a name the map doesn't list for that struct stops the build.
+`extension_slots` map gives for that name, and a name the map doesn't list for that struct stops the build; or,
+when the column's entry is `json-type`, in the slot of the value's JSON type (cgp_ext_kind; spec.py), and a type
+the struct has no slot for stops the build.
 Empty versus NULL inside typed values (design plan §3.5): an absent struct or scalar is NULL; an absent list is
 `[]` (BigQuery stores no NULL arrays) when its parent is present, and at the top level follows the column's
 `nulls` rule.
@@ -54,6 +60,8 @@ parsed once instead, by one json_transform into the spec types (`_t`), and each 
 that reads `_t`; a census (_Source) decides, per row, whether the fast expressions equal the slow ones, and a row
 it can't vouch for takes the slow expression, which stops with its own message. The output is the same, byte for
 byte, and so is every failure: render(table, fast=False) gives the slow SQL alone, and the tests compare the two.
+The fast expressions don't cover json-type extension slots: a table with such a column takes no census, and each
+typed copy takes the slow expression on the record's one parse.
 """
 
 from __future__ import annotations
@@ -67,7 +75,7 @@ from importlib import resources
 import duckdb
 
 from .errors import SpecError
-from .spec import Column, Table
+from .spec import JSON_TYPE_SLOTS, Column, Table
 
 _PLACEHOLDER = re.compile(r"\{\{\s*(\w+)((?:\s+[^\s}]+)*)\s*\}\}")
 _SCALARS = {"varchar", "bigint", "boolean", "date", "integer", "double"}
@@ -111,9 +119,11 @@ class _Gen:
         self.column = column
         self.ctx = _lit(f"table {table.name}: column {column.name}")
         self.slots = table.extension_slots.get(column.name, {})
+        self.json_type = self.slots == JSON_TYPE_SLOTS  # slots by the value's JSON type, not by name
         self.pointers = pointers
         self.used_pointers: set[str] = set()
         self.used_slots: set[str] = set()
+        self.saw_ext = False  # the type holds an extension struct
         self.n = 0
 
     def var(self, prefix: str) -> str:
@@ -167,12 +177,15 @@ class _Gen:
         is_ext = "name" in names and bool(slot_fields)
         if is_ext and not self.slots:
             raise SpecError(f"{self.ctx}: extension struct at {rel or '(column)'} but no extension_slots entry")
+        self.saw_ext = self.saw_ext or is_ext
         plain = [f for f in names if f not in slot_fields]
         json_keys = plain + (["value"] if is_ext else [])
         where = rel or "(column)"
-        # Fields come out as JSON for the per-field checks; an extension's name comes out as VARCHAR, read once
-        # (a non-string name gives text that is no known name, so it still fails).
-        structure = _lit(json.dumps({k: ("VARCHAR" if is_ext and k == "name" else "JSON") for k in json_keys}))
+        # Fields come out as JSON for the per-field checks; with name-map slots an extension's name comes out as
+        # VARCHAR, read once (a non-string name gives text that is no known name, so it still fails). With
+        # json-type slots the name is a plain field.
+        by_name = is_ext and not self.json_type
+        structure = _lit(json.dumps({k: ("VARCHAR" if by_name and k == "name" else "JSON") for k in json_keys}))
         allowed = "[" + ", ".join(_lit(k) for k in json_keys) + "]"
 
         k = self.var("k")
@@ -190,6 +203,8 @@ class _Gen:
         )
 
     def pack(self, s: str, fields, rel: str, is_ext: bool) -> str:
+        if is_ext and self.json_type:
+            return self.pack_json_type(s, fields, rel)
         parts = []
         if is_ext:
             here = {f for f, _ in fields if f.startswith("value_")}
@@ -217,6 +232,37 @@ class _Gen:
             return packed
         unknown = self.unknown_name(name_sql, known)
         return f"CASE WHEN {unknown} THEN {self.name_fail(name_sql, rel)} ELSE {packed} END"
+
+    def pack_json_type(self, s: str, fields, rel: str) -> str:
+        """An extension with json-type slots: the value fills the one slot of its JSON type (cgp_ext_kind), every
+        other slot is NULL ([] for a list slot); a kind the struct has no slot for stops the build."""
+        where = rel or "(column)"
+        kv = self.var("kv")
+        kinds = [f.removeprefix("value_") for f, _ in fields if f.startswith("value_")]
+        parts = []
+        for f, ft in fields:
+            if f.startswith("value_"):
+                absent = f"CAST([] AS {ft})" if ft.id == "list" else "NULL"
+                value = self.expr(f'{s}."value"', ft, f"{rel}.{f}")
+                val = f"CASE WHEN {kv} = {_lit(f.removeprefix('value_'))} THEN {value} ELSE {absent} END"
+            else:
+                val = self.expr(f"{s}.{_ident(f)}", ft, f"{rel}.{f}")
+            parts.append(f"{_ident(f)} := {val}")
+        # An empty array has no element kind: it fills no slot, and is allowed where the struct has an array slot.
+        accepted = kinds + (["array"] if any(k.endswith("_array") for k in kinds) else [])
+        slots = ", ".join(f"value_{k}" for k in kinds)
+        msg = (
+            f"CASE {kv} WHEN 'null' THEN {_lit(f'extension value at {where} is null or absent')} "
+            f"WHEN 'mixed_array' THEN {_lit(f'extension value at {where} is an array of mixed JSON types: ')} "
+            f'|| CAST({s}."value" AS VARCHAR) '
+            f"ELSE {_lit('no slot for an extension value of JSON type ')} || {kv} || "
+            f"{_lit(f' at {where} (the type has {slots})')} END"
+        )
+        body = (
+            f"CASE WHEN list_contains([{', '.join(map(_lit, accepted))}], {kv}) "
+            f"THEN struct_pack({', '.join(parts)}) ELSE {self.fail(msg)} END"
+        )
+        return f'(list_transform([cgp_ext_kind({s}."value")], lambda {kv}: {body}))[1]'
 
     def unknown_name(self, name_sql: str, known: list[str]) -> str:
         known_sql = "[" + ", ".join(_lit(n) for n in known) + "]"
@@ -361,7 +407,7 @@ class _Fast:
 
     def name_dependent(self, t) -> bool:
         """An extension struct whose value's shape depends on its name (two slots, one nested or more)."""
-        if t.id != "struct" or not self.is_ext(t):
+        if t.id != "struct" or not self.is_ext(t) or self.gen.json_type:
             return False
         types = dict(t.children)
         used = self.used_slots(t)
@@ -375,6 +421,8 @@ class _Fast:
 
     def ext(self, x: str, t, rel: str, parsed: str | None = None) -> tuple[object, str, str]:
         gen = self.gen
+        if gen.json_type:
+            raise _Unsupported(rel)  # json-type slots: the slow expression only (_census leaves such tables out)
         types = dict(t.children)
         known = sorted(n for n, slot in gen.slots.items() if slot in types)
         used = self.used_slots(t)
@@ -549,8 +597,12 @@ class _Source:
 
 def _census(table: Table, text: str) -> bool:
     """{{source}} takes a census when the table has a typed copy of nested type at a top-level path, and checks
-    known_keys (else a top-level field no column reads would keep every row on the slow path)."""
+    known_keys (else a top-level field no column reads would keep every row on the slow path). Not when a column
+    has json-type extension slots: the fast expressions don't cover them (_Fast.ext), so the census could never
+    vouch for a row; each typed copy then takes the slow expression on the record's one parse."""
     if not re.search(r"\{\{\s*known_keys\s*\}\}", text):
+        return False
+    if JSON_TYPE_SLOTS in table.extension_slots.values():
         return False
     for m in _PLACEHOLDER.finditer(text):
         if m.group(1) in ("typed", "bare_id"):
@@ -587,6 +639,20 @@ def _known_keys(table: Table) -> str:
     return f"cgp_known_keys(record, {allowed}, {_lit('table ' + table.name)}, key)"
 
 
+_RECORD_ID = "json_extract(record, '$.id')"
+# {{range_exact COL}} etc.: the integer-or-Range macros (_macros.sql) on the JSON value at the column's path.
+_RANGE_MACRO = {
+    "range_exact": "cgp_range_exact({j}, {ctx}, key)",
+    "range_min": "cgp_range_bound({j}, 0, {ctx}, key)",
+    "range_max": "cgp_range_bound({j}, 1, {ctx}, key)",
+}
+
+
+def _record_id(table: Table, id_json: str = _RECORD_ID) -> str:
+    """The known_keys check's other half: the record's own id (JSON value id_json), when present, is the key."""
+    return f"cgp_record_id({id_json}, {_lit('table ' + table.name)}, key)"
+
+
 def _substitute(
     table: Table, text: str, src: _Source | None, slot_cols: dict[str, _Gen], known: str | None = None
 ) -> str:
@@ -602,7 +668,7 @@ def _substitute(
             if known is not None:
                 return known
             if src is None:
-                return _known_keys(table)
+                return f"({_known_keys(table)} AND {_record_id(table)})"
             src.known_keys = True
             return _KNOWN
         if len(pos) != 1:
@@ -630,6 +696,9 @@ def _substitute(
             return slow_of(f"json_extract(record, {_path(table, c)})")
         if name == "walk":
             return _walk_expr(table, c)
+        if name in _RANGE_MACRO:
+            j = src.json(c) if src else f"json_extract(record, {_path(table, c)})"
+            return _RANGE_MACRO[name].format(j=j, ctx=ctx)
         if name in ("bare_id", "typed"):
             if name == "bare_id":
                 ptr = {""} if _parse_type(c.type).id == "varchar" else {"[]"}
@@ -663,7 +732,10 @@ def _render_text(table: Table, text: str, fast: bool) -> str:
     if src:
         if src.known_keys:
             known = _known_keys(table)
-            sql = sql.replace(_KNOWN, f"CASE WHEN _ok THEN TRUE ELSE {known} END" if src.has_census else known)
+            known = f"CASE WHEN _ok THEN TRUE ELSE {known} END" if src.has_census else known
+            # The id check reads the record's one parse (_t) where it can; the census doesn't vouch for it.
+            id_json = src._json_path("$.id") or _RECORD_ID
+            sql = sql.replace(_KNOWN, f"({known} AND {_record_id(table, id_json)})")
         m = re.search(r"^WHERE (.*)$", text, re.M)
         row_filter = _substitute(table, m.group(1), None, {}, known="TRUE") if m else "TRUE"
         sql = sql.replace(_SOURCE, src.sql(None if row_filter == "TRUE" else row_filter))
@@ -674,6 +746,13 @@ def _render_text(table: Table, text: str, fast: bool) -> str:
         gen = slot_cols.get(col)
         if gen is None:
             raise SpecError(f"table {table.name}: extension_slots.{col} but the SQL has no typed copy of it")
+        if mapping == JSON_TYPE_SLOTS:
+            if not gen.saw_ext:
+                raise SpecError(
+                    f"table {table.name}: extension_slots.{col} is {JSON_TYPE_SLOTS}, but the column type has no "
+                    "extension struct (name and value_* fields)"
+                )
+            continue
         unused = set(mapping) - gen.used_slots
         if unused:
             raise SpecError(
@@ -694,7 +773,11 @@ GENERIC_KINDS = (
     "pointer-section",
     "typed-copy",
     "extension-slot",
+    "range-exact",
+    "range-min",
+    "range-max",
 )
+_RANGE_PLACEHOLDER = {"range-exact": "range_exact", "range-min": "range_min", "range-max": "range_max"}
 _RECORD_TYPES = ("JSON", "VARCHAR")
 _GENERIC_NAME = re.compile(r"[^\s{}=]+")  # a column name a placeholder argument can hold
 _TOP_FIELD_PATH = re.compile(r"\$\.\w+(?:\[\*\])*")
@@ -817,6 +900,8 @@ def _generic_columns(table: Table) -> tuple[Table, list[str]]:
         elif kind in ("typed-copy", "extension-slot"):
             ptr = ",".join(p.replace("[*]", "[]") for p in c.derivation.pointers)
             lines.append(f"{{{{typed {c.name}{' ptr=' + ptr if ptr else ''}}}}} AS {alias}")
+        elif kind in _RANGE_PLACEHOLDER:
+            lines.append(f"{{{{{_RANGE_PLACEHOLDER[kind]} {c.name}}}}} AS {alias}")
         elif kind != "refs":
             raise SpecError(f"table {table.name}: column {c.name}: the generic renderer has no kind {kind!r}")
         cols.append(c)
@@ -860,6 +945,11 @@ def generic_problems(table: Table) -> list[str]:
                 out.append(f"column {c.name} (refs) must be {REFS_TYPE}, not {c.type}")
             if c.nulls != "empty-list":
                 out.append(f"column {c.name} (refs) must have nulls: empty-list")
+        elif kind in _RANGE_PLACEHOLDER:
+            if c.type != "BIGINT":
+                out.append(f"column {c.name} ({kind}) must be BIGINT, not {c.type}")
+            if c.nulls != "when-absent":
+                out.append(f"column {c.name} ({kind}) must have nulls: when-absent")
         if not _GENERIC_NAME.fullmatch(c.name):
             out.append(f"column name {c.name!r} holds a space, '{{', '}}' or '='")
         if table.known_fields and kind not in ("key", "record", "refs"):

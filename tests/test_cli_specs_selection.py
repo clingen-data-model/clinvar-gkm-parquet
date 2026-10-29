@@ -1,7 +1,7 @@
-"""The CLI end to end on the real 1.1.0 excerpt: `--spec` (the baseline default, clinvar-gkm, a custom file),
-selective builds (`--driver` with `--where`, `--ids`, `--ids-file`, the follow modes, `--max-depth`, `--sections`,
-deltas), the `select` command, and `verify` of each result (the directory check, the bundle recompute, a subset
-against its mini-bundle, the oracle's refusals).
+"""The CLI end to end on the real 1.1.0 excerpt: `--spec` (the sections default, baseline, clinvar-gkm, a custom
+file), selective builds (`--driver` with `--where`, `--ids`, `--ids-file`, the follow modes, `--max-depth`,
+`--sections`, deltas), the `select` command, and `verify` of each result (the directory check, the bundle
+recompute, a subset against its mini-bundle, the oracle's refusals).
 
 Expectations come from the bundle records parsed here with stdlib json, independently of the tool; the follow and
 depth semantics themselves are checked against a breadth-first search in tests/test_select.py.
@@ -83,7 +83,7 @@ def walk_refs(node, path: str = ""):
 
 
 def built_keys(out: Path) -> set[tuple[str, str]]:
-    """(section, key) of every row of a baseline build."""
+    """(section, key) of every row of a sections or baseline build."""
     return {(s, k) for s in SECTIONS for k in ids(out / f"{s}.parquet")}
 
 
@@ -108,9 +108,33 @@ def sha(path: Path) -> str:
 # --- specs -----------------------------------------------------------------------------------------------------
 
 
-def test_default_spec_is_baseline(tmp_path, capsys):
+def test_default_spec_is_sections(tmp_path, capsys):
+    """No --spec: the sections spec, one table per section, keyed by the bundle key, with no `data` column."""
     out = tmp_path / "out"
     rc, stdout, _ = cli(capsys, "build", *FULL, "--out", out)
+    assert rc == 0 and "built 20 table(s) of spec sections 1.0, 331 rows" in stdout
+    assert sorted(p.stem for p in out.glob("*.parquet")) == sorted(SECTIONS)
+    records = parse_bundle(FIXTURE)
+    con = duckdb.connect()
+    for s in SECTIONS:
+        cols = [r[0] for r in con.execute(f"DESCRIBE SELECT * FROM read_parquet('{out / s}.parquet')").fetchall()]
+        assert cols[0] == "id" and "data" not in cols
+        assert ids(out / f"{s}.parquet") == sorted(k for k, _ in records.get(s, []))
+        props = {p for _, r in records.get(s, []) for p in json.loads(r)} - {"id"}
+        assert props <= set(cols) | {"start", "end"}  # location's start/end are the loc_* range columns
+    meta = kv(out / "scv.parquet")
+    assert (meta["table_spec"], meta["table_spec_version"]) == ("sections", "1.0")
+    assert "selection" not in meta and "table_spec_builtin" not in meta
+    m = json.loads((out / "manifest.json").read_text())
+    spec_file = builtin_dir("sections", "1.0") / "tables.yaml"
+    assert m["table_spec"] == {"name": "sections", "version": "1.0", "builtin": True, "sha256": sha(spec_file)}
+    assert cli(capsys, "verify", out)[0] == 0
+    assert cli(capsys, "verify", out, "--bundle-recompute", *FULL, "--work-dir", tmp_path / "w")[0] == 0
+
+
+def test_baseline_spec(tmp_path, capsys):
+    out = tmp_path / "out"
+    rc, stdout, _ = cli(capsys, "build", *FULL, "--spec", "baseline", "--out", out)
     assert rc == 0 and "built 20 table(s) of spec baseline 1.0, 331 rows" in stdout
     assert sorted(p.stem for p in out.glob("*.parquet")) == sorted(SECTIONS)
     records = parse_bundle(FIXTURE)
@@ -192,7 +216,7 @@ def test_driver_where_on_baseline_follow_in(tmp_path, capsys):
     driver record. Then select regenerates the mini-bundle, and verify recomputes the subset against it."""
     out = tmp_path / "out"
     where = "data->>'$.name' = 'OMIM'"
-    opts = ["--driver", "submitter", "--where", where, "--follow", "in", "--max-depth", "1"]
+    opts = ["--spec", "baseline", "--driver", "submitter", "--where", where, "--follow", "in", "--max-depth", "1"]
     rc, stdout, _ = cli(capsys, "build", *FULL, "--out", out, *opts)
     assert rc == 0 and "a selection driven by submitter" in stdout
     omim = "clinvar.submitter:3"
@@ -229,6 +253,30 @@ def test_driver_where_on_baseline_follow_in(tmp_path, capsys):
     # the oracle refuses a subset
     rc, _, err = cli(capsys, "verify", out, "--against", out)
     assert rc == 2 and "is a selection" in err
+
+
+def test_driver_where_on_sections(tmp_path, capsys):
+    """The default spec: --where over the driver table's own typed columns (a property, and an extension's
+    json-type slot)."""
+    out = tmp_path / "out"
+    where = "name LIKE 'NC_000002%'"
+    rc, _, _ = cli(capsys, "build", *FULL, "--out", out, "--driver", "allele", "--where", where, "--max-depth", 0)
+    assert rc == 0
+    want = {k for k, r in parse_bundle(FIXTURE)["allele"] if json.loads(r)["name"].startswith("NC_000002")}
+    assert want and set(ids(out / "allele.parquet")) == want
+    assert built_keys(out) == {("allele", k) for k in want}
+    assert cli(capsys, "verify", out)[0] == 0
+
+    out = tmp_path / "out2"
+    where = "len(list_filter(extensions, lambda e: e.name = 'assembly' AND e.value_string = 'GRCh37')) > 0"
+    opts = ["--driver", "sequenceReference", "--where", where, "--max-depth", 0]
+    assert cli(capsys, "build", *FULL, "--out", out, *opts)[0] == 0
+    want = {
+        k
+        for k, r in parse_bundle(FIXTURE)["sequenceReference"]
+        if {"name": "assembly", "value": "GRCh37"} in json.loads(r)["extensions"]
+    }
+    assert want and set(ids(out / "sequenceReference.parquet")) == want
 
 
 def test_driver_where_on_clinvar_gkm(tmp_path, capsys):
@@ -378,7 +426,8 @@ def test_build_with_deltas_and_a_driver(tmp_path, capsys):
     s = fixture_sections()
     rcv0 = json.loads(s["rcv"][0][0])
     delta_args = [a for d, _ in deltas for a in ("--delta", d.source)]
-    opts = ["--driver", "rcv", "--where", f"id = '{rcv0}'", "--follow", "out"]
+    # baseline: the synthetic deltas move records between keys, which the typed specs refuse (record id != key)
+    opts = ["--spec", "baseline", "--driver", "rcv", "--where", f"id = '{rcv0}'", "--follow", "out"]
     out = tmp_path / "out"
     rc, stdout, _ = cli(capsys, "build", *FULL, *delta_args, "--out", out, *opts)
     assert rc == 0 and f"source release {D2}" in stdout
@@ -411,7 +460,20 @@ def test_build_with_deltas_and_a_driver(tmp_path, capsys):
         o = tmp_path / f"genes-{len(extra)}"
         assert (
             cli(
-                capsys, "build", *FULL, *extra, "--out", o, "--driver", "gene", "--where", where, "--max-depth", 0
+                capsys,
+                "build",
+                *FULL,
+                *extra,
+                "--out",
+                o,
+                "--spec",
+                "baseline",
+                "--driver",
+                "gene",
+                "--where",
+                where,
+                "--max-depth",
+                0,
             )[0]
             == 0
         )
@@ -424,7 +486,7 @@ def test_build_with_deltas_and_a_driver(tmp_path, capsys):
 @pytest.mark.parametrize(
     "opts, message",
     [
-        (["--driver", "nope"], "--driver nope: not a table of spec baseline 1.0"),
+        (["--driver", "nope"], "--driver nope: not a table of spec sections 1.0"),
         (["--driver", "vcv", "--where", "id = 'x'; DROP TABLE t"], "a ';' is not allowed"),
         (
             ["--driver", "vcv", "--where", "id = 'no-such-vcv'"],
