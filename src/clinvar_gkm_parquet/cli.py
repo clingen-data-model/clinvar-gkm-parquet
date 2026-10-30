@@ -1,4 +1,4 @@
-"""Command line: build, select, verify, version (design plan §10)."""
+"""Command line: build, select, rebuild, verify, version (design plan §10)."""
 
 from __future__ import annotations
 
@@ -85,7 +85,19 @@ def _parser() -> argparse.ArgumentParser:
     _engine(s)
     _selection(s, required=True)
 
-    v = sub.add_parser("verify", help="check a built directory (spec, bundle recompute, oracle)")
+    r = sub.add_parser(
+        "rebuild",
+        help="write a full lossless build (the sections spec) back as its source bundle, byte for byte",
+        description="Write the bundle a full build of a lossless spec (the default, sections) was made from: its "
+        "uncompressed text byte for byte (ADR 0005), checked against the sha256s the build recorded. Refuses a "
+        "selection, a build with deltas or --tables, and any other spec.",
+    )
+    r.add_argument("dir", type=Path, help="the built directory")
+    r.add_argument("-o", "--out", required=True, type=Path, help="the bundle to write (.json, or .json.gz)")
+    r.add_argument("--spec", help="a custom lossless spec's tables.yaml (built-in specs are read from the files)")
+    _engine(r)
+
+    v = sub.add_parser("verify", help="check a built directory (spec, bundle recompute, round trip, oracle)")
     v.add_argument("dir", type=Path)
     v.add_argument(
         "--spec",
@@ -94,9 +106,15 @@ def _parser() -> argparse.ArgumentParser:
     )
     v.add_argument("--bundle-recompute", action="store_true", help="id sets and data against the bundle(s)")
     v.add_argument(
+        "--roundtrip",
+        action="store_true",
+        help="rebuild the bundle text (hashed, not written) and compare it with the recorded sha256s; with "
+        "--full, also with that bundle's uncompressed text (a full lossless build only, ADR 0005)",
+    )
+    v.add_argument(
         "--full",
-        help="the full bundle, for --bundle-recompute; for a selection, the mini-bundle (its sha256 must equal "
-        "the recorded selected_sha256)",
+        help="the full bundle, for --bundle-recompute (or --roundtrip); for a selection, the mini-bundle (its "
+        "sha256 must equal the recorded selected_sha256)",
     )
     v.add_argument("--delta", action="append", default=[], help="delta bundles, for --bundle-recompute")
     v.add_argument("--manifest", action="append", default=[], help="delta manifests, in --delta order")
@@ -147,6 +165,12 @@ def _select(args: argparse.Namespace) -> int:
     return run_select_command(args)
 
 
+def _rebuild(args: argparse.Namespace) -> int:
+    from .roundtrip import run_rebuild_command
+
+    return run_rebuild_command(args)
+
+
 def _verify(args: argparse.Namespace) -> int:
     from .verify import run_verify_command
 
@@ -155,7 +179,9 @@ def _verify(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    handler = {"build": _build, "select": _select, "verify": _verify, "version": _version}[args.command]
+    handler = {"build": _build, "select": _select, "rebuild": _rebuild, "verify": _verify, "version": _version}[
+        args.command
+    ]
     import duckdb
 
     try:

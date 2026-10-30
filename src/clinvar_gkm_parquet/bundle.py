@@ -11,6 +11,12 @@ the section's records is passed to as `(key as JSON bytes, record bytes)`, and `
 pipeline's sink replays the deltas and stages one section at a time (build.py); `stage_bundle` is the sink
 that writes the whole bundle to per-section staging files.
 
+With `text_digests` (a lossless build, ADR 0005), the pass also hashes the uncompressed text: the whole of it
+(StreamedBundle.text_sha256) and, per section, its record lines exactly as written (each `    "<key>": <record>`
+line with its `,` and newline; `section_text_sha256`), which the sink receives through `section_text(name,
+sha256)` just before `close_section(name)`. The rest of the text is fixed by the grammar below, so the two
+together pin the text byte for byte.
+
 The grammar is the one `assemble()` in ClinVar-GKM's `src/scripts/assemble-gkm-dicts.py` writes (@ origin/1.0
 25344ba):
 
@@ -122,10 +128,18 @@ class SectionWriter:
     which DuckDB reads in parallel. `check`, if given, is called before each buffered write (about every MiB),
     so a caller can stop a long section promptly."""
 
-    def __init__(self, path: Path, *, chunk_bytes: int | None = None, check: Callable[[], None] | None = None):
+    def __init__(
+        self,
+        path: Path,
+        *,
+        chunk_bytes: int | None = None,
+        check: Callable[[], None] | None = None,
+        ordinal: bool = False,
+    ):
         self._path = path
         self._chunk_bytes = chunk_bytes
         self._check = check
+        self._ordinal = ordinal  # prefix each line with the record's position in the section (model.py)
         self.paths: list[Path] = []
         self._fh = None
         self._gz = None
@@ -169,6 +183,8 @@ class SectionWriter:
     def add(self, key: bytes, record: bytes) -> None:
         buf = self._buf
         start = len(buf)
+        if self._ordinal:
+            buf += b"%d\t" % self.records
         buf += key
         buf += b"\t"
         buf += record
@@ -272,8 +288,9 @@ def stage_bundle(inp: InputFile, work_dir: Path) -> StagedBundle:
     )
 
 
-def stream_bundle(inp: InputFile, sink: Sink) -> StreamedBundle:
+def stream_bundle(inp: InputFile, sink: Sink, *, text_digests: bool = False) -> StreamedBundle:
     """Read `inp` once, passing every record to `sink` (module docstring), and check its sha256 at the end.
+    `text_digests`: also hash the uncompressed text, whole and per section (module docstring).
 
     A sink that fails raises a ToolError (e.g. a build failure downstream). Then, as for a grammar error, when a
     checksum is known the rest of the file is hashed first, so a mismatch, the likelier cause, is the error
@@ -283,8 +300,9 @@ def stream_bundle(inp: InputFile, sink: Sink) -> StreamedBundle:
         hr = _HashingReader(raw)
         try:
             gz = gzip.GzipFile(fileobj=hr, mode="rb")
-            f = io.BufferedReader(gz, buffer_size=_READ_BUFFER)
-            version, counts = _parse(inp, f, sink)
+            text = _HashingReader(gz) if text_digests else None
+            f = io.BufferedReader(text or gz, buffer_size=_READ_BUFFER)
+            version, counts = _parse(inp, f, sink, text_digests)
             hr.drain()
         except (EOFError, gzip.BadGzipFile, zlib.error) as e:
             # A corrupt or cut-off download: finish hashing so a checksum mismatch, the likelier cause, is the
@@ -309,7 +327,15 @@ def stream_bundle(inp: InputFile, sink: Sink) -> StreamedBundle:
         raw.close()
     sha = hr.sha.hexdigest()
     _check_sha(inp, sha)
-    return StreamedBundle(input=inp, sha256=sha, size=hr.size, schema_version=version, counts=counts)
+    return StreamedBundle(
+        input=inp,
+        sha256=sha,
+        size=hr.size,
+        schema_version=version,
+        counts=counts,
+        text_sha256=text.sha.hexdigest() if text else None,
+        text_size=text.size if text else None,
+    )
 
 
 def _check_sha(inp: InputFile, sha: str, cause: str = "") -> None:
@@ -341,8 +367,9 @@ def _key_end(line: bytes) -> int:
     return -1
 
 
-def _parse(inp: InputFile, f: BinaryIO, sink: Sink) -> tuple[str, dict[str, int]]:
+def _parse(inp: InputFile, f: BinaryIO, sink: Sink, text_digests: bool = False) -> tuple[str, dict[str, int]]:
     name = inp.name
+    sec_sha = None  # the current section's record lines, with text_digests
     lineno = 0
     section: str | None = None
     key: bytes | None = None
@@ -412,6 +439,8 @@ def _parse(inp: InputFile, f: BinaryIO, sink: Sink) -> tuple[str, dict[str, int]
                     raise fail("the record is not a JSON object on one line")
                 if b"\t" in line or b"\r" in line:
                     raise fail("raw tab or carriage return in the line (not compact JSON)")
+                if sec_sha is not None:
+                    sec_sha.update(line)
                 write(key, record)
                 n += 1
                 state = _RECORDS
@@ -422,6 +451,8 @@ def _parse(inp: InputFile, f: BinaryIO, sink: Sink) -> tuple[str, dict[str, int]
                     raise fail("empty section (the assembler never writes one)")
                 if comma:
                     raise fail("trailing ',' after the section's last record")
+                if sec_sha is not None:
+                    sink.section_text(section, sec_sha.hexdigest())
                 sink.close_section(section)
                 counts[section] = n
                 write = None
@@ -442,6 +473,7 @@ def _parse(inp: InputFile, f: BinaryIO, sink: Sink) -> tuple[str, dict[str, int]
                 raise fail(f"section {sec!r} appears twice")
             section = sec
             write = sink.open_section(sec)
+            sec_sha = hashlib.sha256() if text_digests else None
             n = 0
             state = _FIRST
             continue

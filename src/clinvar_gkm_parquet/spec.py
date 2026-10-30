@@ -29,11 +29,17 @@ Format (YAML):
               path: null                  # bundle JSON path ($.location), $ for refs, null for key / record
               transform: null             # free text for computed columns (and notes), or null
               pointers: ["[*].allele"]    # optional, typed-copy / extension-slot only: see below
+              targets: [location]         # optional, bare-id / pointer-section only: see below
             description: <one line>
         extension_slots:                  # tables with extension-slot columns (or typed copies holding extensions)
           extensions:                     # column name
             clinvarScvId: value_string    # extension name -> the slot field that holds its value
           classification: json-type       # or: each extension fills the slot of its value's JSON type (below)
+        json:                             # optional: how a row is written back as its record (below)
+          key_order: columns              # columns | sorted
+          record_id: true                 # the record has its own id, equal to the key
+          sorted_columns: [extensions]    # optional (key_order columns): columns whose values are key-sorted
+    lossless: true                        # optional (default false): the spec encodes the bundle text (below)
 
 Extension slots: an extension struct is `STRUCT(name VARCHAR, <other fields>, value_<slot> <type>, ...)`; the
 bundle's `{name, value, ...}` fills one slot, all others NULL (`[]` for a list slot). Which slot, per column of
@@ -76,6 +82,31 @@ Paths (`derivation.path`; checked when the spec loads, `path_problems`). Deliber
 `#/<section>/<id>` pointers, written in the column type's field names, relative to the value: `[*]` each list
 element, `.f` a struct field (`[*].allele`, `[*].value_gene_array[*].gene`). Each position must be a VARCHAR
 of the type; the copy holds the bare id there, and a non-pointer stops the build.
+
+`targets` (bare-id and pointer-section): the bundle section(s) the pointer may name. In `pointers`, a mapping
+`{<position>: [<section>, ...]}` gives the same per position (a plain list of positions gives none). A table with
+a `json` block has its pointers checked against their targets (the build's round-trip check, below).
+
+`ordinal` (derivation kind; BIGINT, nulls never, no path): the record's position in its bundle section, 0 for the
+section's first record line, in the order the build staged the section (the full's order, then any replayed
+records). It is derived from the bundle (ADR 0001).
+
+`json` (a table's JSON layout, ADR 0005): how a row is written back as its bundle record, byte for byte. The key
+column is the record's `id` property when `record_id` (the record has none otherwise); each other column is the
+top-level property its path names, except that the range columns of one path (range-exact, range-min,
+range-max) are one integer-or-Range property, and pointer-section and ordinal columns are no property (a
+pointer-section column gives the section of the multi-target bare-id column of the same path). `key_order:
+columns` writes the properties in column order and every object in its STRUCT field order, an extension's
+`value_*` slots as one `value` at the first slot's place; `sorted` sorts every key of the record by its UTF-8
+bytes, at every depth (BigQuery's JSON order); `sorted_columns` sorts the values of those columns only. A `json`
+block also changes the build: an absent list inside a typed value is NULL, not `[]` (so NULL is absent and `[]`
+empty at every depth, as at the top level), and every row is written back as JSON and compared with its bundle
+line (key and record, byte for byte); any difference stops the build.
+
+`lossless: true`: the spec is a lossless encoding of the bundle's uncompressed text (ADR 0005), which
+`clinvar-gkm-parquet rebuild` writes back. Every table needs a `json` block and an `ordinal` column as its last
+column; each section of each bundle schema_version has exactly one table, with no row filter and with
+`known_fields`; and the JSON layout must place every column (roundtrip.lossless_problems).
 
 `known_fields: true`: every top-level field of a record must be read by some column at a path `$.<field>`
 (BigQuery's `SELECT t.*` tables, design plan §3.5); a record with another top-level field stops the build. It
@@ -135,6 +166,7 @@ DERIVATION_KINDS = (
     "range-exact",  # a VRS integer-or-Range: the integer; NULL for a Range [min, max]
     "range-min",  # the integer, else the Range's [0]
     "range-max",  # the integer, else the Range's [1]
+    "ordinal",  # the record's position in its bundle section (0-based)
 )
 RANGE_KINDS = ("range-exact", "range-min", "range-max")
 JSON_TYPE_SLOTS = "json-type"  # extension_slots.<column>: each extension fills the slot of its value's JSON type
@@ -148,18 +180,22 @@ _TABLE_KEYS = {
     "columns",
     "extension_slots",
     "known_fields",
+    "json",
 }
-_TABLE_OPTIONAL = {"extension_slots", "sort_key_unique", "known_fields"}
+_TABLE_OPTIONAL = {"extension_slots", "sort_key_unique", "known_fields", "json"}
 _COLUMN_KEYS = {"name", "type", "nulls", "derivation", "description"}
-_DERIVATION_KEYS = {"kind", "path", "transform", "pointers"}
-_DERIVATION_OPTIONAL = {"pointers"}
+_DERIVATION_KEYS = {"kind", "path", "transform", "pointers", "targets"}
+_DERIVATION_OPTIONAL = {"pointers", "targets"}
+_JSON_KEYS = {"key_order", "record_id", "sorted_columns"}
+KEY_ORDERS = ("columns", "sorted")
 # Paths (module docstring). LIST_PATH: fields, each optionally followed by [*]; FIELD_PATH: fields only.
 LIST_PATH_RE = re.compile(r"\$(?:\.\w+(?:\[\*\])*)+")
 FIELD_PATH_RE = re.compile(r"\$(?:\.\w+)+")
 POINTER_POS_RE = re.compile(r"(?:\[\*\]|\.\w+)+")
 _POINTER_KINDS = ("typed-copy", "extension-slot")
 _FIELD_PATH_KINDS = (*_POINTER_KINDS, *RANGE_KINDS)
-_TOP_KEYS = {"name", "spec_version", "status", "bundle_schema_versions", "sources", "writer", "tables"}
+_TOP_KEYS = {"name", "spec_version", "status", "bundle_schema_versions", "sources", "writer", "tables", "lossless"}
+_TOP_OPTIONAL = {"name", "lossless"}
 NAME_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*")
 VERSION_RE = re.compile(r"\d+\.\d+")
 
@@ -180,6 +216,8 @@ class Derivation:
     path: str | None
     transform: str | None
     pointers: tuple[str, ...] = ()  # typed-copy / extension-slot: pointer positions in the value (docstring)
+    targets: tuple[str, ...] = ()  # bare-id / pointer-section: the sections the pointer may name
+    pointer_targets: tuple[tuple[str, ...], ...] = ()  # per position of `pointers` when given as a mapping
 
 
 @dataclass(frozen=True)
@@ -189,6 +227,15 @@ class Column:
     nulls: str
     derivation: Derivation
     description: str
+
+
+@dataclass(frozen=True)
+class JsonLayout:
+    """A table's `json` block: how a row is written back as its bundle record (module docstring)."""
+
+    key_order: str  # columns | sorted
+    record_id: bool
+    sorted_columns: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -203,6 +250,7 @@ class Table:
     extension_slots: dict[str, dict[str, str] | str] = field(default_factory=dict)
     sort_key_unique: str | None = None
     known_fields: bool = False  # every top-level record field must be read by a column (docstring)
+    json: JsonLayout | None = None  # the record's JSON layout (round trip, ADR 0005)
 
     @property
     def file_name(self) -> str:
@@ -231,6 +279,7 @@ class Spec:
     writer: dict
     tables: tuple[Table, ...]
     name: str | None = None  # required in every spec file; may be absent only in a mapping given to parse_spec
+    lossless: bool = False  # the spec encodes the bundle text: `rebuild` writes it back (ADR 0005)
 
     def table(self, name: str) -> Table:
         for t in self.tables:
@@ -400,7 +449,7 @@ def path_problems(d: Derivation) -> list[str]:
     (sqltemplate.generic_problems)."""
     kind, path = d.kind, d.path
     out = []
-    if kind in ("key", "record"):
+    if kind in ("key", "record", "ordinal"):
         if path is not None:
             out.append(f"a {kind} column takes no path (null), not {path!r}")
     elif kind == "refs":
@@ -414,6 +463,8 @@ def path_problems(d: Derivation) -> list[str]:
             out.append(f"path {path!r} is not $.<field>, optionally with more .<field> and [*] steps")
     if d.pointers and kind not in _POINTER_KINDS:
         out.append(f"pointers is for {' and '.join(_POINTER_KINDS)} columns only")
+    if d.targets and kind not in ("bare-id", "pointer-section"):
+        out.append("targets is for bare-id and pointer-section columns only")
     for pos in d.pointers:
         if not POINTER_POS_RE.fullmatch(pos):
             out.append(f"pointer position {pos!r} is not [*] and .<field> steps (e.g. [*].allele)")
@@ -437,7 +488,7 @@ def _keys(obj: object, allowed: set[str], required: set[str], where: str) -> dic
 def parse_spec(raw: object, where: str = "tables.yaml", *, require_name: bool = False) -> Spec:
     """Check the format and build the Spec. `name` is required when `require_name` (every spec file is loaded
     that way); a mapping without one is accepted for small in-memory specs."""
-    top = _keys(raw, _TOP_KEYS, _TOP_KEYS if require_name else _TOP_KEYS - {"name"}, where)
+    top = _keys(raw, _TOP_KEYS, _TOP_KEYS - _TOP_OPTIONAL | ({"name"} if require_name else set()), where)
     name = top.get("name")
     if name is not None and not (isinstance(name, str) and NAME_RE.fullmatch(name)):
         raise SpecError(f"{where}: name {name!r} must be lower case letters and digits, joined by single hyphens")
@@ -447,6 +498,9 @@ def parse_spec(raw: object, where: str = "tables.yaml", *, require_name: bool = 
         raise SpecError(f"{where}: spec_version must be MAJOR.MINOR")
     if not isinstance(top["writer"], dict):
         raise SpecError(f"{where}: writer must be a mapping")
+    lossless = top.get("lossless", False)
+    if not isinstance(lossless, bool):
+        raise SpecError(f"{where}: lossless must be true or false")
     tables = []
     names: set[str] = set()
     for i, t in enumerate(top["tables"] or []):
@@ -475,10 +529,24 @@ def parse_spec(raw: object, where: str = "tables.yaml", *, require_name: bool = 
             if d["kind"] not in DERIVATION_KINDS:
                 raise SpecError(f"{cw}: derivation kind must be one of {DERIVATION_KINDS}")
             pointers = d.get("pointers", [])
+            pointer_targets: tuple[tuple[str, ...], ...] = ()
+            if isinstance(pointers, dict):
+                if not all(_section_list(v) for v in pointers.values()):
+                    raise SpecError(f"{cw}: derivation pointers: each position maps to a list of sections")
+                pointer_targets = tuple(tuple(v) for v in pointers.values())
+                pointers = list(pointers)
             if not (isinstance(pointers, list) and all(isinstance(x, str) for x in pointers)):
-                raise SpecError(f"{cw}: derivation pointers must be a list of positions")
+                raise SpecError(f"{cw}: derivation pointers must be a list of positions, or a mapping to sections")
+            targets = d.get("targets", [])
+            if "targets" in d and not _section_list(targets):
+                raise SpecError(f"{cw}: derivation targets must be a non-empty list of section names")
             derivation = Derivation(
-                kind=d["kind"], path=d["path"], transform=d["transform"], pointers=tuple(pointers)
+                kind=d["kind"],
+                path=d["path"],
+                transform=d["transform"],
+                pointers=tuple(pointers),
+                targets=tuple(targets),
+                pointer_targets=pointer_targets,
             )
             bad = path_problems(derivation)
             if bad:
@@ -509,6 +577,7 @@ def parse_spec(raw: object, where: str = "tables.yaml", *, require_name: bool = 
         known_fields = t.get("known_fields", False)
         if not isinstance(known_fields, bool):
             raise SpecError(f"{tw}: known_fields must be true or false")
+        layout = _json_layout(t["json"], col_names, tw) if "json" in t else None
         tables.append(
             Table(
                 name=t["name"],
@@ -520,6 +589,7 @@ def parse_spec(raw: object, where: str = "tables.yaml", *, require_name: bool = 
                 extension_slots={k: v if v == JSON_TYPE_SLOTS else dict(v) for k, v in slots.items()},
                 sort_key_unique=unique_note,
                 known_fields=known_fields,
+                json=layout,
             )
         )
     return Spec(
@@ -530,7 +600,29 @@ def parse_spec(raw: object, where: str = "tables.yaml", *, require_name: bool = 
         writer=dict(top["writer"]),
         tables=tuple(tables),
         name=name,
+        lossless=lossless,
     )
+
+
+def _section_list(v: object) -> bool:
+    return isinstance(v, list) and bool(v) and all(isinstance(x, str) and x for x in v)
+
+
+def _json_layout(raw: object, col_names: set[str], tw: str) -> JsonLayout:
+    j = _keys(raw, _JSON_KEYS, {"key_order", "record_id"}, f"{tw}: json")
+    if j["key_order"] not in KEY_ORDERS:
+        raise SpecError(f"{tw}: json.key_order must be one of {KEY_ORDERS}")
+    if not isinstance(j["record_id"], bool):
+        raise SpecError(f"{tw}: json.record_id must be true or false")
+    sorted_columns = j.get("sorted_columns", [])
+    if not (isinstance(sorted_columns, list) and all(isinstance(c, str) for c in sorted_columns)):
+        raise SpecError(f"{tw}: json.sorted_columns must be a list of column names")
+    unknown = [c for c in sorted_columns if c not in col_names]
+    if unknown:
+        raise SpecError(f"{tw}: json.sorted_columns names unknown column(s) {unknown}")
+    if sorted_columns and j["key_order"] == "sorted":
+        raise SpecError(f"{tw}: json.sorted_columns is for key_order columns (sorted sorts every key)")
+    return JsonLayout(key_order=j["key_order"], record_id=j["record_id"], sorted_columns=tuple(sorted_columns))
 
 
 # --- rules -----------------------------------------------------------------------------------------------------
@@ -548,7 +640,8 @@ def _table_shape(t: Table) -> tuple:
     slots = tuple(
         sorted((k, v if v == JSON_TYPE_SLOTS else tuple(sorted(v.items()))) for k, v in t.extension_slots.items())
     )
-    return (t.sections, t.row_filter, t.sort_key, t.known_fields, cols, slots)
+    # (The json block changes what the build writes: absent nested lists, the round-trip check.)
+    return (t.sections, t.row_filter, t.sort_key, t.known_fields, cols, slots, t.json)
 
 
 def _same_as_builtin_table(t: Table) -> bool:
@@ -573,6 +666,7 @@ def check_rules(spec: Spec, where: str = "tables.yaml", *, builtin: bool = False
     from .sqltemplate import generic_problems
 
     errs: list[str] = []
+    spec_secs = {s for v in spec.bundle_schema_versions for s in SCHEMA_SECTIONS.get(v, ())}
     if spec.name is None:
         errs.append("no name")
     elif not builtin and spec.name in BUILTIN_SPECS:
@@ -639,5 +733,15 @@ def check_rules(spec: Spec, where: str = "tables.yaml", *, builtin: bool = False
                     f"{tw}: no renderer: the tool has no sql/{t.name}.sql, and the generic renderer can't build "
                     f"it: {'; '.join(generic)}"
                 )
+    for t in spec.tables:
+        for c in t.columns:
+            named = {s for ts in (c.derivation.targets, *c.derivation.pointer_targets) for s in ts}
+            bad = sorted(named - spec_secs)
+            if bad:
+                errs.append(f"table {t.name}: column {c.name}: targets {bad} are not bundle sections")
+    if spec.lossless or any(t.json for t in spec.tables):
+        from .roundtrip import lossless_problems  # roundtrip imports this module
+
+        errs.extend(lossless_problems(spec))
     if errs:
         raise SpecError(f"{where}: table spec {spec.label}: " + "; ".join(errs))

@@ -57,3 +57,29 @@ version it writes (ADR 0002). Tags are `vX.Y.Z`.
   implements; another spec's table of the same name takes the generic renderer.
 - Every `known_fields` table now also checks that the record's own `id`, when present, equals its bundle key, and
   stops the build when it doesn't. `clinvar-gkm` output is unchanged (byte-identical on the real excerpt).
+- **Lossless round trip** (ADR 0005): a full build of the `sections` spec from one bundle is a lossless encoding
+  of the bundle's uncompressed text. New command `clinvar-gkm-parquet rebuild <dir> -o <bundle.json[.gz]>` writes
+  the text back byte for byte and checks it against the hashes the build recorded; `verify --roundtrip` does the
+  same without writing (with `--full`, also against that bundle's text). Both refuse a selection, a build with
+  deltas or `--tables`, a missing table, ordinals that are not `0..n-1`, a pointer section outside its column's
+  targets, and any spec that is not lossless; a differing hash leaves no output. Measured 2026-10-30 on the
+  2026-09-23 weekly delta (4,530,457 records, 2.68 GB of text): rebuilt text identical (sha256 `fb247dc2…`),
+  build 41.2 s / 3.5 GB peak RSS (29.9 s / 2.8 GB before the round-trip check), rebuild 40.0 s / 2.0 GB.
+- **`sections` 1.0 (draft) changed in place** (it is unreleased): every table gains `ordinal` (BIGINT, last: the
+  record's position in its bundle section); each bare-id column with several targets gains a `<column>_section`
+  column right after it (`variation.members_section`, `conditionSet.concepts_section`, `object_section` in the
+  four proposition tables, `propositionSomaticClinicalImpact.conditionQualifier_section`,
+  `evidenceLine.hasEvidenceItems_section`, `proposition_section` in `scv`, `vcv` and `rcv`); an absent list inside
+  a typed value is now NULL (was `[]`), and an extension's unused list slots NULL (were `[]`), so `[]` is always
+  an empty list. The spec states its round trip: top-level `lossless: true`, a `json` block per table, `targets`
+  on every bare-id column, and typed-copy `pointers` as a mapping from position to target section.
+- The `sections` build now writes each row back as JSON and stops unless it equals the bundle line, key text
+  included: a JSON `null`, a float, an open Range `[null, null]`, a record without its `id`, a key order or escape
+  the spec doesn't state now stop a `sections` build (none occurs in the excerpt or the delta). A lossless build
+  also writes `clinvar_gkm_parquet.section_text_sha256` in every file and `source_text_sha256` and
+  `source_text_size` in the manifest. `baseline` and `clinvar-gkm` output is unchanged (byte-identical on the real
+  excerpt).
+- Spec format additions: derivation kind `ordinal`; `targets` on bare-id and pointer-section columns; `pointers`
+  may map each position to its target sections; a table's `json` block (`key_order: columns | sorted`,
+  `record_id`, `sorted_columns`); a spec's `lossless` flag. Staging: the build's chunk lines start with the
+  record's ordinal, and `bundle_<section>` gains `ordinal` and `key_json` (the key as written).

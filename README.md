@@ -40,6 +40,9 @@ different cadences ([ADR 0002](docs/decisions/0002-independent-tool-versioning.m
 - `sections`: one table per bundle section (20), keyed by `id`, with every record property its own typed column
   (named as the property; pointers as bare ids; extensions in `value_<type>` slots by the JSON type of their
   value) and no `data` column. A property, value type or record shape the spec doesn't cover stops the build.
+  It is lossless ([ADR 0005](docs/decisions/0005-lossless-sections-build.md)): each table also has `ordinal`
+  (the record's position in its section) and, for a pointer with several target sections, `<column>_section`;
+  a full build writes the bundle's text back byte for byte with `rebuild`, and the build checks every row.
 - `baseline`: one table per bundle section (20), each `id`, `refs` (every `#/<section>/<id>` pointer in the
   record) and `data` (the record, byte for byte).
 - `clinvar-gkm`: the 22 tables of ClinVar-GKM's published Parquet set, with typed columns matching its BigQuery
@@ -49,7 +52,8 @@ different cadences ([ADR 0002](docs/decisions/0002-independent-tool-versioning.m
 [design plan](docs/plans/2026-10-20-design.md#92-compatibility-matrix-planned) for the planned releases.
 
 Each Parquet file records, in its key-value metadata, the tool version, the spec's name and version (and, for a
-custom spec, the sha256 of its file), the source bundles' sha256s and, for a selective build, the selection
+custom spec, the sha256 of its file), the source bundles' sha256s, for a lossless build the sha256 of its
+section's text and, for a selective build, the selection
 ([design plan](docs/plans/2026-10-20-design.md#72-key-value-metadata-every-file) §7.2).
 
 ## Usage (unreleased)
@@ -80,11 +84,22 @@ clinvar-gkm-parquet select --full clinvar-gkm_2026-1018.json.gz --out omim.json.
 clinvar-gkm-parquet build --spec baseline --full clinvar-gkm_2026-1018.json.gz --out omim/ \
     --driver submitter --where "data->>'\$.name' = 'OMIM'" --follow in --max-depth 1
 
-# Checks: the directory on its own; a full build against its bundle; a selection against its mini-bundle
+# Back from Parquet to the bundle: a full sections build rebuilds the bundle's text byte for byte
+clinvar-gkm-parquet rebuild out/ -o clinvar-gkm_2026-1018.json.gz
+
+# Checks: the directory on its own; a full build against its bundle; a selection against its mini-bundle;
+# the round trip (the rebuilt text against the recorded hashes and, with --full, the bundle's own text)
 clinvar-gkm-parquet verify out/
 clinvar-gkm-parquet verify out/ --bundle-recompute --full clinvar-gkm_2026-1018.json.gz
 clinvar-gkm-parquet verify omim/ --bundle-recompute --full omim.json.gz
+clinvar-gkm-parquet verify out/ --roundtrip --full clinvar-gkm_2026-1018.json.gz
 ```
+
+`rebuild` writes gzip when the output name ends in `.gz`; the gzip bytes differ from the published file (header
+and compressor), the uncompressed text does not, and its sha256 is checked against the build's manifest
+(`source_text_sha256`) and each file's `section_text_sha256`. It refuses anything it can't reproduce exactly:
+another spec, a selection, a build with deltas or `--tables`, a missing table or ordinal, a pointer outside its
+targets ([ADR 0005](docs/decisions/0005-lossless-sections-build.md)).
 
 Selection options (`build` and `select`): `--driver <table>` (a table of the chosen spec), `--where` (a DuckDB
 boolean expression over that table as the spec builds it), `--ids k1,k2` and `--ids-file` (added to the
@@ -96,8 +111,10 @@ spec; `verify --against` (the oracle) takes a full `clinvar-gkm` build only.
 A spec file uses the format of the built-in ones (`spec/sections/1.0/tables.yaml`, `spec/1.0/tables.yaml`;
 reference in `src/clinvar_gkm_parquet/spec.py`). Its tables need no SQL: each column names a derivation kind
 (`scalar-path`, `bare-id`, `pointer-section`, `typed-copy`, `extension-slot`, `range-exact`, `range-min`,
-`range-max`, `refs`, plus the `key` and an optional `record` column) and a path such as `$.name` or
-`$.contributions[*].contributor`; extension slots go by name or, with `json-type`, by the JSON type of the value. Example:
+`range-max`, `refs`, `ordinal`, plus the `key` and an optional `record` column) and a path such as `$.name` or
+`$.contributions[*].contributor`; extension slots go by name or, with `json-type`, by the JSON type of the value.
+A spec that should rebuild the bundle states `lossless: true`, an `ordinal` column and a `json` block per table,
+and the `targets` of every pointer (as `spec/sections/1.0/tables.yaml` does). Example:
 [`tests/fixtures/custom-spec/tables.yaml`](tests/fixtures/custom-spec/tables.yaml). Only `computed` columns and
 row filters need a SQL file the tool ships.
 
@@ -109,7 +126,8 @@ row filters need a SQL file the tool ships.
   [0001 — Parquet is derived from the bundles](docs/decisions/0001-parquet-derived-from-bundles.md),
   [0002 — Independent tool versioning](docs/decisions/0002-independent-tool-versioning.md),
   [0003 — Pluggable table specs](docs/decisions/0003-pluggable-table-specs.md),
-  [0004 — Driver-based selection](docs/decisions/0004-driver-based-selection.md).
+  [0004 — Driver-based selection](docs/decisions/0004-driver-based-selection.md),
+  [0005 — A full sections build is lossless](docs/decisions/0005-lossless-sections-build.md).
 
 ## Contributing
 
