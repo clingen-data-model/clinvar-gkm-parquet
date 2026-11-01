@@ -21,7 +21,9 @@ Staging format: gzip text, one record per line, `<key as JSON string>\\t<record>
 bytes from the bundle line (the trailing `,` removed), so `data` equals the bundle record byte for byte. JSON
 text never holds a raw tab or newline, so the split is unambiguous. The build writes a section as chunk files
 (`<section>.<nnnn>.tsv.gz`) holding the section's final state: the full's records in bundle order, less the keys
-the deltas replace or delete, then the deltas' net upserts. `stage_bundle` writes one file per section.
+the deltas replace or delete, then the deltas' net upserts; each of its lines starts with `<ordinal>\\t`, the
+record's 0-based position in that state (the `ordinal` derivation kind). `stage_bundle` writes one file per
+section, without the ordinal.
 """
 
 from __future__ import annotations
@@ -62,6 +64,8 @@ class StreamedBundle:
     size: int  # compressed bytes read
     schema_version: str
     counts: dict[str, int]  # section -> records, for the sections the bundle has
+    text_sha256: str | None = None  # of the uncompressed text, when asked for (stream_bundle text_digests)
+    text_size: int | None = None  # uncompressed bytes, likewise
 
 
 @dataclass(frozen=True)

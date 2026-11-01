@@ -25,3 +25,9 @@ class ChainError(ToolError):
 class SpecError(ToolError):
     """The table spec is malformed, or a built table or record doesn't match it (an unknown extension name,
     a non-pointer where a pointer is required, a DESCRIBE that differs from the spec)."""
+
+
+class RoundTripError(ToolError):
+    """A rebuild can't reproduce the source bundle's text exactly: the directory is not a full lossless build
+    (a selection, deltas, a missing table or ordinal, a spec that is not lossless), a pointer's section is
+    unknown, or the rebuilt text's sha256 differs from the recorded one (ADR 0005)."""

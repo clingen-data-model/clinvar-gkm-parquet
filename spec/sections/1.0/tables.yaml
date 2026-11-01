@@ -9,6 +9,17 @@
 # new spec version here. There is no `data` column; a record that holds a property, a field or a value kind
 # this spec lacks stops the build (no row or value is dropped).
 #
+# Lossless (ADR 0005, `lossless: true`): a full build of one bundle is a lossless encoding of the bundle's
+# uncompressed text. `clinvar-gkm-parquet rebuild <dir> -o <bundle.json[.gz]>` writes the text back byte for
+# byte, from what this spec states: the `ordinal` column (record order), each table's `json` block (key order,
+# own `id`), every pointer's `targets` (and `<column>_section` for the multi-target ones), the range columns.
+# The build checks it row by row: each row is written back as JSON and compared with its bundle line, key text
+# included, and any difference stops the build. It records the sha256 of each section's record lines
+# (clinvar_gkm_parquet.section_text_sha256) and of the whole text (manifest source_text_sha256), which rebuild
+# checks. Checked 2026-10-30: the excerpt and the 2026-09-23 weekly delta (4,530,457 records, 2,682,864,605 bytes
+# of text, sha256 fb247dc2f520852c5b8c643b9dd68aa310ab8f45ea9db3d371fce55ada126835) build and rebuild to the
+# identical text.
+#
 # Checked 2026-10-29 against real records: every record of tests/fixtures/real-1.1.0/clinvar-gkm_excerpt.json.gz
 # (2026-10-18 full, 331 records) and of the 2026-09-23 weekly delta (4,530,457 records) fits these types (every
 # property and field known, every JSON kind as declared, every extension value in a slot, every pointer where
@@ -19,7 +30,7 @@
 #
 # Columns:
 # - `id` first: the bundle key. Where the record has its own `id` property it equals the key (it gets no column of
-#   its own); sequenceReference, therapy and therapyGroup records have none.
+#   its own; `json.record_id: true`); sequenceReference, therapy and therapyGroup records have none.
 # - Then one column per top-level property, named exactly as the property, in the producer's order: the field
 #   order of the BigQuery STRUCT (or SELECT list) in the ClinVar-GKM procedure that builds the record. For the
 #   sections the procedures build as BigQuery JSON (sequenceReference, location, allele, copyNumber*, gene,
@@ -27,7 +38,16 @@
 #   alphabetically (BigQuery's JSON type sorts object keys); the spec keeps the STRUCT order. The other sections
 #   (variation, condition, conditionSet, evidenceLine, scv, vcv, rcv) carry the STRUCT order on the bundle line,
 #   except values the export passes through TO_JSON (variation constraints and extensions, scv and evidenceLine
-#   extensions), which are key-sorted there too.
+#   extensions), which are key-sorted there too. Each table's `json` block states this machine-readably:
+#   `key_order: sorted` (every key of the record, at every depth, sorted by its UTF-8 bytes) for the first group;
+#   `key_order: columns` (column order, and STRUCT field order inside values, an extension's value_* slots as one
+#   `value` in the first slot's place) with `sorted_columns` for the TO_JSON values, for the second. Checked on
+#   every record of the excerpt and the delta by the build's round-trip check.
+# - Derived columns that are no property: the three range columns of location.start and location.end (one
+#   integer-or-Range property each, below); `<column>_section` after each bare-id column with several targets
+#   (the section its pointer names: variation members, conditionSet concepts, the propositions' object,
+#   propositionSomaticClinicalImpact conditionQualifier, evidenceLine hasEvidenceItems, and scv, vcv and rcv
+#   proposition); and `ordinal`, last: the record's position in its bundle section (0 = its first record line).
 # - Union rule: when several producer branches (or classes) write one position, the columns, or the struct
 #   fields, are the fields of the first in producer order, then each further one's new fields in its order.
 #   Top level: evidenceLine = SCV evidence line, then VCV/RCV evidence line (the assembler's file order); the
@@ -48,9 +68,12 @@
 # Value rules:
 # - Scalars: scalar-path, no casts: text (dates too) VARCHAR, integers BIGINT, booleans BOOLEAN.
 # - Pointers ('#/<section>/<id>'): a top-level pointer or list of pointers is a bare-id column (VARCHAR /
-#   VARCHAR[]) named as the property; a pointer inside a typed copy is listed in `pointers` (positions relative
-#   to the column value) and holds the bare id. The description names the target section(s); a pointer to any
-#   other section, or a non-pointer there, stops the build.
+#   VARCHAR[]) named as the property, with its target section(s) in `targets`; a pointer inside a typed copy is
+#   listed in `pointers` (positions relative to the column value, each mapped to its target section) and holds
+#   the bare id. A bare-id column with several targets has a pointer-section column `<column>_section` (VARCHAR
+#   / VARCHAR[], element for element) holding the section each pointer names: a lookup of the id in the target
+#   tables would fail on a partial bundle such as a weekly delta, whose pointers name records it doesn't hold. A
+#   pointer to any other section, or a non-pointer there, stops the build.
 # - Objects and arrays: typed-copy with the full nested type.
 # - Extensions: every `extensions` list, at any depth, is a list of STRUCT("name" VARCHAR, value_<kind> ...), one
 #   slot per JSON kind the producer can put in `value` at that position, in the order value_string,
@@ -67,11 +90,15 @@
 #   gkm_vrs load schema), so they are BIGINT.
 # - nulls: when-absent for every property column (top-level lists too: NULL when the record omits the
 #   property; the producer never writes an empty list or object, gkm_json_cleanup.strip_empty drops them).
-#   Inside a typed value an absent field is NULL.
+#   Inside a typed value an absent field is NULL, lists included (a table with a `json` block: ADR 0005), and an
+#   extension's unused slots are NULL; `[]` is an empty list, at any depth. A JSON null is not absent: the build's
+#   round-trip check stops on one (it would be read as absent), as on a float, an open Range [null, null] or any
+#   text the columns can't write back (an escape or key order the producer doesn't make).
 name: sections
 spec_version: "1.0"
 status: draft
 bundle_schema_versions: ["1.1.0"]
+lossless: true
 sources:
   - "ClinVar-GKM schema/clinvar-gkm/clinvar-gkm-bundle.schema.json @ origin/1.0 c8d9c0001fd765a0c1b82ea8067e29644a580a52 (the 20 sections, their order and classes)"
   - "ClinVar-GKM schema/clinvar-gkm/json/* (ClinvarCategoricalVariant, ClinvarGeneContextQualifier, ClinvarGermlineCustomProposition, ClinvarScvStatement, ClinvarAggregateStatement, ClinvarSomaticEvidenceLine, HgvsListItem, GeneListItem, SubmittedConditionMapping) @ origin/1.0 c8d9c0001fd765a0c1b82ea8067e29644a580a52"
@@ -128,8 +155,16 @@ tables:
         nulls: when-absent
         derivation: {kind: extension-slot, path: $.extensions, transform: "{name, value} -> {name, value_<kind>}: value goes to the slot of its JSON kind, at every depth"}
         description: "Extension assembly (value_string: GRCh37, GRCh38 or NCBI36)."
+      - name: ordinal
+        type: BIGINT
+        nulls: never
+        derivation: {kind: ordinal, path: null, transform: null}
+        description: The record's position in its bundle section (0 = its first record line), the bundle's record order.
     extension_slots:
       extensions: json-type
+    json:
+      key_order: sorted
+      record_id: false
 
   - name: location
     sections: [location]
@@ -186,8 +221,16 @@ tables:
       - name: sequenceReference
         type: VARCHAR
         nulls: when-absent
-        derivation: {kind: bare-id, path: $.sequenceReference, transform: "strip ^#/[^/]+/"}
+        derivation: {kind: bare-id, path: $.sequenceReference, transform: "strip ^#/[^/]+/", targets: [sequenceReference]}
         description: The reference sequence, SQ.<digest> (section sequenceReference).
+      - name: ordinal
+        type: BIGINT
+        nulls: never
+        derivation: {kind: ordinal, path: null, transform: null}
+        description: The record's position in its bundle section (0 = its first record line), the bundle's record order.
+    json:
+      key_order: sorted
+      record_id: true
 
   - name: allele
     sections: [allele]
@@ -229,8 +272,16 @@ tables:
       - name: location
         type: VARCHAR
         nulls: when-absent
-        derivation: {kind: bare-id, path: $.location, transform: "strip ^#/[^/]+/"}
+        derivation: {kind: bare-id, path: $.location, transform: "strip ^#/[^/]+/", targets: [location]}
         description: "The location, ga4gh:SL.<digest> (section location)."
+      - name: ordinal
+        type: BIGINT
+        nulls: never
+        derivation: {kind: ordinal, path: null, transform: null}
+        description: The record's position in its bundle section (0 = its first record line), the bundle's record order.
+    json:
+      key_order: sorted
+      record_id: true
 
   - name: copyNumberCount
     sections: [copyNumberCount]
@@ -262,8 +313,16 @@ tables:
       - name: location
         type: VARCHAR
         nulls: when-absent
-        derivation: {kind: bare-id, path: $.location, transform: "strip ^#/[^/]+/"}
+        derivation: {kind: bare-id, path: $.location, transform: "strip ^#/[^/]+/", targets: [location]}
         description: "The location, ga4gh:SL.<digest> (section location)."
+      - name: ordinal
+        type: BIGINT
+        nulls: never
+        derivation: {kind: ordinal, path: null, transform: null}
+        description: The record's position in its bundle section (0 = its first record line), the bundle's record order.
+    json:
+      key_order: sorted
+      record_id: true
 
   - name: copyNumberChange
     sections: [copyNumberChange]
@@ -295,8 +354,16 @@ tables:
       - name: location
         type: VARCHAR
         nulls: when-absent
-        derivation: {kind: bare-id, path: $.location, transform: "strip ^#/[^/]+/"}
+        derivation: {kind: bare-id, path: $.location, transform: "strip ^#/[^/]+/", targets: [location]}
         description: "The location, ga4gh:SL.<digest> (section location)."
+      - name: ordinal
+        type: BIGINT
+        nulls: never
+        derivation: {kind: ordinal, path: null, transform: null}
+        description: The record's position in its bundle section (0 = its first record line), the bundle's record order.
+    json:
+      key_order: sorted
+      record_id: true
 
   - name: gene
     sections: [gene]
@@ -335,6 +402,14 @@ tables:
         nulls: when-absent
         derivation: {kind: typed-copy, path: $.mappings, transform: null}
         description: The HGNC coding, when there is one.
+      - name: ordinal
+        type: BIGINT
+        nulls: never
+        derivation: {kind: ordinal, path: null, transform: null}
+        description: The record's position in its bundle section (0 = its first record line), the bundle's record order.
+    json:
+      key_order: sorted
+      record_id: true
 
   - name: variation
     sections: [variation]
@@ -361,25 +436,39 @@ tables:
       - name: constraints
         type: 'STRUCT("type" VARCHAR, allele VARCHAR, "location" VARCHAR, copies BIGINT, copyChange VARCHAR, matchCharacteristic STRUCT("type" VARCHAR, primaryCoding STRUCT(code VARCHAR, "system" VARCHAR, iris VARCHAR[])), relations STRUCT("type" VARCHAR, primaryCoding STRUCT(code VARCHAR, "system" VARCHAR, iris VARCHAR[]))[])[]'
         nulls: when-absent
-        derivation: {kind: typed-copy, path: $.constraints, transform: "allele and location pointers stripped", pointers: ["[*].allele", "[*].location"]}
+        derivation: {kind: typed-copy, path: $.constraints, transform: "allele and location pointers stripped", pointers: {"[*].allele": [allele], "[*].location": [location]}}
         description: Cat-VRS constraints (DefiningAllele, DefiningLocation, CopyCount, CopyChange), one union struct; allele and location hold bare ids (sections allele, location).
       - name: members
         type: VARCHAR[]
         nulls: when-absent
-        derivation: {kind: bare-id, path: $.members, transform: "strip ^#/[^/]+/ from each pointer, in order"}
+        derivation: {kind: bare-id, path: $.members, transform: "strip ^#/[^/]+/ from each pointer, in order", targets: [allele, copyNumberCount, copyNumberChange]}
         description: The member VRS variation, a bare id in section allele, copyNumberCount or copyNumberChange.
+      - name: members_section
+        type: VARCHAR[]
+        nulls: when-absent
+        derivation: {kind: pointer-section, path: $.members, transform: "the <section> of each pointer, in order", targets: [allele, copyNumberCount, copyNumberChange]}
+        description: "The sections members point into (allele, copyNumberCount, copyNumberChange): with members, the pointers as written."
       - name: extensions
         type: 'STRUCT("name" VARCHAR, value_string VARCHAR, value_object_array STRUCT(nucleotideExpression STRUCT(syntax VARCHAR, "value" VARCHAR, "extensions" STRUCT("name" VARCHAR, value_string VARCHAR, value_boolean BOOLEAN)[]), nucleotideType VARCHAR, maneSelect BOOLEAN, manePlus BOOLEAN, proteinExpression STRUCT(syntax VARCHAR, "value" VARCHAR), molecularConsequence STRUCT(code VARCHAR, "system" VARCHAR, "name" VARCHAR, iris VARCHAR[])[], gene VARCHAR, relationship_type VARCHAR, "source" VARCHAR)[])[]'
         nulls: when-absent
-        derivation: {kind: extension-slot, path: $.extensions, transform: "{name, value} -> {name, value_<kind>}: value goes to the slot of its JSON kind, at every depth", pointers: ["[*].value_object_array[*].gene"]}
+        derivation: {kind: extension-slot, path: $.extensions, transform: "{name, value} -> {name, value_<kind>}: value goes to the slot of its JSON kind, at every depth", pointers: {"[*].value_object_array[*].gene": [gene]}}
         description: "Named ClinVar attributes: string values in value_string; clinvarHgvsList (HgvsListItem) and clinvarGeneList (GeneListItem, gene = bare id in section gene) items in value_object_array."
       - name: mappings
         type: 'STRUCT(coding STRUCT("system" VARCHAR, code VARCHAR, iris VARCHAR[]), relation VARCHAR)[]'
         nulls: when-absent
         derivation: {kind: typed-copy, path: $.mappings, transform: null}
         description: Identifiers for this variant in other systems (ClinVar, ClinGen, dbSNP, ...).
+      - name: ordinal
+        type: BIGINT
+        nulls: never
+        derivation: {kind: ordinal, path: null, transform: null}
+        description: The record's position in its bundle section (0 = its first record line), the bundle's record order.
     extension_slots:
       extensions: json-type
+    json:
+      key_order: columns
+      record_id: true
+      sorted_columns: [constraints, extensions]
 
   - name: condition
     sections: [condition]
@@ -423,6 +512,14 @@ tables:
         nulls: when-absent
         derivation: {kind: typed-copy, path: $.mappings, transform: null}
         description: Cross-references (MONDO, Orphanet, OMIM, HPO, ...).
+      - name: ordinal
+        type: BIGINT
+        nulls: never
+        derivation: {kind: ordinal, path: null, transform: null}
+        description: The record's position in its bundle section (0 = its first record line), the bundle's record order.
+    json:
+      key_order: columns
+      record_id: true
 
   - name: conditionSet
     sections: [conditionSet]
@@ -449,13 +546,26 @@ tables:
       - name: concepts
         type: VARCHAR[]
         nulls: when-absent
-        derivation: {kind: bare-id, path: $.concepts, transform: "strip ^#/[^/]+/ from each pointer, in order"}
+        derivation: {kind: bare-id, path: $.concepts, transform: "strip ^#/[^/]+/ from each pointer, in order", targets: [condition, conditionSet]}
         description: "Members, bare ids in section condition (clinvar.trait:) or conditionSet (clinvar.traitset:)."
+      - name: concepts_section
+        type: VARCHAR[]
+        nulls: when-absent
+        derivation: {kind: pointer-section, path: $.concepts, transform: "the <section> of each pointer, in order", targets: [condition, conditionSet]}
+        description: "The sections concepts point into (condition, conditionSet): with concepts, the pointers as written."
       - name: membershipOperator
         type: VARCHAR
         nulls: when-absent
         derivation: {kind: scalar-path, path: $.membershipOperator, transform: null}
         description: AND or OR.
+      - name: ordinal
+        type: BIGINT
+        nulls: never
+        derivation: {kind: ordinal, path: null, transform: null}
+        description: The record's position in its bundle section (0 = its first record line), the bundle's record order.
+    json:
+      key_order: columns
+      record_id: true
 
   - name: therapy
     sections: [therapy]
@@ -484,6 +594,14 @@ tables:
         nulls: when-absent
         derivation: {kind: scalar-path, path: $.conceptType, transform: null}
         description: Always Drug.
+      - name: ordinal
+        type: BIGINT
+        nulls: never
+        derivation: {kind: ordinal, path: null, transform: null}
+        description: The record's position in its bundle section (0 = its first record line), the bundle's record order.
+    json:
+      key_order: sorted
+      record_id: false
 
   - name: therapyGroup
     sections: [therapyGroup]
@@ -505,13 +623,21 @@ tables:
       - name: concepts
         type: VARCHAR[]
         nulls: when-absent
-        derivation: {kind: bare-id, path: $.concepts, transform: "strip ^#/[^/]+/ from each pointer, in order"}
+        derivation: {kind: bare-id, path: $.concepts, transform: "strip ^#/[^/]+/ from each pointer, in order", targets: [therapy]}
         description: Member therapies, bare ids in section therapy.
       - name: membershipOperator
         type: VARCHAR
         nulls: when-absent
         derivation: {kind: scalar-path, path: $.membershipOperator, transform: null}
         description: Always AND.
+      - name: ordinal
+        type: BIGINT
+        nulls: never
+        derivation: {kind: ordinal, path: null, transform: null}
+        description: The record's position in its bundle section (0 = its first record line), the bundle's record order.
+    json:
+      key_order: sorted
+      record_id: false
 
   - name: submitter
     sections: [submitter]
@@ -535,6 +661,14 @@ tables:
         nulls: when-absent
         derivation: {kind: scalar-path, path: $.name, transform: null}
         description: The organization name.
+      - name: ordinal
+        type: BIGINT
+        nulls: never
+        derivation: {kind: ordinal, path: null, transform: null}
+        description: The record's position in its bundle section (0 = its first record line), the bundle's record order.
+    json:
+      key_order: sorted
+      record_id: true
 
   - name: propositionPathogenicity
     sections: [propositionPathogenicity]
@@ -556,7 +690,7 @@ tables:
       - name: subject
         type: VARCHAR
         nulls: when-absent
-        derivation: {kind: bare-id, path: $.subject, transform: "strip ^#/[^/]+/"}
+        derivation: {kind: bare-id, path: $.subject, transform: "strip ^#/[^/]+/", targets: [variation]}
         description: "The subject variant, clinvar:<n> (section variation)."
       - name: predicate
         type: VARCHAR
@@ -566,8 +700,13 @@ tables:
       - name: object
         type: VARCHAR
         nulls: when-absent
-        derivation: {kind: bare-id, path: $.object, transform: "strip ^#/[^/]+/"}
+        derivation: {kind: bare-id, path: $.object, transform: "strip ^#/[^/]+/", targets: [condition, conditionSet]}
         description: The object, a bare id in section condition, conditionSet (the id prefix tells which); absent when ClinVar names no condition.
+      - name: object_section
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: pointer-section, path: $.object, transform: "the <section> of the pointer", targets: [condition, conditionSet]}
+        description: "The section object points into (condition, conditionSet): with object, the pointer as written."
       - name: geneContextQualifier
         type: 'STRUCT("type" VARCHAR, conceptType VARCHAR, "name" VARCHAR, primaryCoding STRUCT(code VARCHAR, "name" VARCHAR, "system" VARCHAR, iris VARCHAR[]), mappings STRUCT(coding STRUCT(code VARCHAR, "system" VARCHAR, iris VARCHAR[]), relation VARCHAR)[], "extensions" STRUCT("name" VARCHAR, value_string VARCHAR, value_string_array VARCHAR[])[])'
         nulls: when-absent
@@ -583,10 +722,18 @@ tables:
         nulls: when-absent
         derivation: {kind: typed-copy, path: $.penetranceQualifier, transform: "nested extensions: {name, value} -> {name, value_<kind>} by the JSON kind of value"}
         description: Penetrance, low or risk (germline SCV propositions of a low-penetrance or risk-allele classification only); extension submittedClassification.
+      - name: ordinal
+        type: BIGINT
+        nulls: never
+        derivation: {kind: ordinal, path: null, transform: null}
+        description: The record's position in its bundle section (0 = its first record line), the bundle's record order.
     extension_slots:
       geneContextQualifier: json-type
       modeOfInheritanceQualifier: json-type
       penetranceQualifier: json-type
+    json:
+      key_order: sorted
+      record_id: true
 
   - name: propositionOncogenicity
     sections: [propositionOncogenicity]
@@ -608,7 +755,7 @@ tables:
       - name: subject
         type: VARCHAR
         nulls: when-absent
-        derivation: {kind: bare-id, path: $.subject, transform: "strip ^#/[^/]+/"}
+        derivation: {kind: bare-id, path: $.subject, transform: "strip ^#/[^/]+/", targets: [variation]}
         description: "The subject variant, clinvar:<n> (section variation)."
       - name: predicate
         type: VARCHAR
@@ -618,15 +765,28 @@ tables:
       - name: object
         type: VARCHAR
         nulls: when-absent
-        derivation: {kind: bare-id, path: $.object, transform: "strip ^#/[^/]+/"}
+        derivation: {kind: bare-id, path: $.object, transform: "strip ^#/[^/]+/", targets: [condition, conditionSet]}
         description: The object, a bare id in section condition, conditionSet (the id prefix tells which); absent when ClinVar names no condition.
+      - name: object_section
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: pointer-section, path: $.object, transform: "the <section> of the pointer", targets: [condition, conditionSet]}
+        description: "The section object points into (condition, conditionSet): with object, the pointer as written."
       - name: geneContextQualifier
         type: 'STRUCT("type" VARCHAR, conceptType VARCHAR, "name" VARCHAR, primaryCoding STRUCT(code VARCHAR, "name" VARCHAR, "system" VARCHAR, iris VARCHAR[]), mappings STRUCT(coding STRUCT(code VARCHAR, "system" VARCHAR, iris VARCHAR[]), relation VARCHAR)[], "extensions" STRUCT("name" VARCHAR, value_string VARCHAR, value_string_array VARCHAR[])[])'
         nulls: when-absent
         derivation: {kind: typed-copy, path: $.geneContextQualifier, transform: "nested extensions: {name, value} -> {name, value_<kind>} by the JSON kind of value"}
         description: "Gene context (SCV propositions only): the gene, its codings, and the extensions geneContextSource (value_string) and submittedGeneSymbols (value_string_array)."
+      - name: ordinal
+        type: BIGINT
+        nulls: never
+        derivation: {kind: ordinal, path: null, transform: null}
+        description: The record's position in its bundle section (0 = its first record line), the bundle's record order.
     extension_slots:
       geneContextQualifier: json-type
+    json:
+      key_order: sorted
+      record_id: true
 
   - name: propositionSomaticClinicalImpact
     sections: [propositionSomaticClinicalImpact]
@@ -648,7 +808,7 @@ tables:
       - name: subject
         type: VARCHAR
         nulls: when-absent
-        derivation: {kind: bare-id, path: $.subject, transform: "strip ^#/[^/]+/"}
+        derivation: {kind: bare-id, path: $.subject, transform: "strip ^#/[^/]+/", targets: [variation]}
         description: "The subject variant, clinvar:<n> (section variation)."
       - name: predicate
         type: VARCHAR
@@ -658,8 +818,13 @@ tables:
       - name: object
         type: VARCHAR
         nulls: when-absent
-        derivation: {kind: bare-id, path: $.object, transform: "strip ^#/[^/]+/"}
+        derivation: {kind: bare-id, path: $.object, transform: "strip ^#/[^/]+/", targets: [condition, conditionSet, therapy, therapyGroup]}
         description: The object, a bare id in section condition, conditionSet, therapy, therapyGroup (the id prefix tells which); absent when ClinVar names no condition.
+      - name: object_section
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: pointer-section, path: $.object, transform: "the <section> of the pointer", targets: [condition, conditionSet, therapy, therapyGroup]}
+        description: "The section object points into (condition, conditionSet, therapy, therapyGroup): with object, the pointer as written."
       - name: geneContextQualifier
         type: 'STRUCT("type" VARCHAR, conceptType VARCHAR, "name" VARCHAR, primaryCoding STRUCT(code VARCHAR, "name" VARCHAR, "system" VARCHAR, iris VARCHAR[]), mappings STRUCT(coding STRUCT(code VARCHAR, "system" VARCHAR, iris VARCHAR[]), relation VARCHAR)[], "extensions" STRUCT("name" VARCHAR, value_string VARCHAR, value_string_array VARCHAR[])[])'
         nulls: when-absent
@@ -668,10 +833,23 @@ tables:
       - name: conditionQualifier
         type: VARCHAR
         nulls: when-absent
-        derivation: {kind: bare-id, path: $.conditionQualifier, transform: "strip ^#/[^/]+/"}
+        derivation: {kind: bare-id, path: $.conditionQualifier, transform: "strip ^#/[^/]+/", targets: [condition, conditionSet]}
         description: "Therapeutic-response target propositions only: the condition context, a bare id in section condition or conditionSet."
+      - name: conditionQualifier_section
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: pointer-section, path: $.conditionQualifier, transform: "the <section> of the pointer", targets: [condition, conditionSet]}
+        description: "The section conditionQualifier points into (condition, conditionSet): with conditionQualifier, the pointer as written."
+      - name: ordinal
+        type: BIGINT
+        nulls: never
+        derivation: {kind: ordinal, path: null, transform: null}
+        description: The record's position in its bundle section (0 = its first record line), the bundle's record order.
     extension_slots:
       geneContextQualifier: json-type
+    json:
+      key_order: sorted
+      record_id: true
 
   - name: propositionClinvarCustom
     sections: [propositionClinvarCustom]
@@ -693,7 +871,7 @@ tables:
       - name: subject
         type: VARCHAR
         nulls: when-absent
-        derivation: {kind: bare-id, path: $.subject, transform: "strip ^#/[^/]+/"}
+        derivation: {kind: bare-id, path: $.subject, transform: "strip ^#/[^/]+/", targets: [variation]}
         description: "The subject variant, clinvar:<n> (section variation)."
       - name: predicate
         type: VARCHAR
@@ -703,8 +881,13 @@ tables:
       - name: object
         type: VARCHAR
         nulls: when-absent
-        derivation: {kind: bare-id, path: $.object, transform: "strip ^#/[^/]+/"}
+        derivation: {kind: bare-id, path: $.object, transform: "strip ^#/[^/]+/", targets: [condition, conditionSet]}
         description: The object, a bare id in section condition, conditionSet (the id prefix tells which); absent when ClinVar names no condition.
+      - name: object_section
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: pointer-section, path: $.object, transform: "the <section> of the pointer", targets: [condition, conditionSet]}
+        description: "The section object points into (condition, conditionSet): with object, the pointer as written."
       - name: geneContextQualifier
         type: 'STRUCT("type" VARCHAR, conceptType VARCHAR, "name" VARCHAR, primaryCoding STRUCT(code VARCHAR, "name" VARCHAR, "system" VARCHAR, iris VARCHAR[]), mappings STRUCT(coding STRUCT(code VARCHAR, "system" VARCHAR, iris VARCHAR[]), relation VARCHAR)[], "extensions" STRUCT("name" VARCHAR, value_string VARCHAR, value_string_array VARCHAR[])[])'
         nulls: when-absent
@@ -720,10 +903,18 @@ tables:
         nulls: when-absent
         derivation: {kind: typed-copy, path: $.penetranceQualifier, transform: "nested extensions: {name, value} -> {name, value_<kind>} by the JSON kind of value"}
         description: Penetrance, low or risk (germline SCV propositions of a low-penetrance or risk-allele classification only); extension submittedClassification.
+      - name: ordinal
+        type: BIGINT
+        nulls: never
+        derivation: {kind: ordinal, path: null, transform: null}
+        description: The record's position in its bundle section (0 = its first record line), the bundle's record order.
     extension_slots:
       geneContextQualifier: json-type
       modeOfInheritanceQualifier: json-type
       penetranceQualifier: json-type
+    json:
+      key_order: sorted
+      record_id: true
 
   - name: evidenceLine
     sections: [evidenceLine]
@@ -745,7 +936,7 @@ tables:
       - name: targetProposition
         type: VARCHAR
         nulls: when-absent
-        derivation: {kind: bare-id, path: $.targetProposition, transform: "strip ^#/[^/]+/"}
+        derivation: {kind: bare-id, path: $.targetProposition, transform: "strip ^#/[^/]+/", targets: [propositionSomaticClinicalImpact]}
         description: "SCV evidence lines only: the diagnostic, prognostic or therapeutic-response proposition, a bare id in section propositionSomaticClinicalImpact."
       - name: directionOfEvidenceProvided
         type: VARCHAR
@@ -770,10 +961,24 @@ tables:
       - name: hasEvidenceItems
         type: VARCHAR[]
         nulls: when-absent
-        derivation: {kind: bare-id, path: $.hasEvidenceItems, transform: "strip ^#/[^/]+/ from each pointer, in order"}
+        derivation: {kind: bare-id, path: $.hasEvidenceItems, transform: "strip ^#/[^/]+/ from each pointer, in order", targets: [scv, vcv, rcv]}
         description: "VCV/RCV evidence lines only: the cited statements, bare ids in section scv, vcv or rcv."
+      - name: hasEvidenceItems_section
+        type: VARCHAR[]
+        nulls: when-absent
+        derivation: {kind: pointer-section, path: $.hasEvidenceItems, transform: "the <section> of each pointer, in order", targets: [scv, vcv, rcv]}
+        description: "The sections hasEvidenceItems point into (scv, vcv, rcv): with hasEvidenceItems, the pointers as written."
+      - name: ordinal
+        type: BIGINT
+        nulls: never
+        derivation: {kind: ordinal, path: null, transform: null}
+        description: The record's position in its bundle section (0 = its first record line), the bundle's record order.
     extension_slots:
       extensions: json-type
+    json:
+      key_order: columns
+      record_id: true
+      sorted_columns: [extensions]
 
   - name: scv
     sections: [scv]
@@ -795,8 +1000,13 @@ tables:
       - name: proposition
         type: VARCHAR
         nulls: when-absent
-        derivation: {kind: bare-id, path: $.proposition, transform: "strip ^#/[^/]+/"}
+        derivation: {kind: bare-id, path: $.proposition, transform: "strip ^#/[^/]+/", targets: [propositionPathogenicity, propositionOncogenicity, propositionSomaticClinicalImpact, propositionClinvarCustom]}
         description: The proposition this statement classifies, a bare id in one of the four proposition sections.
+      - name: proposition_section
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: pointer-section, path: $.proposition, transform: "the <section> of the pointer", targets: [propositionPathogenicity, propositionOncogenicity, propositionSomaticClinicalImpact, propositionClinvarCustom]}
+        description: "The section proposition points into (propositionPathogenicity, propositionOncogenicity, propositionSomaticClinicalImpact, propositionClinvarCustom): with proposition, the pointer as written."
       - name: classification
         type: 'STRUCT("type" VARCHAR, conceptType VARCHAR, "name" VARCHAR, primaryCoding STRUCT(code VARCHAR, "system" VARCHAR), "extensions" STRUCT("name" VARCHAR, value_string VARCHAR)[])'
         nulls: when-absent
@@ -825,7 +1035,7 @@ tables:
       - name: contributions
         type: 'STRUCT("type" VARCHAR, contributor VARCHAR, date VARCHAR, activityType VARCHAR)[]'
         nulls: when-absent
-        derivation: {kind: typed-copy, path: $.contributions, transform: "contributor pointer stripped; date kept as text", pointers: ["[*].contributor"]}
+        derivation: {kind: typed-copy, path: $.contributions, transform: "contributor pointer stripped; date kept as text", pointers: {"[*].contributor": [submitter]}}
         description: Submitted, created and evaluated contributions; contributor is a bare id in section submitter, date is the YYYY-MM-DD text.
       - name: specifiedBy
         type: 'STRUCT("type" VARCHAR, methodType VARCHAR, "name" VARCHAR, reportedIn STRUCT("type" VARCHAR, pmid VARCHAR, doi VARCHAR, urls VARCHAR[], "name" VARCHAR, documentType VARCHAR, "extensions" STRUCT("name" VARCHAR, value_string VARCHAR, value_boolean BOOLEAN)[]), "extensions" STRUCT("name" VARCHAR, value_object_array STRUCT("type" VARCHAR, pmid VARCHAR, doi VARCHAR, urls VARCHAR[], "name" VARCHAR, documentType VARCHAR, "extensions" STRUCT("name" VARCHAR, value_string VARCHAR, value_boolean BOOLEAN)[])[])[])'
@@ -845,13 +1055,22 @@ tables:
       - name: hasEvidenceLines
         type: VARCHAR[]
         nulls: when-absent
-        derivation: {kind: bare-id, path: $.hasEvidenceLines, transform: "strip ^#/[^/]+/ from each pointer, in order"}
+        derivation: {kind: bare-id, path: $.hasEvidenceLines, transform: "strip ^#/[^/]+/ from each pointer, in order", targets: [evidenceLine]}
         description: "Somatic clinical-impact SCVs only: the SCV's evidence line, a bare id in section evidenceLine."
+      - name: ordinal
+        type: BIGINT
+        nulls: never
+        derivation: {kind: ordinal, path: null, transform: null}
+        description: The record's position in its bundle section (0 = its first record line), the bundle's record order.
     extension_slots:
       classification: json-type
       specifiedBy: json-type
       reportedIn: json-type
       extensions: json-type
+    json:
+      key_order: columns
+      record_id: true
+      sorted_columns: [extensions]
 
   - name: vcv
     sections: [vcv]
@@ -893,8 +1112,13 @@ tables:
       - name: proposition
         type: VARCHAR
         nulls: when-absent
-        derivation: {kind: bare-id, path: $.proposition, transform: "strip ^#/[^/]+/"}
+        derivation: {kind: bare-id, path: $.proposition, transform: "strip ^#/[^/]+/", targets: [propositionPathogenicity, propositionOncogenicity, propositionSomaticClinicalImpact, propositionClinvarCustom]}
         description: The proposition this statement classifies, a bare id in one of the four proposition sections.
+      - name: proposition_section
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: pointer-section, path: $.proposition, transform: "the <section> of the pointer", targets: [propositionPathogenicity, propositionOncogenicity, propositionSomaticClinicalImpact, propositionClinvarCustom]}
+        description: "The section proposition points into (propositionPathogenicity, propositionOncogenicity, propositionSomaticClinicalImpact, propositionClinvarCustom): with proposition, the pointer as written."
       - name: extensions
         type: 'STRUCT("name" VARCHAR, value_string VARCHAR)[]'
         nulls: when-absent
@@ -903,11 +1127,19 @@ tables:
       - name: hasEvidenceLines
         type: VARCHAR[]
         nulls: when-absent
-        derivation: {kind: bare-id, path: $.hasEvidenceLines, transform: "strip ^#/[^/]+/ from each pointer, in order"}
+        derivation: {kind: bare-id, path: $.hasEvidenceLines, transform: "strip ^#/[^/]+/ from each pointer, in order", targets: [evidenceLine]}
         description: Ids of this statement's evidence lines (section evidenceLine).
+      - name: ordinal
+        type: BIGINT
+        nulls: never
+        derivation: {kind: ordinal, path: null, transform: null}
+        description: The record's position in its bundle section (0 = its first record line), the bundle's record order.
     extension_slots:
       classification: json-type
       extensions: json-type
+    json:
+      key_order: columns
+      record_id: true
 
   - name: rcv
     sections: [rcv]
@@ -949,8 +1181,13 @@ tables:
       - name: proposition
         type: VARCHAR
         nulls: when-absent
-        derivation: {kind: bare-id, path: $.proposition, transform: "strip ^#/[^/]+/"}
+        derivation: {kind: bare-id, path: $.proposition, transform: "strip ^#/[^/]+/", targets: [propositionPathogenicity, propositionOncogenicity, propositionSomaticClinicalImpact, propositionClinvarCustom]}
         description: The proposition this statement classifies, a bare id in one of the four proposition sections.
+      - name: proposition_section
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: pointer-section, path: $.proposition, transform: "the <section> of the pointer", targets: [propositionPathogenicity, propositionOncogenicity, propositionSomaticClinicalImpact, propositionClinvarCustom]}
+        description: "The section proposition points into (propositionPathogenicity, propositionOncogenicity, propositionSomaticClinicalImpact, propositionClinvarCustom): with proposition, the pointer as written."
       - name: extensions
         type: 'STRUCT("name" VARCHAR, value_string VARCHAR)[]'
         nulls: when-absent
@@ -959,8 +1196,16 @@ tables:
       - name: hasEvidenceLines
         type: VARCHAR[]
         nulls: when-absent
-        derivation: {kind: bare-id, path: $.hasEvidenceLines, transform: "strip ^#/[^/]+/ from each pointer, in order"}
+        derivation: {kind: bare-id, path: $.hasEvidenceLines, transform: "strip ^#/[^/]+/ from each pointer, in order", targets: [evidenceLine]}
         description: Ids of this statement's evidence lines (section evidenceLine).
+      - name: ordinal
+        type: BIGINT
+        nulls: never
+        derivation: {kind: ordinal, path: null, transform: null}
+        description: The record's position in its bundle section (0 = its first record line), the bundle's record order.
     extension_slots:
       classification: json-type
       extensions: json-type
+    json:
+      key_order: columns
+      record_id: true

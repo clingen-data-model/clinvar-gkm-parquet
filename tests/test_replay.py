@@ -125,7 +125,15 @@ def test_full_only(tmp_path, recs):
         assert state.counts[section] == len(expected)
         assert _state(con, section) == expected  # decoded keys, exact record text
     cols = con.execute("DESCRIBE bundle_scv").fetchall()
-    assert [(c[0], c[1]) for c in cols] == [("key", "VARCHAR"), ("record", "VARCHAR")]
+    assert [(c[0], c[1]) for c in cols] == [
+        ("key", "VARCHAR"),
+        ("record", "VARCHAR"),
+        ("ordinal", "BIGINT"),  # the record's position in its section (model.py staging format)
+        ("key_json", "VARCHAR"),  # the key as written
+    ]
+    for section in SECTIONS:
+        got = con.execute(f'SELECT key_json, ordinal FROM "bundle_{section}" ORDER BY ordinal').fetchall()
+        assert got == [(k.decode(), i) for i, (k, _) in enumerate(recs.get(section, []))]
     assert not list((tmp_path / "work" / "stage").glob("**/*.tsv.gz"))
 
 

@@ -21,3 +21,4 @@ cover the tool only, and link to those rather than restating them.
 - [0002 — Tool versioning independent of the bundle schema](0002-independent-tool-versioning.md)
 - [0003 — Pluggable table specs, with a sections spec as the default](0003-pluggable-table-specs.md)
 - [0004 — Selective builds: a driver, a pointer walk and a verbatim mini-bundle](0004-driver-based-selection.md)
+- [0005 — A full sections build is a lossless encoding of the bundle text](0005-lossless-sections-build.md)
