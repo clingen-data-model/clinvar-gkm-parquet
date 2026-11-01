@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from _tables_helpers import SPEC, build, connect, current_shape, read_fixture
+from _tables_helpers import SPEC, build, connect, read_fixture
 
 from clinvar_gkm_parquet.spec import parse_spec, spec_dir
 
@@ -39,7 +39,7 @@ def test_readme_render_is_deterministic():
 
 @pytest.fixture(scope="module")
 def con():
-    c = connect(current_shape(read_fixture()))
+    c = connect(read_fixture())
     for t in SPEC.tables:
         build(c, t)
     return c

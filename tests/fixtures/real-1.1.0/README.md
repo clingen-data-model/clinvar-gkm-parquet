@@ -1,10 +1,9 @@
-# real-1.1.0 (real bundle excerpt, not generated yet)
+# real-1.1.0 (real bundle excerpt)
 
-The suite's fixture once a real ClinVar-GKM 1.1.0 full bundle can be read: a small, connected excerpt of it,
-made by `scripts/extract-fixtures.py` (design plan §8.1). It replaces the provisional
-`tests/fixtures/examples-1.1.0/` fixture, which was de-inlined from ClinVar-GKM's `examples/` and is not
-published bundle bytes. This folder holds only this README until the excerpt is cut from the first 1.1.0 full
-(2026-10-18).
+The suite's bundle fixture: a small, connected excerpt of the 2026-10-18 ClinVar-GKM 1.1.0 weekly full, made by
+`scripts/extract-fixtures.py` (design plan §8.1). Its source, counts and seeds are in `PROVENANCE.json`. It
+replaced the provisional `tests/fixtures/examples-1.1.0/` fixture (de-inlined from ClinVar-GKM's `examples/`,
+not published bundle bytes), which was removed on 2026-10-31.
 
 ## What the extractor writes here
 
@@ -94,14 +93,8 @@ memory) goes to stderr; it is not stored, so the output stays the same from run 
    `shapes_not_found` / `shapes_over_budget` say what the excerpt lacks. Add `--seed`s or raise
    `--max-seed-bytes` (within `--max-bytes`) to fill a gap.
 2. `cd tests/fixtures/real-1.1.0 && sha256sum -c clinvar-gkm_excerpt.json.gz.sha256`
-3. Try the suite on it: `env -u VIRTUAL_ENV uv run pytest`. Once `clinvar-gkm_excerpt.json.gz` is here, the suite
-   reads it instead of the provisional fixture (`tests/_fixture.py`). Set `CLINVAR_GKM_FIXTURE=provisional`
-   to run on the provisional fixture again, or `CLINVAR_GKM_FIXTURE=<folder>` to try an excerpt written
-   elsewhere (`--out`) before committing it.
+3. Try the suite on it: `CLINVAR_GKM_FIXTURE=<folder> env -u VIRTUAL_ENV uv run pytest` runs it on an excerpt
+   written elsewhere (`--out`) before it replaces this one (`tests/_fixture.py`). Some tests state facts of the
+   committed excerpt (its shapes not found, its Range-location count), so a new excerpt may need them updated.
 
-What changes in the suite when the excerpt lands: the six strict xfails for the provisional fixture's older
-shape (bare condition CURIEs where the 1.1.0 code writes `#/condition/` and `#/conditionSet/` pointers) are
-conditional on `IS_PROVISIONAL` and become ordinary tests that must pass:
-`tests/test_build.py::test_build_fixture_end_to_end` and the five
-`tests/test_tables.py::test_raw_fixture_older_shape` cases (`conditionSet` and the four proposition tables).
 Counts, the staging folder name and the synthetic delta releases follow the fixture's `PROVENANCE.json`.

@@ -33,7 +33,7 @@ import duckdb
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tests"))
 from _fixture import PROVENANCE  # noqa: E402
-from _tables_helpers import SECTIONS, current_shape, read_fixture  # noqa: E402
+from _tables_helpers import SECTIONS, read_fixture  # noqa: E402
 
 from clinvar_gkm_parquet.spec import load_spec  # noqa: E402
 from clinvar_gkm_parquet.sqltemplate import macros_sql, render  # noqa: E402
@@ -80,7 +80,7 @@ def main() -> None:
 
     spec = load_spec("1.0")
     names = [t for t in args.tables.split(",") if t] or [t.name for t in spec.tables]
-    sections = current_shape(read_fixture())
+    sections = read_fixture()
     full = PROVENANCE.get("source", {}).get("section_records", {})
 
     spill = tempfile.mkdtemp(prefix="bench-tables-")

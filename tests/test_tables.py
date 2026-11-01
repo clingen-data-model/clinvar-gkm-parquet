@@ -1,9 +1,5 @@
-"""Every spec table built on the example fixture: DESCRIBE equals the spec, and every value equals what the
+"""Every spec table built on the bundle fixture: DESCRIBE equals the spec, and every value equals what the
 spec's derivation gives when computed here, in Python, from the bundle record JSON (not from the SQL).
-
-The fixture's 2026-10-04 examples are older than the current 1.0 code in two ways that trip the pointer checks
-(fixture README). The tables are built on `current_shape()` (those values moved to the current shape by the
-proc's rule) and, as strict xfails, on the raw fixture.
 """
 
 from __future__ import annotations
@@ -14,21 +10,12 @@ import re
 
 import duckdb
 import pytest
-from _fixture import IS_PROVISIONAL
-from _tables_helpers import SPEC, build, connect, current_shape, describe, read_fixture, rows
+from _tables_helpers import SPEC, build, connect, describe, read_fixture, rows
 
 from clinvar_gkm_parquet.sqltemplate import canonical_type, render
 
-RAW = read_fixture()
-CURRENT = current_shape(RAW)
+RECORDS = read_fixture()
 TABLES = [t.name for t in SPEC.tables]
-OLDER_SHAPE = [
-    "conditionSet",
-    "propositionPathogenicity",
-    "propositionOncogenicity",
-    "propositionSomaticClinicalImpact",
-    "propositionClinvarCustom",
-]
 # Pointer positions the typed copies strip (as in the SQL files' ptr=; bare-id columns are the whole value).
 POINTERS = {
     ("variation", "extensions"): {"[].value_gene_array[].gene"},
@@ -44,7 +31,7 @@ EVIDENCE_LINE_SHAPES = {
 
 @pytest.fixture(scope="module")
 def con():
-    c = connect(CURRENT)
+    c = connect(RECORDS)
     for t in SPEC.tables:
         build(c, t)
     return c
@@ -167,7 +154,7 @@ def expected_row(table, key, text):
 
 def source_rows(table):
     (section,) = table.sections
-    recs = CURRENT[section]
+    recs = RECORDS[section]
     if table.name in EVIDENCE_LINE_SHAPES:
         recs = [(k, r) for k, r in recs if re.fullmatch(EVIDENCE_LINE_SHAPES[table.name], k)]
     return recs
@@ -205,7 +192,7 @@ def test_values_follow_the_derivations(con, name):
 
 def test_evidence_line_split_covers_the_section(con):
     n = sum(con.execute(f'SELECT count(*) FROM "out_{t}"').fetchone()[0] for t in EVIDENCE_LINE_SHAPES)
-    assert n == len(CURRENT["evidenceLine"])
+    assert n == len(RECORDS["evidenceLine"])
     assert n > 0 and all(source_rows(SPEC.table(t)) for t in EVIDENCE_LINE_SHAPES)
 
 
@@ -227,30 +214,9 @@ def test_fixture_exercises_the_typed_paths(con):
     assert slots == [("submittedCondition",)]
 
 
-@pytest.mark.parametrize(
-    "name",
-    [
-        pytest.param(
-            n,
-            marks=pytest.mark.xfail(
-                IS_PROVISIONAL,
-                strict=True,
-                raises=duckdb.InvalidInputException,
-                reason="fixture's 2026-10-04 shape: bare condition CURIEs where the current 1.0 code writes "
-                "#/condition/ or #/conditionSet/ pointers (fixture README); the pointer check stays strict",
-            ),
-        )
-        for n in OLDER_SHAPE
-    ],
-)
-def test_raw_fixture_older_shape(name):
-    c = connect(RAW)
-    build(c, SPEC.table(name))
-
-
-@pytest.mark.parametrize("name", sorted(set(TABLES) - set(OLDER_SHAPE)))
-def test_raw_fixture_builds(name):
-    c = connect(RAW)
+@pytest.mark.parametrize("name", sorted(TABLES))
+def test_fixture_builds_each_table_alone(name):
+    c = connect(RECORDS)
     build(c, SPEC.table(name))
 
 

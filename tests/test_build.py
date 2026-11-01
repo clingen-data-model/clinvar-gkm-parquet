@@ -19,7 +19,7 @@ from _build_helpers import (
 )
 from _build_helpers import passthrough_spec as _passthrough_spec
 from _build_helpers import passthrough_sql as _passthrough_sql
-from _fixture import COUNTS, FIXTURE, IS_PROVISIONAL, SOURCE_RELEASE
+from _fixture import COUNTS, FIXTURE, SOURCE_RELEASE
 from _input_helpers import D1, D2, bundle_bytes, fixture_sections, local_input, two_synthetic_deltas, write_gz
 
 from clinvar_gkm_parquet import build as build_mod
@@ -668,14 +668,6 @@ def test_build_and_verify_real_fixture(passthrough, tmp_path):
     assert not (tmp_path / "rc").exists() or not list((tmp_path / "rc").iterdir())
 
 
-@pytest.mark.xfail(
-    IS_PROVISIONAL,
-    strict=True,
-    raises=SpecError,
-    reason="provisional fixture's 2026-10-04 shape: bare condition CURIEs (VCV/RCV proposition objects, minted "
-    "condition-set members) where the current 1.0 code writes #/ pointers; the pointer check stays strict. The "
-    "same pipeline on the fixture moved to the current shape passes: tests/test_tables_build.py",
-)
 def test_build_fixture_end_to_end(tmp_path):
     """The real spec and table SQL on the raw fixture."""
     from clinvar_gkm_parquet.bundle import SECTIONS
