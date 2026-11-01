@@ -90,7 +90,7 @@ def _parser() -> argparse.ArgumentParser:
         help="write a full lossless build (the sections spec) back as its source bundle, byte for byte",
         description="Write the bundle a full build of a lossless spec (the default, sections) was made from: its "
         "uncompressed text byte for byte (ADR 0005), checked against the sha256s the build recorded. Refuses a "
-        "selection, a build with deltas or --tables, and any other spec.",
+        "selection, a build with deltas or --tables, a directory without its manifest, and any other spec.",
     )
     r.add_argument("dir", type=Path, help="the built directory")
     r.add_argument("-o", "--out", required=True, type=Path, help="the bundle to write (.json, or .json.gz)")

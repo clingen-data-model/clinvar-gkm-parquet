@@ -13,8 +13,8 @@ expression over the table's columns. It serves twice:
   section by section in the bundle schema's order, records in `ordinal` order, in the assembler's layout
   (bundle.py). Each section's record lines are hashed as they are written and compared with the file's
   `section_text_sha256`; the whole text with the manifest's `source_text_sha256`. Anything else stops it: a
-  spec that is not lossless, a selection, deltas, a missing table, ordinals that are not 0..n-1, a pointer section
-  outside the column's targets, a hash that differs.
+  spec that is not lossless, a selection, deltas, a missing table or manifest, ordinals that are not 0..n-1, a
+  pointer section outside the column's targets, a hash that differs.
 
 The JSON text: strings by `cgp_jstr` (DuckDB's to_json with Python's lower-case \\u escapes: the producer writes
 with Python's json.dumps, ensure_ascii=False), integers as their decimal text, booleans as true/false. An object
@@ -344,7 +344,7 @@ class RebuildResult:
     schema_version: str
     text_sha256: str
     text_size: int
-    expected_text_sha256: str | None  # the manifest's source_text_sha256 (None without a manifest)
+    expected_text_sha256: str  # the manifest's source_text_sha256
     sections: dict[str, int] = field(default_factory=dict)  # section -> records written
 
 
@@ -447,20 +447,20 @@ def rebuild(
     version = _shared_kv(kvs, "bundle_schema_version")
     if version not in spec.bundle_schema_versions or version not in SCHEMA_SECTIONS:
         raise RoundTripError(f"{out_dir}: bundle_schema_version {version} is not one spec {spec.label} reads")
-    expected_text = None
     manifest_path = out_dir / MANIFEST_NAME
-    if manifest_path.exists():
-        try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except ValueError as e:
-            raise RoundTripError(f"{manifest_path}: unreadable manifest ({e})") from e
-        expected_text = manifest.get("source_text_sha256")
-        if expected_text is None:
-            raise RoundTripError(f"{manifest_path}: no source_text_sha256, but the files are a lossless build")
-        if manifest.get("source_bundle_sha256") != _shared_kv(kvs, "source_bundle_sha256"):
-            raise RoundTripError(f"{manifest_path}: source_bundle_sha256 differs from the files'")
-    else:
-        log(f"no {MANIFEST_NAME}: checking each section's sha256 only")
+    if not manifest_path.exists():
+        raise RoundTripError(
+            f"{manifest_path}: missing; a rebuild checks the whole text against its source_text_sha256"
+        )
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except ValueError as e:
+        raise RoundTripError(f"{manifest_path}: unreadable manifest ({e})") from e
+    expected_text = manifest.get("source_text_sha256")
+    if expected_text is None:
+        raise RoundTripError(f"{manifest_path}: no source_text_sha256, but the files are a lossless build")
+    if manifest.get("source_bundle_sha256") != _shared_kv(kvs, "source_bundle_sha256"):
+        raise RoundTripError(f"{manifest_path}: source_bundle_sha256 differs from the files'")
 
     tmp = None
     if out is not None:
@@ -488,7 +488,7 @@ def rebuild(
             _write_text(con, sink, version, [(s, by_section[s], rows[s], want[s]) for s in present], log)
             sink.close()
             got = sink.sha.hexdigest()
-            if expected_text is not None and got != expected_text:
+            if got != expected_text:
                 raise RoundTripMismatch(
                     f"the rebuilt text has sha256 {got}, the manifest records source_text_sha256 {expected_text}"
                 )
@@ -626,8 +626,7 @@ def verify_roundtrip(
         return out
     out.update(text_sha256=r.text_sha256, text_size=r.text_size, sections=r.sections)
     out["checked"].append("every section's section_text_sha256")
-    if r.expected_text_sha256:
-        out["checked"].append("the manifest's source_text_sha256")
+    out["checked"].append("the manifest's source_text_sha256")
     if full is not None:
         con = duckdb.connect()
         try:
@@ -665,10 +664,9 @@ def run_rebuild_command(args) -> int:
         log=lambda m: print(f"clinvar-gkm-parquet: {m}", file=sys.stderr, flush=True),
     )
     total = sum(result.sections.values())
-    checked = "the manifest's source_text_sha256 and " if result.expected_text_sha256 else ""
     print(
         f"rebuilt {result.out}: bundle schema {result.schema_version}, {len(result.sections)} section(s), {total} "
-        f"records, {result.text_size} bytes of text, sha256 {result.text_sha256} (matches {checked}every "
-        "section's section_text_sha256)"
+        f"records, {result.text_size} bytes of text, sha256 {result.text_sha256} (matches the manifest's "
+        "source_text_sha256 and every section's section_text_sha256)"
     )
     return 0

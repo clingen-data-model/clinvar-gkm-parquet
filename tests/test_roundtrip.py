@@ -296,10 +296,11 @@ def test_rebuild_refuses_a_changed_manifest(copy, tmp_path):
 
 
 @real_only
-def test_rebuild_without_manifest_checks_the_sections(copy, tmp_path):
+def test_rebuild_refuses_a_missing_manifest(copy, tmp_path):
     (copy / "manifest.json").unlink()
-    r = rebuild(copy, tmp_path / "b.json")
-    assert r.expected_text_sha256 is None and (tmp_path / "b.json").read_bytes() == TEXT
+    with pytest.raises(RoundTripError, match="manifest.json: missing"):
+        rebuild(copy, tmp_path / "b.json")
+    assert not (tmp_path / "b.json").exists()
 
 
 @real_only

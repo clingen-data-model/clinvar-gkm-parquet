@@ -98,7 +98,7 @@ clinvar-gkm-parquet verify out/ --roundtrip --full clinvar-gkm_2026-1018.json.gz
 `rebuild` writes gzip when the output name ends in `.gz`; the gzip bytes differ from the published file (header
 and compressor), the uncompressed text does not, and its sha256 is checked against the build's manifest
 (`source_text_sha256`) and each file's `section_text_sha256`. It refuses anything it can't reproduce exactly:
-another spec, a selection, a build with deltas or `--tables`, a missing table or ordinal, a pointer outside its
+another spec, a selection, a build with deltas or `--tables`, a missing table, manifest or ordinal, a pointer outside its
 targets ([ADR 0005](docs/decisions/0005-lossless-sections-build.md)).
 
 Selection options (`build` and `select`): `--driver <table>` (a table of the chosen spec), `--where` (a DuckDB

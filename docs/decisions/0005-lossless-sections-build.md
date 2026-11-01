@@ -57,8 +57,8 @@ checkable.
    uncompressed text: each file carries `clinvar_gkm_parquet.section_text_sha256` (its section's record lines as
    written) and the manifest `source_text_sha256` and `source_text_size`. `rebuild` compares each section as it
    writes it and the whole text at the end, and keeps no output on any difference. It refuses, before writing,
-   anything it can't reproduce: another spec, a selection, a build with deltas or `--tables`, a missing table,
-   ordinals that are not `0..n-1`, a pointer section outside its column's targets. `verify --roundtrip` runs the
+   anything it can't reproduce: another spec, a selection, a build with deltas or `--tables`, a missing table
+   or manifest, ordinals that are not `0..n-1`, a pointer section outside its column's targets. `verify --roundtrip` runs the
    same rebuild without writing (and, with `--full`, also compares with that bundle's text).
 
 ## Consequences

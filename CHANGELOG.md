@@ -61,7 +61,7 @@ version it writes (ADR 0002). Tags are `vX.Y.Z`.
   of the bundle's uncompressed text. New command `clinvar-gkm-parquet rebuild <dir> -o <bundle.json[.gz]>` writes
   the text back byte for byte and checks it against the hashes the build recorded; `verify --roundtrip` does the
   same without writing (with `--full`, also against that bundle's text). Both refuse a selection, a build with
-  deltas or `--tables`, a missing table, ordinals that are not `0..n-1`, a pointer section outside its column's
+  deltas or `--tables`, a missing table or manifest, ordinals that are not `0..n-1`, a pointer section outside its column's
   targets, and any spec that is not lossless; a differing hash leaves no output. Measured 2026-10-30 on the
   2026-09-23 weekly delta (4,530,457 records, 2.68 GB of text): rebuilt text identical (sha256 `fb247dc2…`),
   build 41.2 s / 3.5 GB peak RSS (29.9 s / 2.8 GB before the round-trip check), rebuild 40.0 s / 2.0 GB.
