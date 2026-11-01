@@ -4,7 +4,7 @@ known_fields tables.
 
 Expectations come from the fixture records parsed here with stdlib json, checked by the spec's rules as written in
 spec.py (not by the code under test), and the range columns from the clinvar-gkm spec's location columns built
-from the same records. Failures take one real record (current_shape(), see test_tables.py) and change it
+from the same records. Failures take one real record of the fixture and change it
 minimally, as each test says; nothing here is a hand-written record.
 """
 
@@ -18,23 +18,16 @@ import re
 
 import duckdb
 import pytest
-from _fixture import FIXTURE
 from _tables_helpers import SPEC as CLINVAR_GKM
-from _tables_helpers import connect, current_shape, read_fixture, rows
+from _tables_helpers import connect, read_fixture, rows
 
 from clinvar_gkm_parquet import baseline, build, compat, sqltemplate
 from clinvar_gkm_parquet.errors import SpecError
 from clinvar_gkm_parquet.spec import RANGE_KINDS, parse_spec, resolve_spec
 from clinvar_gkm_parquet.sqltemplate import canonical_type, render_generic
 
-REAL = FIXTURE.parent.name == "real-1.1.0"
-real_only = pytest.mark.skipif(not REAL, reason="reads the real 1.1.0 excerpt")
-# The provisional fixture's records are key-sorted (BigQuery JSON order), not in the producer's order (its README),
-# so a table of a STRUCT-order section stops at the round-trip check (ADR 0005).
-PRODUCER_ORDER = "the provisional fixture's records are not in the producer's key order (fixture README)"
-producer_order = pytest.mark.skipif(not REAL, reason=PRODUCER_ORDER)
 SPEC, SOURCE = resolve_spec("sections")
-BASE = current_shape(read_fixture())
+BASE = read_fixture()
 POINTER = re.compile(r"^#/[^/]+/.")
 
 
@@ -101,8 +94,6 @@ def test_fast_writes_the_same_parquet_bytes(name, tmp_path):
     """render_generic(fast=True) against the slow reference: the same bytes (json-type columns take the slow
     expression on the record's one parse)."""
     t = SPEC.table(name)
-    if not REAL and t.json.key_order == "columns":
-        pytest.skip(PRODUCER_ORDER)
     con = connect(BASE)
     digests = []
     for fast in (True, False):
@@ -116,7 +107,6 @@ def test_fast_writes_the_same_parquet_bytes(name, tmp_path):
     assert digests[0] == digests[1]
 
 
-@producer_order
 def test_build_tables_self_checks_pass(tmp_path):
     """build.build_tables writes every table and its self-checks pass (DESCRIBE equals the spec, the keys equal the
     section's keys: with no record column, the keys alone)."""
@@ -206,7 +196,6 @@ class _Checker:
             assert type(got) is type(v) and got == v, where
 
 
-@producer_order
 def test_every_column_holds_the_bundle_value():
     """Each row is a record: `id` is its key, each property column holds the property as its kind says, every
     pointer is stripped, and each extension fills only the slot of its value's JSON type, at every depth."""
@@ -235,13 +224,12 @@ def test_every_column_holds_the_bundle_value():
                     assert value == want, where
                 else:
                     checker.check(v, value, duckdb.sqltype(c.type), where)
-    if REAL:  # the excerpt has every kind its extensions use, at the top level and nested
-        seen = {k for k, _ in checker.slots}
-        assert {"string", "boolean", "object", "string_array", "object_array"} <= seen
-        assert max(d for _, d in checker.slots) >= 2  # an extension inside an extension's value
+    # the excerpt has every kind its extensions use, at the top level and nested
+    seen = {k for k, _ in checker.slots}
+    assert {"string", "boolean", "object", "string_array", "object_array"} <= seen
+    assert max(d for _, d in checker.slots) >= 2  # an extension inside an extension's value
 
 
-@real_only
 def test_json_type_slots_on_known_records():
     """A few values read directly: a top-level string extension, a string and a string-array extension inside a
     struct, booleans inside a list of structs, and extensions inside an extension's object-array value."""
@@ -293,10 +281,9 @@ def test_range_columns_equal_clinvar_gkm():
         isinstance(r.get("start"), list) or isinstance(r.get("end"), list) for r in _records("location").values()
     )
     assert con.execute("SELECT count(*) FROM s WHERE loc_start IS NULL OR loc_end IS NULL").fetchone()[0] == ranges
-    if REAL:
-        assert ranges == 7  # with open ends on both sides ([null, n] starts, [n, null] ends)
-        open_start = "SELECT count(*) FROM s WHERE loc_start_min IS NULL AND loc_start_max IS NOT NULL"
-        assert con.execute(open_start).fetchone()[0]
+    assert ranges == 7  # with open ends on both sides ([null, n] starts, [n, null] ends)
+    open_start = "SELECT count(*) FROM s WHERE loc_start_min IS NULL AND loc_start_max IS NOT NULL"
+    assert con.execute(open_start).fetchone()[0]
     # copyNumberCount.copies: the producer writes an integer only (an INT64 column), so the spec has no range
     # columns for it; the plain BIGINT equals clinvar-gkm's.
     con.execute(f"CREATE TABLE gc AS SELECT * FROM ({sqltemplate.render(CLINVAR_GKM.table('copyNumberCount'))})")
@@ -419,7 +406,6 @@ def test_json_type_mixed_array_nested_stops_the_build():
     )
 
 
-@real_only
 def test_json_type_no_slot_nested_in_a_list_stops_the_build():
     """scv.reportedIn[].extensions[]: a number where the struct has no value_number slot."""
 

@@ -31,8 +31,6 @@ from clinvar_gkm_parquet.cli import main
 from clinvar_gkm_parquet.errors import SpecError
 from clinvar_gkm_parquet.spec import parse_spec, resolve_spec
 
-REAL = FIXTURE.parent.name == "real-1.1.0"
-real_only = pytest.mark.skipif(not REAL, reason="reads the real 1.1.0 excerpt")
 CUSTOM = Path(__file__).parent / "fixtures" / "custom-spec" / "tables.yaml"
 FULL = ["--full", FIXTURE, "--full-source-release", SOURCE_RELEASE]
 
@@ -208,7 +206,6 @@ def _dates_as_text(rows: dict[str, dict]) -> dict[str, dict]:
     return rows
 
 
-@real_only
 def test_custom_spec_build_verify(tmp_path, capsys):
     out = tmp_path / "out"
     rc, stdout, err = cli(capsys, "build", *FULL, "--spec", CUSTOM, "--out", out)
@@ -234,7 +231,6 @@ def test_custom_spec_build_verify(tmp_path, capsys):
     assert rc == 0
 
 
-@real_only
 def test_custom_spec_fast_equals_slow():
     spec, _ = resolve_spec(str(CUSTOM))
     con = connect()
@@ -258,7 +254,6 @@ def _bfs(seeds: dict[str, set[str]], sections: set[str]) -> dict[str, set[str]]:
     return got
 
 
-@real_only
 def test_custom_spec_as_the_driver_spec(tmp_path, capsys):
     """--where over the generic table as the spec builds it, then the normal build of the mini-bundle."""
     out = tmp_path / "out"
@@ -436,7 +431,6 @@ def _fails(raw: dict, table: str, *needles: str) -> None:
     assert msgs[1] == msgs[0]
 
 
-@real_only
 def test_unknown_field_under_a_typed_copy_stops_the_build(tmp_path, capsys):
     """The spec's classification type lacks primaryCoding, which the records have: the build stops, naming the
     table, column, key and field (no field is dropped), through the CLI too."""
@@ -458,13 +452,11 @@ def test_unknown_field_under_a_typed_copy_stops_the_build(tmp_path, capsys):
     assert not list((tmp_path / "out").glob("*.parquet"))
 
 
-@real_only
 def test_non_pointer_at_a_bare_id_path_stops_the_build():
     raw = _add_column("variation_summary", _column("name_id", "VARCHAR", "bare-id", "$.name"))(_raw())
     _fails(raw, "variation_summary", "column name_id", "not a #/<section>/<id> pointer at (column)")
 
 
-@real_only
 def test_non_pointer_in_a_list_path_stops_the_build():
     raw = _add_column(
         "scv_summary", _column("dates", "VARCHAR[]", "bare-id", "$.contributions[*].date", "empty-list")
@@ -472,7 +464,6 @@ def test_non_pointer_in_a_list_path_stops_the_build():
     _fails(raw, "scv_summary", "column dates", "not a #/<section>/<id> pointer at contributions[].date")
 
 
-@real_only
 def test_field_step_on_a_non_object_stops_the_build():
     raw = _add_column(
         "variation_summary", _column("x", "VARCHAR[]", "scalar-path", "$.members[*].x", "empty-list")
@@ -480,7 +471,6 @@ def test_field_step_on_a_non_object_stops_the_build():
     _fails(raw, "variation_summary", "column x", "expected an object at members[], got ")
 
 
-@real_only
 def test_list_step_on_a_non_list_stops_the_build():
     raw = _add_column(
         "scv_summary", _column("names", "VARCHAR[]", "scalar-path", "$.classification[*].name", "empty-list")
@@ -488,13 +478,11 @@ def test_list_step_on_a_non_list_stops_the_build():
     _fails(raw, "scv_summary", "column names", "expected a list at classification, got ")
 
 
-@real_only
 def test_object_at_a_scalar_path_stops_the_build():
     raw = _add_column("scv_summary", _column("c", "VARCHAR", "scalar-path", "$.classification"))(_raw())
     _fails(raw, "scv_summary", "column c", "expected a scalar")
 
 
-@real_only
 def test_malformed_pointer_in_refs_stops_the_build():
     """The refs column of a generic table keeps the baseline rule (ADR 0003 item 4)."""
     sections = copy.deepcopy(read_fixture())
@@ -508,7 +496,6 @@ def test_malformed_pointer_in_refs_stops_the_build():
         con.execute(f"SELECT * FROM ({sqltemplate.render_generic(spec.table('variation_summary'))})").fetchall()
 
 
-@real_only
 def test_known_fields_with_refs_and_a_list_path():
     """known_fields on a table with a refs column and a $.<field>[*] path renders; a record field no column reads
     stops the build."""

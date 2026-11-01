@@ -83,3 +83,8 @@ version it writes (ADR 0002). Tags are `vX.Y.Z`.
   may map each position to its target sections; a table's `json` block (`key_order: columns | sorted`,
   `record_id`, `sorted_columns`); a spec's `lossless` flag. Staging: the build's chunk lines start with the
   record's ordinal, and `bundle_<section>` gains `ordinal` and `key_json` (the key as written).
+- Tests only: the provisional fixture `tests/fixtures/examples-1.1.0/` and `scripts/make-example-fixtures.py`
+  are removed. The real 1.1.0 excerpt `tests/fixtures/real-1.1.0/` is the suite's only bundle fixture;
+  `CLINVAR_GKM_FIXTURE=<folder>` still runs the suite on another excerpt (the `provisional` and `real` values
+  are gone), and the skips and strict xfails for the provisional fixture's shapes are removed. No tool
+  behaviour changes.

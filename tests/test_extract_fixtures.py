@@ -1,6 +1,7 @@
-"""scripts/extract-fixtures.py, run on the provisional fixture and on its current-shape copy (current_shape(),
-written with write_bundle). No real 1.1.0 full is available yet; these are the bundles the suite has. The checks
-here parse the output independently of the script (stdlib json, not its pointer regex)."""
+"""scripts/extract-fixtures.py, run on the bundle fixture (the real 1.1.0 excerpt) and on a copy of it without its
+sequenceReference section (written with write_bundle), whose location pointers dangle. A full bundle is too large
+for the suite; these are the bundles it has. The checks here parse the output independently of the script (stdlib
+json, not its pointer regex)."""
 
 from __future__ import annotations
 
@@ -13,8 +14,8 @@ import sys
 from pathlib import Path
 
 import pytest
-from _fixture import PROVISIONAL
-from _tables_helpers import current_shape, read_fixture, write_bundle
+from _fixture import FIXTURE, PROVENANCE
+from _tables_helpers import read_fixture, write_bundle
 
 from clinvar_gkm_parquet.bundle import stage_bundle
 from clinvar_gkm_parquet.model import InputFile
@@ -33,14 +34,15 @@ def _sha(path: Path) -> str:
 
 
 @pytest.fixture(scope="module")
-def current(tmp_path_factory) -> Path:
-    path = tmp_path_factory.mktemp("in") / "clinvar-gkm_current-shape.json.gz"
-    return write_bundle(current_shape(read_fixture(PROVISIONAL)), path)
+def dangling(tmp_path_factory) -> Path:
+    """The fixture without its sequenceReference records: every location's sequence pointer dangles."""
+    path = tmp_path_factory.mktemp("in") / "clinvar-gkm_dangling.json.gz"
+    return write_bundle({**read_fixture(), "sequenceReference": []}, path)
 
 
-@pytest.fixture(params=["provisional", "current-shape"])
-def source(request, current) -> Path:
-    return PROVISIONAL if request.param == "provisional" else current
+@pytest.fixture(params=["excerpt", "dangling"])
+def source(request, dangling) -> Path:
+    return FIXTURE if request.param == "excerpt" else dangling
 
 
 def _args(src, out: Path, *extra: str) -> list[str]:
@@ -106,8 +108,9 @@ def test_closure_is_complete(tmp_path, source):
         for _, r in recs:
             pointers(json.loads(r), referenced)
     assert referenced and referenced - present == set(prov["dangling_pointers"])
-    # A dangling pointer is one the source doesn't hold either (the provisional examples kept a few).
+    # A dangling pointer is one the source doesn't hold either; the excerpt has none, its trimmed copy some.
     assert not set(prov["dangling_pointers"]) & in_source
+    assert bool(prov["dangling_pointers"]) == (source != FIXTURE)
 
 
 def test_record_bytes_are_verbatim_in_source_order(tmp_path, source):
@@ -163,20 +166,30 @@ def test_byte_identical_across_runs(tmp_path, source):
 
 
 def test_shapes_with_no_match_are_reported(tmp_path, capsys):
-    prov = run(PROVISIONAL, tmp_path)
+    prov = run(FIXTURE, tmp_path)
     by = {e["shape"]: e for e in prov["shapes"]}
-    # The provisional fixture has no copy-number, therapy-group or range-location records (its README).
-    for name in ("copy-number-count", "copy-number-change", "therapy-group", "uncertain-range-location"):
+    # The excerpt lacks what its source lacked (its PROVENANCE.json): a few extension names, no plan §8.1 shape.
+    missing = PROVENANCE["shapes_not_found"]
+    assert missing and prov["shapes_not_found"] == missing
+    for name in missing:
         assert by[name]["status"] == "not-found" and by[name]["candidates"] == 0
-        assert name in prov["shapes_not_found"]
     assert by["germline-vcv"]["status"] == "selected" and len(by["germline-vcv"]["seeds"]) == 2
     assert {e["status"] for e in prov["shapes"]} <= {"selected", "covered", "not-found", "over-budget"}
-    assert xf.main(_args(PROVISIONAL, tmp_path / "again")) == 0
-    assert "WARNING: shape copy-number-count: not-found" in capsys.readouterr().err
+    assert xf.main(_args(FIXTURE, tmp_path / "again")) == 0
+    assert f"WARNING: shape {missing[0]}: not-found" in capsys.readouterr().err
+
+
+def test_excerpt_of_the_excerpt_is_the_excerpt(tmp_path):
+    """Run with the selection the fixture was cut with, the extractor gives back the fixture's bytes."""
+    sel = PROVENANCE["selection"]
+    seeds = [a for s in sel["explicit_seeds"] for a in ("--seed", s)]
+    opts = ["--per-shape", sel["per_shape"], "--candidates", sel["candidates"]]
+    run(FIXTURE, tmp_path, *map(str, opts), "--max-seed-bytes", str(sel["max_seed_bytes"]), *seeds)
+    assert (tmp_path / NAME).read_bytes() == FIXTURE.read_bytes()
 
 
 def test_every_shape_is_reported(tmp_path):
-    prov = run(PROVISIONAL, tmp_path)
+    prov = run(FIXTURE, tmp_path)
     assert [e["shape"] for e in prov["shapes"]] == [s.name for s in xf.shapes() if not s.extension] + [
         s.name for s in xf.shapes() if s.extension
     ]
@@ -195,8 +208,8 @@ def test_extension_shapes_cover_the_spec_slot_maps():
     assert names == want and any(n.startswith("ext:scv.") for n in names)
 
 
-def test_extension_names_seen_are_covered(tmp_path, current):
-    prov = run(current, tmp_path)
+def test_extension_names_seen_are_covered(tmp_path):
+    prov = run(FIXTURE, tmp_path)
     _, out = parse_bundle(tmp_path / NAME)
     by = {e["shape"]: e for e in prov["shapes"]}
     for name, col in (
@@ -212,10 +225,14 @@ def test_extension_names_seen_are_covered(tmp_path, current):
         assert name in xf.ext_names({col: json.loads(rec).get(col)}, set())
 
 
-def _real_record(section: str, index: int = 0) -> dict:
-    """One record of the provisional fixture, parsed (the shape predicates are tested on real records changed
-    minimally where the fixture has no record of that shape)."""
-    return json.loads(read_fixture(PROVISIONAL)[section][index][1])
+def _ext_value(rec: dict, name: str):
+    return next((e.get("value") for e in rec.get("extensions", []) if e["name"] == name), None)
+
+
+def _real_record(section: str, pick) -> dict:
+    """The first fixture record of `section` for which pick(rec) holds, parsed: a record not of the shape under
+    test, chosen by its own fields, not by the script's predicate."""
+    return next(r for r in (json.loads(t) for _, t in read_fixture()[section]) if pick(r))
 
 
 def _set_ext(rec: dict, name: str, value) -> dict:
@@ -224,32 +241,48 @@ def _set_ext(rec: dict, name: str, value) -> dict:
     return rec
 
 
+def _canonical(r: dict) -> bool:
+    return _ext_value(r, "categoricalVariationType") == "CanonicalAllele"
+
+
+def _simple(r: dict) -> bool:
+    return _ext_value(r, "clinvarSubclassType") == "SimpleAllele"
+
+
 @pytest.mark.parametrize(
-    ("shape", "section", "change"),
+    ("shape", "section", "pick", "change"),
     [
         (
             "copy-number-count",
             "variation",
+            _canonical,
             lambda r: _set_ext(r, "categoricalVariationType", "CategoricalCnvCount"),
         ),
         (
             "copy-number-change",
             "variation",
+            _canonical,
             lambda r: _set_ext(r, "categoricalVariationType", "CategoricalCnvChange"),
         ),
-        ("haplotype", "variation", lambda r: _set_ext(r, "clinvarSubclassType", "Haplotype")),
-        ("genotype", "variation", lambda r: _set_ext(r, "clinvarSubclassType", "Genotype")),
-        ("uncertain-range-location", "location", lambda r: {**r, "start": [None, r["start"]]}),
+        ("haplotype", "variation", _simple, lambda r: _set_ext(r, "clinvarSubclassType", "Haplotype")),
+        ("genotype", "variation", _simple, lambda r: _set_ext(r, "clinvarSubclassType", "Genotype")),
+        (
+            "uncertain-range-location",
+            "location",
+            lambda r: isinstance(r.get("start"), int) and isinstance(r.get("end"), int),
+            lambda r: {**r, "start": [None, r["start"]]},
+        ),
         (
             "therapy-group",
             "propositionSomaticClinicalImpact",
+            lambda r: "#/therapyGroup/" not in json.dumps(r),
             lambda r: {**r, "objectTherapeutic": "#/therapyGroup/x"},
         ),
     ],
 )
-def test_shape_predicates_on_changed_real_records(shape, section, change):
+def test_shape_predicates_on_changed_real_records(shape, section, pick, change):
     s = {x.name: x for x in xf.shapes()}[shape]
-    rec = _real_record(section)
+    rec = _real_record(section, pick)
     before = json.dumps(rec, separators=(",", ":")).encode()
     after = json.dumps(change(rec), separators=(",", ":")).encode()
     key = b'"k"'
@@ -258,26 +291,28 @@ def test_shape_predicates_on_changed_real_records(shape, section, change):
         return s.matches_key_and_text(key, text) and (s.confirm is None or s.confirm(json.loads(text)))
 
     assert section in s.sections and not hit(before) and hit(after)
+    # and the fixture holds records of the shape as published, unchanged
+    assert any(hit(t.encode()) for _, t in read_fixture()[section])
 
 
 def test_explicit_seed_is_included(tmp_path):
-    prov = run(
-        PROVISIONAL, tmp_path, "--seed", "gene:ncbigene:9132", "--seed", "submitter:clinvar.submitter:500062"
-    )
+    fixture = read_fixture()
+    gene, submitter = f"gene:{fixture['gene'][-1][0]}", f"submitter:{fixture['submitter'][-1][0]}"
+    prov = run(FIXTURE, tmp_path, "--seed", gene, "--seed", submitter)
     seeds = {(x["section"], x["key"]): x["shapes"] for x in prov["seeds"]}
-    assert "explicit" in seeds[("gene", "ncbigene:9132")]
-    assert "explicit" in seeds[("submitter", "clinvar.submitter:500062")]
-    assert prov["selection"]["explicit_seeds"] == ["gene:ncbigene:9132", "submitter:clinvar.submitter:500062"]
+    for seed in (gene, submitter):
+        assert "explicit" in seeds[tuple(seed.split(":", 1))]
+    assert prov["selection"]["explicit_seeds"] == [gene, submitter]
 
 
 def test_missing_explicit_seed_fails(tmp_path):
     with pytest.raises(xf.ExtractError, match="--seed not in the bundle: gene:ncbigene:0"):
-        run(PROVISIONAL, tmp_path, "--seed", "gene:ncbigene:0")
+        run(FIXTURE, tmp_path, "--seed", "gene:ncbigene:0")
     assert not tmp_path.exists() or not any(tmp_path.iterdir())
 
 
 def test_seed_closures_over_budget_are_reported(tmp_path):
-    prov = run(PROVISIONAL, tmp_path, "--max-seed-bytes", "1000")
+    prov = run(FIXTURE, tmp_path, "--max-seed-bytes", "1000")
     by = {e["shape"]: e for e in prov["shapes"]}
     assert by["rcv"]["status"] == "over-budget" and by["rcv"]["smallest_closure_bytes"] > 1000
     assert "rcv" in prov["shapes_over_budget"]
@@ -286,7 +321,7 @@ def test_seed_closures_over_budget_are_reported(tmp_path):
 
 def test_excerpt_over_max_bytes_fails_and_writes_nothing(tmp_path):
     with pytest.raises(xf.ExtractError, match="over --max-bytes 1,000"):
-        run(PROVISIONAL, tmp_path / "out", "--max-bytes", "1000")
+        run(FIXTURE, tmp_path / "out", "--max-bytes", "1000")
     assert not (tmp_path / "out").exists()
 
 
@@ -296,9 +331,9 @@ def test_excerpt_over_max_bytes_fails_and_writes_nothing(tmp_path):
 
 def test_sha256_mismatch_fails_and_writes_nothing(tmp_path):
     with pytest.raises(xf.ExtractError, match="sha256 mismatch: computed .*, published 0000"):
-        run(PROVISIONAL, tmp_path / "out", "--sha256", "0" * 64)
+        run(FIXTURE, tmp_path / "out", "--sha256", "0" * 64)
     assert not (tmp_path / "out").exists()
-    assert xf.main(_args(PROVISIONAL, tmp_path / "out", "--sha256", "0" * 64)) == 1
+    assert xf.main(_args(FIXTURE, tmp_path / "out", "--sha256", "0" * 64)) == 1
 
 
 def _cli(args: list[str], stdin: Path) -> subprocess.CompletedProcess:
@@ -319,30 +354,30 @@ def test_stdin_with_reopen_matches_path_mode(tmp_path, source):
 
 
 def test_stdin_without_reopen_fails(tmp_path):
-    res = _cli(_args("-", tmp_path / "out"), stdin=PROVISIONAL)
+    res = _cli(_args("-", tmp_path / "out"), stdin=FIXTURE)
     assert res.returncode == 1
     assert "stdin can't be read twice" in res.stderr and "--reopen" in res.stderr
     assert not (tmp_path / "out").exists()
 
 
 @pytest.mark.parametrize("every", [xf.CHECKPOINT_BYTES, 1000])
-def test_reopened_source_must_match_pass_1(tmp_path, current, monkeypatch, every):
+def test_reopened_source_must_match_pass_1(tmp_path, dangling, monkeypatch, every):
     monkeypatch.setattr(xf, "CHECKPOINT_BYTES", every)
-    run(PROVISIONAL, tmp_path / "same", "--reopen", str(PROVISIONAL))
+    run(FIXTURE, tmp_path / "same", "--reopen", str(FIXTURE))
     with pytest.raises(xf.ExtractError, match="re-opened source differs from the pass-1 stream"):
-        run(PROVISIONAL, tmp_path / "other", "--reopen", str(current))
+        run(FIXTURE, tmp_path / "other", "--reopen", str(dangling))
     assert not (tmp_path / "other").exists()
 
 
 def test_small_checkpoints_give_the_same_excerpt(tmp_path, monkeypatch):
-    run(PROVISIONAL, tmp_path / "a")
+    run(FIXTURE, tmp_path / "a")
     monkeypatch.setattr(xf, "CHECKPOINT_BYTES", 512)
-    run(PROVISIONAL, tmp_path / "b")
+    run(FIXTURE, tmp_path / "b")
     assert (tmp_path / "a" / NAME).read_bytes() == (tmp_path / "b" / NAME).read_bytes()
 
 
 def test_unsupported_schema_version_fails(tmp_path):
-    text = gzip.decompress(PROVISIONAL.read_bytes()).replace(
+    text = gzip.decompress(FIXTURE.read_bytes()).replace(
         b'"schema_version": "1.1.0"', b'"schema_version": "9.9.9"', 1
     )
     path = tmp_path / "b.json.gz"
@@ -353,4 +388,4 @@ def test_unsupported_schema_version_fails(tmp_path):
 
 def test_bad_seed_syntax(tmp_path):
     with pytest.raises(xf.ExtractError, match="expected section:key"):
-        run(PROVISIONAL, tmp_path, "--seed", "nosuchsection:x")
+        run(FIXTURE, tmp_path, "--seed", "nosuchsection:x")

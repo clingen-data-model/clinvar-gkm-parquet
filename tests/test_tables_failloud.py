@@ -1,6 +1,6 @@
 """Fail-loud checks: what the spec can't map stops the build with an error naming table, column and key.
 
-Each test takes one REAL fixture record (current_shape(), see test_tables.py) and changes it minimally, as the
+Each test takes one real fixture record and changes it minimally, as the
 test says; nothing here is a hand-written record.
 """
 
@@ -12,12 +12,12 @@ import json
 
 import duckdb
 import pytest
-from _tables_helpers import SPEC, build, connect, current_shape, read_fixture
+from _tables_helpers import SPEC, build, connect, read_fixture
 
 from clinvar_gkm_parquet.errors import SpecError
 from clinvar_gkm_parquet.sqltemplate import render
 
-BASE = current_shape(read_fixture())
+BASE = read_fixture()
 
 
 def _mutated(section, pick, change, rekey=None):
