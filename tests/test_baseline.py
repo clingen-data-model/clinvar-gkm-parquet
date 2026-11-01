@@ -22,7 +22,7 @@ from clinvar_gkm_parquet.spec import resolve_spec
 
 FIXTURE = Path(__file__).parent / "fixtures" / "real-1.1.0" / "clinvar-gkm_excerpt.json.gz"
 SECTIONS = SCHEMA_SECTIONS["1.1.0"]
-SPEC, SOURCE = resolve_spec(None)
+SPEC, SOURCE = resolve_spec("baseline")
 _SECTION = re.compile(r'^  "(\w+)": \{$')
 _RECORD = re.compile(r'^    ("(?:[^"\\]|\\.)*"): (.*?),?$')
 
