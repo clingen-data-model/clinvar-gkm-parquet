@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://w3id.org/clingen/schema/clinvar-gkm/9.9.0/json/Coding",
+  "title": "Coding",
+  "description": "Coding, narrowed to what the producer emits.",
+  "$defs": {
+    "Full": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "system": {
+          "type": "string"
+        },
+        "iris": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "CodeSystemIris": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "system": {
+          "type": "string"
+        },
+        "iris": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

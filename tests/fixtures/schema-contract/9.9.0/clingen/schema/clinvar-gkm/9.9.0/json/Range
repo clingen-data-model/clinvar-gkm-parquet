@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://w3id.org/clingen/schema/clinvar-gkm/9.9.0/json/Range",
+  "title": "Range",
+  "description": "Range, narrowed to what the producer emits.",
+  "type": "array",
+  "minItems": 2,
+  "maxItems": 2,
+  "items": {
+    "oneOf": [
+      {
+        "type": "integer"
+      },
+      {
+        "type": "null"
+      }
+    ]
+  }
+}

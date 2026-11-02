@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://w3id.org/clingen/schema/clinvar-gkm/9.9.0/json/CopyNumberChange",
+  "title": "CopyNumberChange",
+  "description": "CopyNumberChange, narrowed to what the producer emits.",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string"
+    },
+    "digest": {
+      "type": "string"
+    },
+    "location": {
+      "type": "string",
+      "pattern": "^#/(location)/"
+    },
+    "copyChange": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

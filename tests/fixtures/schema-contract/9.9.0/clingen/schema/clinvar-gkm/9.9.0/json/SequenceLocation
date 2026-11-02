@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://w3id.org/clingen/schema/clinvar-gkm/9.9.0/json/SequenceLocation",
+  "title": "SequenceLocation",
+  "description": "SequenceLocation, narrowed to what the producer emits.",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string"
+    },
+    "digest": {
+      "type": "string"
+    },
+    "sequenceReference": {
+      "type": "string",
+      "pattern": "^#/(sequenceReference)/"
+    },
+    "start": {
+      "oneOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "$ref": "/clingen/schema/clinvar-gkm/9.9.0/json/Range"
+        }
+      ],
+      "description": "The start."
+    },
+    "end": {
+      "oneOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "$ref": "/clingen/schema/clinvar-gkm/9.9.0/json/Range"
+        }
+      ],
+      "description": "The end."
+    }
+  },
+  "additionalProperties": false
+}
