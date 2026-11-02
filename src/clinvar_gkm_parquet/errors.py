@@ -27,6 +27,17 @@ class SpecError(ToolError):
     a non-pointer where a pointer is required, a DESCRIBE that differs from the spec)."""
 
 
+class SchemaSetError(ToolError):
+    """A bundle schema set can't be loaded: a missing or unfetchable file, a file whose `$id` differs from the
+    ref that reached it, a `$ref` that names nothing, a snapshot that differs from its manifest (ADR 0006)."""
+
+
+class CompileError(ToolError):
+    """The schema set (and its overlay) doesn't determine a table of the `sections` spec: a pattern the rules don't
+    cover, or an overlay entry that contradicts the schema or has no use. The message names the section and
+    position, and what the schema must state (ADR 0006)."""
+
+
 class RoundTripError(ToolError):
     """A rebuild can't reproduce the source bundle's text exactly: the directory is not a full lossless build
     (a selection, deltas, a missing table or ordinal, a spec that is not lossless), a pointer's section is

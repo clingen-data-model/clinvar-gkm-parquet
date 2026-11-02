@@ -1,0 +1,28 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarAffectsProposition",
+   "title": "ClinvarAffectsProposition",
+   "description": "A proposition describing a variant that affects a condition without implying causality. Used for ClinVar submissions classified as \"affects\". ClinVar has stopped accepting new submissions with this classification, but historical submissions remain.",
+   "type": "object",
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarGermlineCustomProposition"
+      }
+   ],
+   "properties": {
+      "type": {
+         "type": "string",
+         "const": "ClinvarAffectsProposition",
+         "default": "ClinvarAffectsProposition",
+         "description": "MUST be \"ClinvarAffectsProposition\"."
+      },
+      "predicate": {
+         "type": "string",
+         "const": "hasAffectFor",
+         "default": "hasAffectFor",
+         "description": "The relationship the Proposition describes between the subject variant and object condition. MUST be \"hasAffectFor\"."
+      }
+   },
+   "unevaluatedProperties": false
+}

@@ -1,0 +1,40 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/GeneListItem",
+   "title": "GeneListItem",
+   "description": "One gene associated with a ClinVar variation: a reference to the gene's MappableConcept in the bundle's `gene` section, plus ClinVar's `relationship_type` and `source`.",
+   "type": "object",
+   "maturity": "trial use",
+   "properties": {
+      "gene": {
+         "description": "Reference to the gene MappableConcept in the bundle's `gene` section (e.g. `#/gene/ncbigene:672`).",
+         "$ref": "/ga4gh/schema/gkm-core/1.3.0/json/iriReference"
+      },
+      "relationship_type": {
+         "type": "string",
+         "enum": [
+            "asserted, but not computed",
+            "genes overlapped by variant",
+            "near gene, downstream",
+            "near gene, upstream",
+            "within multiple genes by overlap",
+            "within single gene"
+         ],
+         "description": "The relationship between the variation and the gene as reported by ClinVar (e.g.,  `within single gene`, `genes overlapped by variant`)."
+      },
+      "source": {
+         "type": "string",
+         "enum": [
+            "calculated",
+            "submitted"
+         ],
+         "description": "The source of the gene association: `submitted` (asserted by the submitter) or `calculated` (computed by ClinVar)."
+      }
+   },
+   "required": [
+      "gene",
+      "relationship_type",
+      "source"
+   ],
+   "additionalProperties": false
+}

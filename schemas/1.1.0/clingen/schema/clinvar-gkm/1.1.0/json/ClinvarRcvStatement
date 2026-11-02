@@ -1,0 +1,17 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarRcvStatement",
+   "title": "ClinvarRcvStatement",
+   "description": "A ClinVar RCV (reference clinical variant) statement. Represents an aggregate classification for a specific variant-condition pair across all submissions sharing the same proposition type and condition. RCV statements contain evidence lines that group contributing SCV submissions by review status priority tier, scoped to a single condition or condition set. RCV statements use the same 13 proposition types as SCV statements. Unlike VCV statements which aggregate across all conditions for a variant, RCV statements are scoped to a single condition. Evidence lines at the RCV level follow the same priority tier structure as VCV statements.",
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/ga4gh/schema/va-spec/1.1.0/json/Statement"
+      },
+      {
+         "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarAggregateStatement#/$defs/ClinvarAggregateStatementProperties"
+      }
+   ],
+   "type": "object",
+   "unevaluatedProperties": false
+}
