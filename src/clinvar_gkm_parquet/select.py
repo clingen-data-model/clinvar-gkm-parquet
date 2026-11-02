@@ -39,8 +39,8 @@ disk holds the output plus a compressed spool of the selected records, which shr
   a pass completes one level and part of the next. Pointers mostly point to EARLIER sections (vcv -> proposition
   -> variation -> allele -> location -> sequenceReference), so a hop back costs about one pass.
 - Pass 1 reads the whole source: it checks the sha256 (BundleFileSource, when an expected one is known), the
-  schema_version against compat.ACCEPTED_SCHEMA_VERSIONS, the line grammar, and the seeds. A later pass stops
-  at the first section after which nothing is wanted, and skips sections with nothing wanted without parsing
+  sections against the schema set of the bundle's schema_version, the line grammar, and the seeds. A later pass
+  stops at the first section after which nothing is wanted, and skips sections with nothing wanted without parsing
   their keys. A re-opened bundle is checked against pass 1 (Tap), and every later pass's per-section record
   counts must equal pass 1's.
 - A pointer to a key its section doesn't hold is dangling: recorded in the result, never a failure.
@@ -70,8 +70,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO, Protocol
 
-from .bundle import SECTIONS, stage_bundle
-from .compat import ACCEPTED_SCHEMA_VERSIONS
+from .bundle import bundle_sections, peek_schema_version, stage_bundle
 from .errors import BundleFormatError, InputError, SchemaVersionError, ToolError
 from .model import InputFile
 from .sources import open_stream
@@ -86,7 +85,6 @@ MAX_LISTED = 10  # missing seeds named in an error
 _READ_BUFFER = 1 << 20
 _WRITE_CHUNK = 1 << 20
 
-SEC_INDEX: dict[str, int] = {name: i for i, name in enumerate(SECTIONS)}
 _INF = float("inf")
 
 # The assembler's line layout (design plan §4.2; bundle.py holds the strict reader the output is checked with).
@@ -203,6 +201,7 @@ class RecordSource(Protocol):
 
     name: str
     sha256: str | None
+    schema_version: str
 
     def open_pass(self, number: int) -> AbstractContextManager[RecordPass]: ...
 
@@ -384,6 +383,14 @@ class BundleFileSource:
         self._reopen = reopen
         self._every = checkpoint_bytes
         self._reference: Tap | None = None
+        self._schema_version: str | None = None
+
+    @property
+    def schema_version(self) -> str:
+        """From the file's first lines, before any pass; pass 1 must read the same."""
+        if self._schema_version is None:
+            self._schema_version = peek_schema_version(self.input)
+        return self._schema_version
 
     def open_pass(self, number: int) -> AbstractContextManager[RecordPass]:
         return _FilePass(self, number)
@@ -471,7 +478,7 @@ class _FilePass:
                 f'{self._src.name}: line 2 must be \'  "schema_version": "<version>",\', got {_short(line)}'
             )
         self.schema_version = m.group(1).decode("utf-8", "replace")
-        _check_schema_version(self._src.name, self.schema_version)
+        self._sections = bundle_sections(self._src.name, self.schema_version)
         self._more = bool(m.group(2))
 
     def sections(self) -> Iterator[_FileSection]:
@@ -487,8 +494,9 @@ class _FilePass:
                         raise self.fail("trailing ',' after the last section")
                     raise self.fail(f"expected a section to open, got {_short(line)}")
                 name = m.group(1).decode("utf-8", "replace")
-                if name not in SEC_INDEX:
-                    raise self.fail(f"unknown section {name!r} (the 1.1.0 bundle has: {', '.join(SECTIONS)})")
+                if name not in self._sections:
+                    have = ", ".join(self._sections)
+                    raise self.fail(f"unknown section {name!r} (a {self.schema_version} bundle has: {have})")
                 if name in seen:
                     raise self.fail(f"section {name!r} appears twice")
                 seen.add(name)
@@ -571,15 +579,6 @@ def _short(line: bytes) -> str:
     return repr(text if len(text) <= 120 else text[:120] + "...")
 
 
-def _check_schema_version(name: str, version: str) -> None:
-    if version not in ACCEPTED_SCHEMA_VERSIONS:
-        raise SchemaVersionError(
-            f"{name}: bundle schema_version {version!r} is not supported; this tool reads "
-            f"{', '.join(ACCEPTED_SCHEMA_VERSIONS)}. See the compatibility matrix in the README for the tool "
-            "release that reads it."
-        )
-
-
 def _check_sha(inp: InputFile, sha: str, cause: str = "") -> None:
     if inp.expected_sha256 is None:
         if not cause:
@@ -627,12 +626,16 @@ def iter_pointers(record: bytes) -> Iterator[tuple[bytes, bytes]]:
             yield m.group(1), m.group(2)
 
 
-def parse_pointers(record: bytes) -> list[tuple[int, bytes]]:
+def section_index(sections: Iterable[str]) -> dict[str, int]:
+    return {name: i for i, name in enumerate(sections)}
+
+
+def parse_pointers(record: bytes, index: Mapping[str, int]) -> list[tuple[int, bytes]]:
     """Every `"#/<section>/<key>"` string value in a record: (section index, canonical key body), in order.
-    A pointer to a section the bundle schema doesn't have fails."""
+    A pointer to a section the bundle schema (`index`) doesn't have fails."""
     out = []
     for section, body in iter_pointers(record):
-        si = SEC_INDEX.get(section.decode("utf-8", "replace"))
+        si = index.get(section.decode("utf-8", "replace"))
         if si is None:
             text = (section + b"/" + body).decode("utf-8", "replace")
             raise BundleFormatError(f'pointer to an unknown section: "#/{text}"')
@@ -648,8 +651,9 @@ class _Spool:
     """Selected records, per (pass, section), in source order: `<ordinal>\\t<key>\\t<record>\\n`, gzip level 1.
     Each pass appends a sorted run per section; the output merges the runs by ordinal."""
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, names: tuple[str, ...]):
         self.root = root
+        self.names = names
         self.runs: dict[int, list[Path]] = {}
         self._writers: dict[int, tuple[gzip.GzipFile, bytearray]] = {}
         self._pass = 0
@@ -660,7 +664,7 @@ class _Spool:
     def add(self, si: int, ordinal: int, key: bytes, record: bytes) -> None:
         w = self._writers.get(si)
         if w is None:
-            path = self.root / f"p{self._pass:03d}-{SECTIONS[si]}.tsv.gz"
+            path = self.root / f"p{self._pass:03d}-{self.names[si]}.tsv.gz"
             self.runs.setdefault(si, []).append(path)
             w = self._writers[si] = (
                 gzip.GzipFile(path, "wb", compresslevel=SPOOL_COMPRESSLEVEL, mtime=0),
@@ -739,10 +743,12 @@ def select(
         raise SelectionError(f"follow must be out, in or both, not {follow!r}") from e
     if max_depth is not None and (not isinstance(max_depth, int) or max_depth < 0):
         raise SelectionError(f"max_depth must be a non-negative integer or None, not {max_depth!r}")
-    allowed_list = _allowed(sections)
-    seed_bodies = _seeds(seeds, allowed_list)
     if isinstance(source, InputFile):
         source = BundleFileSource(source)
+    names = bundle_sections(source.name, source.schema_version)
+    index = section_index(names)
+    allowed_list = _allowed(sections, names, index)
+    seed_bodies = _seeds(seeds, allowed_list, names, index)
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     root = Path(work_dir) if work_dir is not None else out_path.parent
@@ -750,7 +756,7 @@ def select(
     work = Path(tempfile.mkdtemp(prefix=".select-", dir=root))
     partial = out_path.parent / f".{out_path.name}.partial"
     try:
-        engine = _Engine(source, seed_bodies, follow, max_depth, allowed_list, _Spool(work))
+        engine = _Engine(source, seed_bodies, follow, max_depth, allowed_list, _Spool(work, names), names)
         engine.run()
         size, sha, digests = engine.write(partial, compresslevel)
         if validate:
@@ -765,9 +771,9 @@ def select(
     params: dict = {
         "follow": follow.value,
         "max_depth": max_depth,
-        "sections": None if sections is None else [SECTIONS[i] for i in allowed_list],
+        "sections": None if sections is None else [names[i] for i in allowed_list],
         "seeds": {
-            SECTIONS[si]: {"count": len(keys), "sha256": ids_sha256(_key_text(k) for k in keys)}
+            names[si]: {"count": len(keys), "sha256": ids_sha256(_key_text(k) for k in keys)}
             for si, keys in sorted(seed_bodies.items())
         },
         "selected_records": engine.selected,
@@ -777,7 +783,7 @@ def select(
         if k in params:
             raise SelectionError(f"provenance key {k!r} is set by the engine")
         params[k] = v
-    order = [SECTIONS[si] for si in engine.order]
+    order = [names[si] for si in engine.order]
     result = SelectionResult(
         path=out_path,
         size=size,
@@ -785,8 +791,8 @@ def select(
         schema_version=engine.schema_version,
         source_name=source.name,
         source_sha256=source.sha256,
-        source_records={s: engine.counts[SEC_INDEX[s]] for s in order},
-        section_counts={s: len(engine.depth[SEC_INDEX[s]]) for s in order if engine.depth[SEC_INDEX[s]]},
+        source_records={s: engine.counts[index[s]] for s in order},
+        section_counts={s: len(engine.depth[index[s]]) for s in order if engine.depth[index[s]]},
         depth_counts=dict(sorted(Counter(d for sec in engine.depth for d, _ in sec.values()).items())),
         passes=tuple(engine.passes),
         dangling=tuple(engine.dangling_list()),
@@ -807,28 +813,30 @@ def select(
     return result
 
 
-def _allowed(sections: Iterable[str] | None) -> list[int]:
+def _allowed(sections: Iterable[str] | None, all_names: tuple[str, ...], index: Mapping[str, int]) -> list[int]:
     if sections is None:
-        return list(range(len(SECTIONS)))
+        return list(range(len(all_names)))
     if isinstance(sections, str):
         raise SelectionError("sections must be a list of section names, not a string")
     names = list(sections)
-    unknown = [s for s in names if s not in SEC_INDEX]
+    unknown = [s for s in names if s not in index]
     if unknown:
         raise SelectionError(
-            f"unknown section(s) {', '.join(map(repr, unknown))}; the bundle has: {', '.join(SECTIONS)}"
+            f"unknown section(s) {', '.join(map(repr, unknown))}; the bundle has: {', '.join(all_names)}"
         )
     if not names:
         raise SelectionError("sections is empty")
-    return sorted({SEC_INDEX[s] for s in names})
+    return sorted({index[s] for s in names})
 
 
-def _seeds(seeds: Mapping[str, Iterable[str]], allowed: list[int]) -> dict[int, set[bytes]]:
+def _seeds(
+    seeds: Mapping[str, Iterable[str]], allowed: list[int], names: tuple[str, ...], index: Mapping[str, int]
+) -> dict[int, set[bytes]]:
     out: dict[int, set[bytes]] = {}
     for section, keys in seeds.items():
-        si = SEC_INDEX.get(section)
+        si = index.get(section)
         if si is None:
-            raise SelectionError(f"unknown driver section {section!r}; the bundle has: {', '.join(SECTIONS)}")
+            raise SelectionError(f"unknown driver section {section!r}; the bundle has: {', '.join(names)}")
         if si not in allowed:
             raise SelectionError(f"the driver section {section!r} must be one of the selected sections")
         if isinstance(keys, (str, bytes)):
@@ -855,8 +863,10 @@ class _Engine:
     - in_done: levels whose incoming pointers have all been scanned for while the level was complete.
     """
 
-    def __init__(self, source, seeds, follow, max_depth, allowed, spool):
-        n = len(SECTIONS)
+    def __init__(self, source, seeds, follow, max_depth, allowed, spool, names):
+        n = len(names)
+        self.names = names
+        self.index = section_index(names)
         self.source = source
         self.seeds = [seeds.get(i, set()) for i in range(n)]
         self.follow_out = follow in (Follow.OUT, Follow.BOTH)
@@ -920,7 +930,7 @@ class _Engine:
         for j in (required, limit - 1):
             if j is not None:
                 secs |= self.level_secs.get(j, set())
-        return tuple(b'"#/' + SECTIONS[s].encode() + b"/" for s in sorted(secs))
+        return tuple(b'"#/' + self.names[s].encode() + b"/" for s in sorted(secs))
 
     # -- passes -----------------------------------------------------------------------------------------------
 
@@ -931,7 +941,7 @@ class _Engine:
         self._pass(1, self._cap(1), first_scan, None)
         missing = [(si, k) for si, keys in enumerate(self.seeds) for k in keys if k not in self.depth[si]]
         if missing:
-            listed = ", ".join(f"{SECTIONS[si]}:{_key_text(k)}" for si, k in sorted(missing)[:MAX_LISTED])
+            listed = ", ".join(f"{self.names[si]}:{_key_text(k)}" for si, k in sorted(missing)[:MAX_LISTED])
             more = f" and {len(missing) - MAX_LISTED} more" if len(missing) > MAX_LISTED else ""
             raise SelectionError(
                 f"{len(missing)} driver key(s) not in {self.source.name}: {listed}{more}; nothing was written"
@@ -940,7 +950,7 @@ class _Engine:
             self.in_done.add(0)
             for si, names in enumerate(self.learned):
                 found = (x.decode("utf-8", "replace") for x in names)
-                self.points_to[si] = {SEC_INDEX[n] for n in found if n in SEC_INDEX}
+                self.points_to[si] = {self.index[n] for n in found if n in self.index}
         while True:
             plan = self._plan()
             if plan is None:
@@ -968,7 +978,11 @@ class _Engine:
             with self.source.open_pass(number) as p:
                 version = p.schema_version
                 if first:
-                    _check_schema_version(self.source.name, version)
+                    if version != self.source.schema_version:
+                        raise SourceChangedError(
+                            f"{self.source.name}: pass 1 reads schema_version {version}, its first lines said "
+                            f"{self.source.schema_version}"
+                        )
                     self.schema_version = version
                 elif version != self.schema_version:
                     raise SourceChangedError(
@@ -977,7 +991,7 @@ class _Engine:
                     )
                 pos = 0
                 for sec in p.sections():
-                    si = SEC_INDEX.get(sec.name)
+                    si = self.index.get(sec.name)
                     if si is None:
                         raise BundleFormatError(f"{self.source.name}: unknown section {sec.name!r}")
                     if first:
@@ -988,7 +1002,7 @@ class _Engine:
                     elif pos >= len(self.order) or self.order[pos] != si:
                         raise SourceChangedError(
                             f"{self.source.name}: pass {number} reads section {sec.name} where pass 1 read "
-                            f"{SECTIONS[self.order[pos]] if pos < len(self.order) else 'the end'}"
+                            f"{self.names[self.order[pos]] if pos < len(self.order) else 'the end'}"
                         )
                     if not first and not self._needed_from(pos, limit, scan):
                         stopped = sec.name
@@ -1018,7 +1032,7 @@ class _Engine:
             bytes_read=bytes_read,
             records_read=records_read,
             selected=self.selected - selected_before,
-            scanned_sections=tuple(SECTIONS[s] for s in sorted(scan)),
+            scanned_sections=tuple(self.names[s] for s in sorted(scan)),
             stopped_before=stopped,
         )
         self.passes.append(stats)
@@ -1067,7 +1081,7 @@ class _Engine:
                     learn.update(_POINTER_SECTION.findall(record))
                 if e is None and not any(n in record for n in needles):
                     continue
-                ptrs = parse_pointers(record)
+                ptrs = parse_pointers(record, self.index)
                 for ti, tk in ptrs:
                     dd = depth[ti].get(tk)
                     if dd is not None:
@@ -1092,7 +1106,7 @@ class _Engine:
         if not self.follow_out or (self.max_depth is not None and d + 1 > self.max_depth):
             return
         if ptrs is None:
-            ptrs = parse_pointers(record)
+            ptrs = parse_pointers(record, self.index)
         node = (si, k)
         for ti, tk in ptrs:
             if ti not in self.allowed or tk in self.depth[ti]:
@@ -1107,7 +1121,7 @@ class _Engine:
     def dangling_list(self) -> list[DanglingPointer]:
         out = []
         for (ti, tk), (si, sk) in sorted(self.dangling.items()):
-            out.append(DanglingPointer(f"#/{SECTIONS[ti]}/{_key_text(tk)}", SECTIONS[si], _key_text(sk)))
+            out.append(DanglingPointer(f"#/{self.names[ti]}/{_key_text(tk)}", self.names[si], _key_text(sk)))
         return out
 
     # -- output -----------------------------------------------------------------------------------------------
@@ -1123,7 +1137,7 @@ class _Engine:
                 for si in self.order:
                     if not self.depth[si]:
                         continue
-                    name = SECTIONS[si]
+                    name = self.names[si]
                     buf += b',\n  "' + name.encode() + b'": {\n'
                     h = hashlib.sha256()
                     n = 0

@@ -1,15 +1,17 @@
 """Stream one bundle once, section by section (design plan §4.2, §5).
 
-Owned by the input-side work package. One pass: hash the compressed bytes, decompress, check `schema_version`
-(line 2) against compat.ACCEPTED_SCHEMA_VERSIONS, classify each line with a strict grammar, and hand every record
-to a sink as it is read (`stream_bundle`). Fails (BundleFormatError / SchemaVersionError) on any line it can't
-classify, an unknown or repeated section, an empty section, a broken trailing-comma sequence, trailing garbage or
-a truncated file; fails (InputError) when the computed sha256 differs from the expected one.
+Owned by the input-side work package. One pass: hash the compressed bytes, decompress, read `schema_version` (line
+2), whose schema set says which sections the bundle may hold (schemas.sections_of, ADR 0006), classify each line
+with a strict grammar, and hand every record to a sink as it is read (`stream_bundle`). `peek_schema_version` reads
+only the first lines, for a caller that needs the version before it can start (the compiled spec). Fails
+(BundleFormatError / SchemaVersionError) on any line it can't classify, an unknown or repeated section, an empty
+section, a broken trailing-comma sequence, trailing garbage or a truncated file; fails (InputError) when the
+computed sha256 differs from the expected one.
 
-The sink sees `begin(schema_version)`, then per section `open_section(name)`, which returns the function each of
-the section's records is passed to as `(key as JSON bytes, record bytes)`, and `close_section(name)`. The build
-pipeline's sink replays the deltas and stages one section at a time (build.py); `stage_bundle` is the sink
-that writes the whole bundle to per-section staging files.
+The sink sees `begin(schema_version)`, which may refuse the version before its schema set is looked at, then per
+section `open_section(name)`, which returns the function each of the section's records is passed to as `(key as
+JSON bytes, record bytes)`, and `close_section(name)`. The build pipeline's sink replays the deltas and stages one
+section at a time (build.py); `stage_bundle` is the sink that writes the whole bundle to per-section staging files.
 
 With `text_digests` (a lossless build, ADR 0005), the pass also hashes the uncompressed text: the whole of it
 (StreamedBundle.text_sha256) and, per section, its record lines exactly as written (each `    "<key>": <record>`
@@ -21,7 +23,7 @@ The grammar is the one `assemble()` in ClinVar-GKM's `src/scripts/assemble-gkm-d
 25344ba):
 
     {
-      "schema_version": "1.1.0",        <- no trailing comma when the bundle has no sections
+      "schema_version": "<version>",    <- no trailing comma when the bundle has no sections
       "<section>": {                    <- opened lazily on the first record, so never empty
         "<key>": <record>,              <- four spaces, JSON key, ": ", compact JSON record
         "<key>": <record>               <- the section's last record has no comma
@@ -49,43 +51,18 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import BinaryIO, Protocol
 
-from .compat import ACCEPTED_SCHEMA_VERSIONS
-from .errors import BundleFormatError, InputError, SchemaVersionError, ToolError
+from .errors import BundleFormatError, InputError, SchemaSetError, SchemaVersionError, ToolError
 from .model import InputFile, StagedBundle, StagedSection, StreamedBundle
+from .schemas import sections_of
 from .sources import open_stream
 
 log = logging.getLogger(__name__)
-
-# The 20 sections of the 1.1.0 bundle schema (schema/clinvar-gkm/clinvar-gkm-bundle.schema.json @ origin/1.0),
-# in the assembler's SECTIONS order.
-SECTIONS: tuple[str, ...] = (
-    "sequenceReference",
-    "location",
-    "allele",
-    "copyNumberCount",
-    "copyNumberChange",
-    "gene",
-    "variation",
-    "condition",
-    "conditionSet",
-    "therapy",
-    "therapyGroup",
-    "submitter",
-    "propositionPathogenicity",
-    "propositionOncogenicity",
-    "propositionSomaticClinicalImpact",
-    "propositionClinvarCustom",
-    "evidenceLine",
-    "scv",
-    "vcv",
-    "rcv",
-)
-_SECTION_SET = frozenset(SECTIONS)
 
 STAGING_SUFFIX = ".tsv.gz"
 STAGING_COMPRESSLEVEL = 1
 _WRITE_CHUNK = 1 << 20  # bytes buffered before each gzip write
 _READ_BUFFER = 1 << 20  # decompressed read buffer
+_HEADER_BYTES = 1 << 16  # enough for the first two lines of a real bundle
 
 _SCHEMA_LINE = re.compile(rb'  "schema_version": "([^"\\]*)"(,?)\n')
 _SECTION_OPEN = re.compile(rb'  "([^"\\]*)": \{\n')
@@ -210,6 +187,18 @@ class SectionWriter:
             pass
 
 
+def bundle_sections(name: str, version: str) -> tuple[str, ...]:
+    """The sections the bundle `name`, of schema `version`, may hold. A version whose schema set can't load is
+    refused with the reason."""
+    try:
+        return sections_of(version)
+    except SchemaSetError as e:
+        raise SchemaVersionError(
+            f"{name}: bundle schema_version {version!r} can't be read: {e}. See the compatibility matrix in the "
+            "README."
+        ) from e
+
+
 class Sink(Protocol):
     def begin(self, schema_version: str) -> None: ...
 
@@ -286,6 +275,52 @@ def stage_bundle(inp: InputFile, work_dir: Path) -> StagedBundle:
         schema_version=streamed.schema_version,
         sections=staged,
     )
+
+
+def peek_schema_version(inp: InputFile) -> str:
+    """The bundle's schema_version, from its first lines; the rest of the stream is never read, so a URL costs one
+    GET cut short. A file that doesn't start as a bundle fails as stream_bundle does, a wrong checksum first."""
+    raw = open_stream(inp)
+    try:
+        hr = _HashingReader(raw)
+        try:
+            f = io.BufferedReader(gzip.GzipFile(fileobj=hr, mode="rb"), buffer_size=_HEADER_BYTES)
+            version, _ = _read_header(inp.name, f)
+            return version
+        except (EOFError, gzip.BadGzipFile, zlib.error, ToolError) as e:
+            if inp.expected_sha256 is not None:
+                try:
+                    hr.drain()
+                except (OSError, EOFError, zlib.error):
+                    pass
+                _check_sha(inp, hr.sha.hexdigest(), cause=f"; the content also fails to parse ({e})")
+            if isinstance(e, ToolError):
+                raise
+            raise BundleFormatError(f"{inp.name}: not a complete gzip stream: {e}") from e
+    finally:
+        raw.close()
+
+
+def _read_header(name: str, f: BinaryIO) -> tuple[str, bool]:
+    """Lines 1 and 2: (the schema_version, whether a section may follow)."""
+    line = f.readline(_HEADER_BYTES)
+    if line != b"{\n":
+        if not line:
+            raise BundleFormatError(f"{name}: line 1: empty file (expected '{{' on line 1)")
+        raise BundleFormatError(f"{name}: line 1: expected '{{' on line 1, got {_short(line)}")
+    line = f.readline(_HEADER_BYTES)
+    m = _SCHEMA_LINE.fullmatch(line)
+    if not m:
+        raise SchemaVersionError(
+            f'{name}: line 2 must be \'  "schema_version": "<version>",\', got {_short(line)}. See the '
+            "compatibility matrix in the README."
+        )
+    return m.group(1).decode("utf-8", "replace"), bool(m.group(2))
+
+
+def _short(line: bytes) -> str:
+    text = line.decode("utf-8", "replace")
+    return repr(text if len(text) <= 120 else text[:120] + "...")
 
 
 def stream_bundle(inp: InputFile, sink: Sink, *, text_digests: bool = False) -> StreamedBundle:
@@ -382,34 +417,12 @@ def _parse(inp: InputFile, f: BinaryIO, sink: Sink, text_digests: bool = False) 
             where += f", key {key.decode('utf-8', 'replace')}"
         return BundleFormatError(f"{where}: {msg}")
 
-    def short(line: bytes) -> str:
-        text = line.decode("utf-8", "replace")
-        return repr(text if len(text) <= 120 else text[:120] + "...")
-
-    # Line 1 and line 2 (schema_version).
-    line = f.readline()
-    lineno = 1
-    if line != b"{\n":
-        if not line:
-            raise fail("empty file (expected '{' on line 1)")
-        raise fail(f"expected '{{' on line 1, got {short(line)}")
-    line = f.readline()
+    version, more = _read_header(name, f)
     lineno = 2
-    accepted = ", ".join(ACCEPTED_SCHEMA_VERSIONS)
-    m = _SCHEMA_LINE.fullmatch(line)
-    if not m:
-        raise SchemaVersionError(
-            f'{name}: line 2 must be \'  "schema_version": "<version>",\', got {short(line)}. This tool reads '
-            f"bundle schema_version {accepted}; see the compatibility matrix in the README."
-        )
-    version = m.group(1).decode("utf-8", "replace")
-    if version not in ACCEPTED_SCHEMA_VERSIONS:
-        raise SchemaVersionError(
-            f"{name}: bundle schema_version {version!r} is not supported; this tool reads {accepted}. "
-            "See the compatibility matrix in the README for the tool release that reads it."
-        )
-    state = _TOP if m.group(2) else _END
+    state = _TOP if more else _END
     sink.begin(version)
+    sections = bundle_sections(name, version)
+    section_set = frozenset(sections)
 
     counts: dict[str, int] = {}
     write = None
@@ -432,7 +445,7 @@ def _parse(inp: InputFile, f: BinaryIO, sink: Sink, text_digests: bool = False) 
                 if q > 0 and line.find(b"\\", 5, q) >= 0:
                     q = _key_end(line)
                 if q < 0 or line[q + 1 : q + 3] != b": ":
-                    raise fail(f"malformed record line {short(line)}")
+                    raise fail(f"malformed record line {_short(line)}")
                 key = line[4 : q + 1]
                 record = line[q + 3 : end]
                 if not (record.startswith(b"{") and record.endswith(b"}")):
@@ -459,16 +472,16 @@ def _parse(inp: InputFile, f: BinaryIO, sink: Sink, text_digests: bool = False) 
                 section = None
                 state = _TOP if line == b"  },\n" else _END
                 continue
-            raise fail(f"expected a record line or the section close, got {short(line)}")
+            raise fail(f"expected a record line or the section close, got {_short(line)}")
         if state == _TOP:
             m = _SECTION_OPEN.fullmatch(line)
             if not m:
                 if line in (b"}\n", b"}"):
                     raise fail("trailing ',' after the last section")
-                raise fail(f"expected a section to open, got {short(line)}")
+                raise fail(f"expected a section to open, got {_short(line)}")
             sec = m.group(1).decode("utf-8", "replace")
-            if sec not in _SECTION_SET:
-                raise fail(f"unknown section {sec!r} (the 1.1.0 bundle has: {', '.join(SECTIONS)})")
+            if sec not in section_set:
+                raise fail(f"unknown section {sec!r} (a {version} bundle has: {', '.join(sections)})")
             if sec in counts:
                 raise fail(f"section {sec!r} appears twice")
             section = sec
@@ -481,10 +494,10 @@ def _parse(inp: InputFile, f: BinaryIO, sink: Sink, text_digests: bool = False) 
             if line != b"}\n":
                 if _SECTION_OPEN.fullmatch(line):
                     raise fail("missing ',' before this section")
-                raise fail(f"expected the closing '}}' of the bundle, got {short(line)}")
+                raise fail(f"expected the closing '}}' of the bundle, got {_short(line)}")
             state = _DONE
             continue
-        raise fail(f"trailing data after the closing '}}': {short(line)}")
+        raise fail(f"trailing data after the closing '}}': {_short(line)}")
     key = None
     if state != _DONE:
         where = f"inside section {section}" if section else "before the closing '}'"

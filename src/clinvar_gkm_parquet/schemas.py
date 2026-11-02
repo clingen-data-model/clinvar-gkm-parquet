@@ -9,6 +9,9 @@ A set on disk is one file per schema, original bytes, plus MANIFEST.json:
     {"schema_version": "1.1.0", "bundle_id": "<$id>",
      "files": [{"id": "<$id>", "url": "<URL it was fetched from>", "file": "<relative path>", "sha256": "..."}]}
 
+`sections_of(version)` is what the tool reads a version's bundle sections from: the bundle schema's properties
+other than schema_version, in schema order, which is the order the assembler writes them in (ADR 0006 §6).
+
 Identity: `SchemaSet.sha256` is over each `$id` and its file bytes, in `$id` order, so it doesn't depend on where
 the set was read from.
 
@@ -30,6 +33,7 @@ import re
 import urllib.parse
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 
 from . import sources
@@ -38,6 +42,7 @@ from .errors import SchemaSetError
 BUNDLE_DIR = "https://w3id.org/clingen/schema/clinvar-gkm/{version}/"
 BUNDLE_URL = BUNDLE_DIR + "clinvar-gkm-bundle.schema.json"
 MANIFEST = "MANIFEST.json"
+SCHEMA_VERSION_PROPERTY = "schema_version"
 _VERSION_RE = re.compile(r"\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?")
 
 
@@ -62,6 +67,11 @@ class SchemaSet:
     @property
     def bundle(self) -> dict:
         return self.files[self.bundle_id].doc
+
+    @property
+    def sections(self) -> tuple[str, ...]:
+        """The bundle's sections, in schema order."""
+        return tuple(n for n in self.bundle.get("properties", {}) if n != SCHEMA_VERSION_PROPERTY)
 
     @property
     def sha256(self) -> str:
@@ -236,6 +246,15 @@ def snapshot_dir(version: str) -> Path | None:
     return None
 
 
+def snapshot_versions() -> list[str]:
+    """The versions this tool ships a snapshot of, sorted by version number."""
+    found: set[str] = set()
+    for root in (Path(__file__).parent / "_schemas", Path(__file__).resolve().parents[2] / "schemas"):
+        if root.is_dir():
+            found.update(p.parent.name for p in root.glob(f"*/{MANIFEST}"))
+    return sorted(found, key=lambda v: [int(x) if x.isdigit() else 0 for x in re.split(r"[.+-]", v)])
+
+
 def default_cache_dir() -> Path:
     """$XDG_CACHE_HOME/clinvar-gkm-parquet/schemas, or ~/.cache/... (the fetched sets)."""
     base = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
@@ -246,10 +265,15 @@ def _http_fetch(url: str) -> bytes:
     return sources._fetch_bytes(url)
 
 
-def fetch_set(version: str, *, fetch: Callable[[str], bytes] = _http_fetch) -> SchemaSet:
-    """`version`'s schema set from the network: the bundle schema's published URL, then its `$ref` closure."""
+def _check_version(version: str) -> None:
+    """A version comes from a bundle's text and names a directory and a URL."""
     if not _VERSION_RE.fullmatch(version):
         raise SchemaSetError(f"schema_version {version!r} is not a version")
+
+
+def fetch_set(version: str, *, fetch: Callable[[str], bytes] = _http_fetch) -> SchemaSet:
+    """`version`'s schema set from the network: the bundle schema's published URL, then its `$ref` closure."""
+    _check_version(version)
 
     def checked(url: str) -> bytes:
         try:
@@ -265,13 +289,23 @@ def fetch_set(version: str, *, fetch: Callable[[str], bytes] = _http_fetch) -> S
 def load_schema_set(
     version: str, *, cache_dir: Path | None = None, fetch: Callable[[str], bytes] = _http_fetch
 ) -> SchemaSet:
-    """`version`'s schema set: the shipped snapshot, else the cache, else fetched and cached."""
+    """`version`'s schema set: the shipped snapshot, else the cache, else fetched and cached. A directory is read
+    once per process."""
+    _check_version(version)
     snapshot = snapshot_dir(version)
     if snapshot is not None:
-        return read_set(version, snapshot)
+        return _read_once(version, snapshot)
     cached = (cache_dir or default_cache_dir()) / version
-    if (cached / MANIFEST).is_file():
-        return read_set(version, cached)
-    schema_set = fetch_set(version, fetch=fetch)
-    write_set(schema_set, cached)
-    return schema_set
+    if not (cached / MANIFEST).is_file():
+        write_set(fetch_set(version, fetch=fetch), cached)
+    return _read_once(version, cached)
+
+
+@cache
+def _read_once(version: str, directory: Path) -> SchemaSet:
+    return read_set(version, directory)
+
+
+def sections_of(version: str) -> tuple[str, ...]:
+    """The sections of a bundle of `version`, in schema order. Raises SchemaSetError if its set can't load."""
+    return load_schema_set(version).sections

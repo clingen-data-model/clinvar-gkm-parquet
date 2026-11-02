@@ -1,4 +1,4 @@
-"""Command line: build, select, rebuild, verify, version (design plan §10)."""
+"""Command line: build, select, rebuild, verify, compile-spec, version (design plan §10)."""
 
 from __future__ import annotations
 
@@ -11,7 +11,8 @@ from .errors import ToolError
 
 SPEC_HELP = (
     "table spec: a built-in name (sections, the default: one table per bundle section, a typed column per "
-    "record property; baseline: per section id, refs and the record as data; clinvar-gkm, clinvar-gkm-1.0 or "
+    "record property, compiled from the schemas of the bundle's schema_version; "
+    "baseline: per section id, refs and the record as data; clinvar-gkm, clinvar-gkm-1.0 or "
     "clinvar-gkm@1.0 for the 22 tables of ClinVar-GKM's published set) or the path of a tables.yaml"
 )
 
@@ -129,6 +130,12 @@ def _parser() -> argparse.ArgumentParser:
     v.add_argument("--report", type=Path, help="write a Markdown report here (and a .json beside it)")
     _engine(v)
 
+    c = sub.add_parser(
+        "compile-spec",
+        help="write the sections spec of a bundle schema_version as YAML (its tables and columns), with no build",
+    )
+    c.add_argument("schema_version", help="a bundle schema_version, e.g. 1.1.0")
+
     ver = sub.add_parser("version", help="tool version and compatibility")
     ver.add_argument("--json", action="store_true")
     return p
@@ -146,10 +153,23 @@ def _version(args: argparse.Namespace) -> int:
             for s in info["table_specs"]
         )
         print(
-            f"clinvar-gkm-parquet {info['tool_version']}: reads bundle schema "
-            f"{', '.join(info['accepted_schema_versions'])}; built-in table specs {specs}; "
-            f"duckdb {info['duckdb_version']}"
+            f"clinvar-gkm-parquet {info['tool_version']}: built-in table specs {specs}; "
+            f"duckdb {info['duckdb_version']}\n{info['schema_version_rule']} Snapshotted: "
+            f"{', '.join(info['snapshotted_schema_versions'])}. "
+            + "; ".join(
+                f"{s['name']} reads {', '.join(s['bundle_schema_versions'])}"
+                for s in info["table_specs"]
+                if not s["compiled"]
+            )
+            + "."
         )
+    return 0
+
+
+def _compile_spec(args: argparse.Namespace) -> int:
+    from .compiler import compiled_yaml
+
+    sys.stdout.write(compiled_yaml(args.schema_version))
     return 0
 
 
@@ -179,9 +199,14 @@ def _verify(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    handler = {"build": _build, "select": _select, "rebuild": _rebuild, "verify": _verify, "version": _version}[
-        args.command
-    ]
+    handler = {
+        "build": _build,
+        "select": _select,
+        "rebuild": _rebuild,
+        "verify": _verify,
+        "compile-spec": _compile_spec,
+        "version": _version,
+    }[args.command]
     import duckdb
 
     try:

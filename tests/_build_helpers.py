@@ -10,8 +10,8 @@ from __future__ import annotations
 import json
 
 import duckdb
+from _fixture import SECTIONS
 
-from clinvar_gkm_parquet.bundle import SECTIONS
 from clinvar_gkm_parquet.spec import Spec, Table, parse_spec
 
 

@@ -434,10 +434,9 @@ def resolve_input(
 
 
 def load_manifest(inp: InputFile) -> DeltaManifest:
-    """A delta manifest, validated: release and baseline_release are dates, every section is a bundle section,
-    every `deleted` entry is a key string."""
-    from .bundle import SECTIONS  # bundle imports this module
-
+    """A delta manifest, validated: release and baseline_release are dates, every `deleted` entry is a key string.
+    Its sections are checked against the bundle's schema_version when the delta is read (replay.read_delta): the
+    manifest doesn't state one."""
     with open_stream(inp) as fh:
         data = fh.read()
     if inp.expected_sha256:
@@ -468,8 +467,6 @@ def load_manifest(inp: InputFile) -> DeltaManifest:
         raise bad("sections is missing or not an object")
     deleted: dict[str, tuple[str, ...]] = {}
     for sec, info in sections.items():
-        if sec not in SECTIONS:
-            raise bad(f"unknown section {sec!r} (the 1.1.0 bundle has: {', '.join(SECTIONS)})")
         keys = info.get("deleted") if isinstance(info, dict) else None
         if not (isinstance(keys, list) and all(isinstance(k, str) for k in keys)):
             raise bad(f"sections.{sec}.deleted is missing or not a list of key strings")

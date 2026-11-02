@@ -9,8 +9,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-from clinvar_gkm_parquet import bundle, compat
+from clinvar_gkm_parquet import compat
 from clinvar_gkm_parquet.errors import SpecError
+from clinvar_gkm_parquet.schemas import sections_of
 from clinvar_gkm_parquet.spec import (
     SPEC_KV_KEYS,
     kv_metadata,
@@ -22,7 +23,6 @@ from clinvar_gkm_parquet.spec import (
 
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE_FILE = ROOT / "spec" / "baseline" / "1.0" / "tables.yaml"
-SECTIONS_FILE = ROOT / "spec" / "sections" / "1.0" / "tables.yaml"
 CLINVAR_GKM_FILE = ROOT / "spec" / "1.0" / "tables.yaml"
 
 
@@ -36,9 +36,6 @@ def _sha(p: Path) -> str:
 @pytest.mark.parametrize(
     "arg, name, path",
     [
-        (None, "sections", SECTIONS_FILE),
-        ("sections", "sections", SECTIONS_FILE),
-        ("sections@1.0", "sections", SECTIONS_FILE),
         ("baseline", "baseline", BASELINE_FILE),
         ("baseline-1.0", "baseline", BASELINE_FILE),
         ("baseline@1.0", "baseline", BASELINE_FILE),
@@ -55,29 +52,29 @@ def test_resolve_builtin(arg, name, path):
     assert src.sha256 == _sha(path)
 
 
+@pytest.mark.parametrize("arg", [None, "sections", "sections@1.0", "sections-1.0"])
+def test_resolve_compiled(arg):
+    spec, src = resolve_spec(arg, "1.1.0")
+    assert (src.name, src.version, src.builtin, src.path) == ("sections", "1.0", True, None)
+    assert (spec.name, spec.spec_version) == ("sections", "1.0")
+    assert src.schema_set_sha256 and src.sha256
+
+
 def test_builtins_match_compat():
     assert compat.DEFAULT_SPEC == "sections"
     for name, version in compat.BUILTIN_SPECS.items():
-        spec, src = resolve_spec(name)
+        spec, src = resolve_spec(name, "1.1.0")
         assert (spec.name, spec.spec_version, src.version) == (name, version, version)
-        assert tuple(spec.bundle_schema_versions) == compat.ACCEPTED_SCHEMA_VERSIONS
+        assert tuple(spec.bundle_schema_versions) == ("1.1.0",)
     assert resolve_spec("clinvar-gkm")[0] is load_spec("1.0")  # the old entry point is the clinvar-gkm spec
     assert spec_dir("1.0") == CLINVAR_GKM_FILE.parent
 
 
 @pytest.mark.parametrize("name", ["sections", "baseline"])
 def test_one_table_per_section(name):
-    spec, _ = resolve_spec(name)
-    assert spec.sections == set(compat.SCHEMA_SECTIONS["1.1.0"])
-    assert (
-        [t.name for t in spec.tables]
-        == [t.sections[0] for t in spec.tables]
-        == list(compat.SCHEMA_SECTIONS["1.1.0"])
-    )
-
-
-def test_schema_sections_match_the_reader():
-    assert compat.SCHEMA_SECTIONS["1.1.0"] == bundle.SECTIONS
+    spec, _ = resolve_spec(name, "1.1.0")
+    assert spec.sections == set(sections_of("1.1.0"))
+    assert [t.name for t in spec.tables] == [t.sections[0] for t in spec.tables] == list(sections_of("1.1.0"))
 
 
 @pytest.mark.parametrize("arg", ["clinvar-gkm@2.0", "baseline-9.9"])
@@ -107,7 +104,11 @@ def test_wheel_includes_the_spec_tree():
     tomllib = pytest.importorskip("tomllib")  # Python 3.11+
     py = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     assert py["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"]["spec"] == "clinvar_gkm_parquet/_spec"
-    assert BASELINE_FILE.is_file() and CLINVAR_GKM_FILE.is_file() and SECTIONS_FILE.is_file()
+    assert BASELINE_FILE.is_file() and CLINVAR_GKM_FILE.is_file() and (ROOT / "spec/sections/overlays").is_dir()
+    assert (
+        py["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"]["schemas"]
+        == "clinvar_gkm_parquet/_schemas"
+    )
 
 
 # --- custom files ----------------------------------------------------------------------------------------------
@@ -262,7 +263,7 @@ def _bad_cases() -> list[tuple[str, callable, str]]:
         ("no name", no_name, "missing key"),
         ("bad name", bad_name, "must be lower case"),
         ("a built-in's name", builtin_name, "built-in spec's"),
-        ("unaccepted schema_version", unaccepted_schema, "not read by this tool"),
+        ("schema_version with no schema set", unaccepted_schema, "can't read its sections"),
         ("no renderer", no_renderer, "no renderer"),
         ("bad writer", bad_writer, "row_group_size"),
     ]
@@ -286,8 +287,15 @@ def test_not_yaml(tmp_path):
 
 
 def test_kv_metadata_builtin_and_custom(tmp_path):
-    _, base = resolve_spec(None)
-    assert kv_metadata(base) == {"table_spec": "sections", "table_spec_version": "1.0"}
+    _, base = resolve_spec(None, "1.1.0")
+    assert kv_metadata(base) == {
+        "table_spec": "sections",
+        "table_spec_version": "1.0",
+        "table_spec_sha256": base.sha256,
+        "schema_set_sha256": base.schema_set_sha256,
+    }
+    _, fixed = resolve_spec("baseline")
+    assert kv_metadata(fixed) == {"table_spec": "baseline", "table_spec_version": "1.0"}
     p = _write(tmp_path, _custom())
     _, custom = resolve_spec(str(p))
     kv = kv_metadata(custom)
@@ -297,7 +305,7 @@ def test_kv_metadata_builtin_and_custom(tmp_path):
         "table_spec_builtin": "false",
         "table_spec_sha256": _sha(p),
     }
-    assert tuple(kv) == SPEC_KV_KEYS
+    assert tuple(kv) == SPEC_KV_KEYS[:4]
 
 
 def test_spec_from_kv(tmp_path):
@@ -326,6 +334,8 @@ def test_version_info_lists_the_specs():
     specs = {s["name"]: s for s in info["table_specs"]}
     assert set(specs) == {"sections", "baseline", "clinvar-gkm"}
     assert [n for n, s in specs.items() if s["default"]] == ["sections"]
-    assert specs["sections"]["version"] == "1.0" and len(specs["sections"]["tables"]) == 20
+    assert (
+        specs["sections"]["version"] == "1.0" and len(specs["sections"]["tables_by_schema_version"]["1.1.0"]) == 20
+    )
     assert specs["baseline"]["version"] == "1.0" and len(specs["baseline"]["tables"]) == 20
     assert len(specs["clinvar-gkm"]["tables"]) == 22

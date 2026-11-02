@@ -82,11 +82,12 @@ def spec_for_dir(con: duckdb.DuckDBPyConnection, out_dir: Path, spec_arg: str | 
     """The spec that wrote the files, from their key-value metadata (spec.spec_from_kv); every file must name the
     same one. A file with no table_spec key predates named specs and was written by clinvar-gkm. A custom spec
     needs `spec_arg` (--spec, its tables.yaml, whose sha256 must equal the recorded one); for a built-in one,
-    `spec_arg` is optional and must name that spec. A directory with no files: `spec_arg`, else clinvar-gkm."""
+    `spec_arg` is optional and must name that spec. A compiled spec is compiled again for the recorded
+    bundle_schema_version, and a recorded hash that doesn't hold stops it (compiler.recorded_spec). A directory
+    with no files: `spec_arg`, else clinvar-gkm."""
+    kvs = dir_kv(con, out_dir)
     named = {
-        tuple(kv.get(k) for k in SPEC_KV_KEYS)
-        for kv in dir_kv(con, out_dir).values()
-        if kv.get("table_spec_version") is not None
+        tuple(kv.get(k) for k in SPEC_KV_KEYS) for kv in kvs.values() if kv.get("table_spec_version") is not None
     }
     if not named:
         return resolve_spec(spec_arg)[0] if spec_arg else load_spec(TABLE_SPEC_VERSION)
@@ -94,6 +95,14 @@ def spec_for_dir(con: duckdb.DuckDBPyConnection, out_dir: Path, spec_arg: str | 
         labels = ", ".join(sorted(f"{n or PUBLISHED_SPEC} {v}" for n, v, *_ in named))
         raise SpecError(f"the files were written by different table specs: {labels}")
     kv = {k: v for k, v in zip(SPEC_KV_KEYS, named.pop(), strict=True) if v is not None}
+    versions = {f.get("bundle_schema_version") for f in kvs.values()} - {None}
+    if len(versions) > 1:
+        raise SpecError(f"the files name different bundle schema versions: {', '.join(sorted(versions))}")
+    schema_version = next(iter(versions), None)
+    if schema_version is not None:
+        kv["bundle_schema_version"] = schema_version
+    tools = {f.get("tool_version") for f in kvs.values()} - {None}
+    kv["tool_version"] = ", ".join(sorted(tools)) or "?"
     if "table_spec" not in kv:
         name, spec = PUBLISHED_SPEC, load_spec(kv["table_spec_version"])
     else:
@@ -102,7 +111,7 @@ def spec_for_dir(con: duckdb.DuckDBPyConnection, out_dir: Path, spec_arg: str | 
             return spec
         name = source.name
     if spec_arg is not None:
-        _, given = resolve_spec(spec_arg)
+        _, given = resolve_spec(spec_arg, schema_version)
         version = kv["table_spec_version"]
         if (given.name, given.version, given.builtin) != (name, version, True):
             raise SpecError(f"--spec {spec_arg} is {given.label}, but the files were written by {name} {version}")
@@ -202,6 +211,13 @@ def _check_manifest(con, path: Path, files: dict[str, Path], selection: str | No
     want = json.loads(selection) if selection is not None else None
     if manifest.get("selection") != want:
         problems.append(f"{path.name}: selection {manifest.get('selection')} != the files' {want}")
+    recorded = manifest.get("table_spec") if isinstance(manifest.get("table_spec"), dict) else {}
+    for key, kv_key in (("sha256", "table_spec_sha256"), ("schema_set_sha256", "schema_set_sha256")):
+        have = {read_kv(con, p).get(kv_key) for p in files.values()} - {None}
+        if len(have) == 1 and recorded.get(key) not in have:
+            problems.append(
+                f"{path.name}: table_spec.{key} {recorded.get(key)} != the files' {kv_key} {have.pop()}"
+            )
     for name, entry in sorted(tables.items()):
         if name not in files:
             problems.append(f"{path.name}: lists {name}, but {name}.parquet is missing")

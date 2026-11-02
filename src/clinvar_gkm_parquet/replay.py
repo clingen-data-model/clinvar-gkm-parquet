@@ -28,8 +28,8 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 
 from . import sources
-from .bundle import SECTIONS, canonical_key, stream_bundle
-from .errors import BundleFormatError, ChainError
+from .bundle import bundle_sections, canonical_key, stream_bundle
+from .errors import BundleFormatError, ChainError, InputError
 from .model import BuildInputs, DeltaBundle, DeltaManifest, InputFile
 
 log = logging.getLogger(__name__)
@@ -91,6 +91,13 @@ def read_delta(inp: InputFile, man: DeltaManifest) -> DeltaBundle:
     streamed = stream_bundle(inp, sink)
     if inp.release and inp.release != man.release:
         raise ChainError(f"{inp.name} (release {inp.release}) is paired with the manifest for {man.release}")
+    sections = bundle_sections(inp.name, streamed.schema_version)
+    unknown = [s for s in man.raw.get("sections", {}) if s not in sections]
+    if unknown:
+        raise InputError(
+            f"{inp.name}: its delta manifest names unknown section(s) {', '.join(map(repr, unknown))} (a "
+            f"{streamed.schema_version} bundle has: {', '.join(sections)})"
+        )
     msha = _manifest_sha(man)
     if msha and msha != streamed.sha256:
         raise ChainError(
@@ -270,6 +277,7 @@ class ReplayedSource:
 
     def _records(self, number: int) -> Iterator[tuple[str, bytes, bytes]]:
         changes, releases, name = self.chain.changes, self.chain.releases, self.files.name
+        sections = bundle_sections(name, self.schema_version)
         warn = number == 1
         done: set[str] = set()
         buf: list[tuple[bytes, bytes]] = []  # what SectionReplay writes, handed on at once
@@ -278,7 +286,7 @@ class ReplayedSource:
             buf.append((k, r))
 
         def only_in_deltas(upto: int) -> Iterator[tuple[str, bytes, bytes]]:
-            for s in SECTIONS[:upto]:
+            for s in sections[:upto]:
                 if s in done:
                     continue
                 done.add(s)
@@ -289,7 +297,7 @@ class ReplayedSource:
                         yield s, k, r
                     buf.clear()
 
-        order = {s: i for i, s in enumerate(SECTIONS)}
+        order = {s: i for i, s in enumerate(sections)}
         with self.files.open_pass(number) as p:
             if p.schema_version != self.schema_version:
                 raise ChainError(
@@ -314,4 +322,4 @@ class ReplayedSource:
                 for k, r in buf:
                     yield sec.name, k, r
                 buf.clear()
-            yield from only_in_deltas(len(SECTIONS))
+            yield from only_in_deltas(len(sections))

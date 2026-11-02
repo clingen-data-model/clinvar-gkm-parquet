@@ -36,7 +36,7 @@ from pathlib import Path
 import duckdb
 
 from . import __version__, baseline, bundle, replay, sources, sqltemplate
-from .compat import BUILTIN_SPECS, schema_sections
+from .compat import BUILTIN_SPECS, COMPILED_SPEC
 from .errors import BundleFormatError, InputError, SchemaVersionError, SpecError, ToolError
 from .model import (
     BuildInputs,
@@ -48,7 +48,7 @@ from .model import (
     StreamedBundle,
     TableResult,
 )
-from .spec import Spec, SpecSource, Table, load_spec, resolve_spec
+from .spec import Spec, SpecSource, Table, is_compiled, load_spec, resolve_spec
 from .spec import kv_metadata as spec_kv_metadata
 
 KV_PREFIX = "clinvar_gkm_parquet."
@@ -64,7 +64,7 @@ KV_KEYS = (
     "duckdb_version",
 )
 # Every key, in the order it is written: KV_KEYS, plus the spec's name (build() always writes it; a file without
-# it predates named specs and was written by clinvar-gkm, spec.spec_from_kv), the two keys of a custom spec
+# it predates named specs and was written by clinvar-gkm, spec.spec_from_kv), the keys of a custom or compiled spec
 # (spec.kv_metadata), in a lossless build only the sha256 of the table's section text (ADR 0005; bundle.py) and,
 # in a selective build only, the selection (ADR 0004; select.SELECTION_METADATA_KEY).
 KV_ORDER = (
@@ -73,6 +73,7 @@ KV_ORDER = (
     "table_spec_version",
     "table_spec_builtin",
     "table_spec_sha256",
+    "schema_set_sha256",
     "table",
     "bundle_schema_version",
     "source_bundle_sha256",
@@ -221,7 +222,13 @@ def spec_kv(spec: Spec, source: SpecSource | None) -> dict[str, str]:
         return spec_kv_metadata(source)
     if spec.name is None:
         return {"table_spec_version": spec.spec_version}
-    if BUILTIN_SPECS.get(spec.name) == spec.spec_version and load_spec(spec.spec_version, spec.name) == spec:
+    if spec.name == COMPILED_SPEC:
+        from .compiler import compiled_spec  # compiler imports what this module does
+
+        compiled, compiled_source = compiled_spec(spec.bundle_schema_versions[0])
+        if compiled == spec:
+            return spec_kv_metadata(compiled_source)
+    elif BUILTIN_SPECS.get(spec.name) == spec.spec_version and load_spec(spec.spec_version, spec.name) == spec:
         return {"table_spec": spec.name, "table_spec_version": spec.spec_version}
     return {"table_spec": spec.name, "table_spec_version": spec.spec_version, "table_spec_builtin": "false"}
 
@@ -603,7 +610,7 @@ class SectionPipeline:
         work: Path,
         *,
         process: Callable[[duckdb.DuckDBPyConnection, str, int], None],
-        needed: set[str],
+        needed: set[str] | None,
         on_begin: Callable[[SectionPipeline, str], None] | None = None,
         con: duckdb.DuckDBPyConnection | None = None,
         memory_limit: str | None = None,
@@ -620,6 +627,7 @@ class SectionPipeline:
         self.section_text_sha256: dict[str, str] = {}  # section -> sha256 of its record lines, with text_digests
         self.chain = chain  # the deltas already read (replay.load_chain), or None to read them here
         self.schema_version: str | None = None
+        self.sections: tuple[str, ...] = ()  # the bundle's sections in schema order, from begin()
         self.process, self.needed, self.on_begin = process, needed, on_begin
         self.shared_con = con
         self.memory_limit, self.threads, self.keep_work = memory_limit, threads, keep_work
@@ -634,7 +642,7 @@ class SectionPipeline:
         self._queue: queue.Queue = queue.Queue(maxsize=queue_size or QUEUE_SIZE)
         self._changes: dict[str, replay.SectionChanges] = {}
         self._releases: list[str] = []
-        self._order = {s: i for i, s in enumerate(bundle.SECTIONS)}
+        self._order: dict[str, int] = {}
         self._last = -1  # position of the last section opened in the full
         self._writer = None
         self._replay: replay.SectionReplay | None = None
@@ -657,7 +665,7 @@ class SectionPipeline:
                 f"streaming {inputs.full.name}" + (f" with {len(self.deltas)} delta(s)" if self.deltas else "")
             )
             full = bundle.stream_bundle(inputs.full, self, text_digests=self.text_digests)
-            for s in bundle.SECTIONS:  # sections after the full's last one
+            for s in self.sections:  # sections after the full's last one
                 if s not in self.counts:
                     self._absent_section(s)
             self._put(None)
@@ -742,6 +750,8 @@ class SectionPipeline:
             )
         replay.check_schema_versions(self.inputs.full.name, schema_version, self.deltas)
         self.schema_version = schema_version
+        self.sections = bundle.bundle_sections(self.inputs.full.name, schema_version)
+        self._order = {s: i for i, s in enumerate(self.sections)}
         if self.on_begin is not None:
             self.on_begin(self, schema_version)
 
@@ -749,11 +759,11 @@ class SectionPipeline:
         pos = self._order[section]
         if pos < self._last:
             raise BundleFormatError(
-                f"{self.inputs.full.name}: section {section} comes after {bundle.SECTIONS[self._last]}; the "
-                f"assembler writes the sections in the bundle schema's order ({', '.join(bundle.SECTIONS)})"
+                f"{self.inputs.full.name}: section {section} comes after {self.sections[self._last]}; the "
+                f"assembler writes the sections in the bundle schema's order ({', '.join(self.sections)})"
             )
         self._last = pos
-        for s in bundle.SECTIONS[:pos]:  # sections the full lacks, at their place in the order
+        for s in self.sections[:pos]:  # sections the full lacks, at their place in the order
             if s not in self.counts:
                 self._absent_section(s)
         return self._open(section)
@@ -768,7 +778,7 @@ class SectionPipeline:
     # --- sections ----------------------------------------------------------------------------------------------
 
     def _open(self, section: str):
-        if section in self.needed and section in self.spec.sections:
+        if (self.needed is None or section in self.needed) and section in self.spec.sections:
             d = self._stage / section
             d.mkdir()
             w = bundle.SectionWriter(
@@ -790,7 +800,7 @@ class SectionPipeline:
         self.counts[section] = w.records
         # A spec may read a subset of the sections (a custom spec); a section the bundle schema doesn't have is
         # never dropped silently (bundle.py refuses it while reading; this is the guard for the final state).
-        if w.records and section not in schema_sections(self.schema_version):
+        if w.records and section not in self.sections:
             raise SpecError(
                 f"section {section} is not a section of bundle schema {self.schema_version}; refusing to drop it"
             )
@@ -887,6 +897,7 @@ def write_manifest(
             "version": kv["table_spec_version"],
             "builtin": kv.get("table_spec_builtin") != "false",
             "sha256": kv.get("table_spec_sha256") or spec_sha256,
+            **({"schema_set_sha256": kv["schema_set_sha256"]} if "schema_set_sha256" in kv else {}),
         },
         "table_spec_version": kv["table_spec_version"],
         "table_spec_status": spec.status,
@@ -969,15 +980,13 @@ def load_inputs(
     threads: int | None = None,
     log: Callable[[str], None] | None = None,
 ) -> LoadedState:
-    """Every section's final state in ONE in-memory DuckDB connection, as `bundle_<section>` tables (all 20;
-    a section absent from every input is an empty table). For tests and small bundles: build and
+    """Every section's final state in ONE in-memory DuckDB connection, as `bundle_<section>` tables (all of the
+    schema's; a section absent from every input is an empty table). For tests and small bundles: build and
     `verify --bundle-recompute` stream one section at a time instead."""
     work = Path(work)
     con = duckdb.connect()
     configure(con, memory_limit=memory_limit, threads=threads, temp_directory=work / "duckdb-tmp")
-    pipe = SectionPipeline(
-        inputs, spec, work, process=lambda *a: None, needed=set(bundle.SECTIONS), con=con, log=log
-    )
+    pipe = SectionPipeline(inputs, spec, work, process=lambda *a: None, needed=None, con=con, log=log)
     try:
         state = pipe.run()
     except BaseException:
@@ -1006,14 +1015,15 @@ def build(
     """Stream the inputs once and build every table section by section (design plan §6.2), then write the
     manifest.
 
-    `spec` defaults to the default spec, sections, as the CLI's does (ADR 0003); a build meant to match the
-    published set passes the clinvar-gkm spec. `spec_source` (spec.resolve_spec) labels the files, see
+    `spec` defaults to the default spec, sections, as the CLI's does (ADR 0003), compiled for the full's
+    schema_version (ADR 0006); a build meant to match the published set passes the clinvar-gkm spec. `spec_source`
+    (spec.resolve_spec) labels the files, see
     `spec_kv`. With `driver` (a driver.Driver), the selection runs first, writing a mini-bundle in the work
     directory, and the tables are built from it (ADR 0004): every file and the manifest then carry the
     selection, while the source keys and `inputs` still name the published bundles. Without one, the selection
     code is never reached. `render` defaults to `render_table`."""
     if spec is None:
-        spec, spec_source = resolve_spec(None)
+        spec, spec_source = resolve_spec_for(None, inputs)
     render = render or render_table
     names = list(dict.fromkeys(tables)) if tables else [t.name for t in spec.tables]
     unknown = [n for n in names if n not in {t.name for t in spec.tables}]
@@ -1210,14 +1220,23 @@ def _log(msg: str) -> None:
     print(f"clinvar-gkm-parquet: {msg}", file=sys.stderr, flush=True)
 
 
+def resolve_spec_for(arg: str | None, inputs: BuildInputs) -> tuple[Spec, SpecSource]:
+    """The spec a `--spec` value names, for these inputs: the compiled spec needs the full's schema_version, read
+    from its first lines before anything else is (ADR 0006). Any other spec doesn't read the bundle here."""
+    return resolve_spec(arg, bundle.peek_schema_version(inputs.full) if is_compiled(arg) else None)
+
+
 def run_build_command(args) -> int:
     """`clinvar-gkm-parquet build`: resolve the spec, the selection options and the inputs from the CLI
     arguments, build, print a summary. No --spec means the default spec (sections)."""
     from .driver import driver_from_args
 
-    spec, source = resolve_spec(getattr(args, "spec", None))
+    spec_arg = getattr(args, "spec", None)
+    if not is_compiled(spec_arg):
+        resolve_spec(spec_arg)  # a bad --spec is reported before any input is touched
     driver = driver_from_args(args)
     inputs = resolve_build_inputs(args)
+    spec, source = resolve_spec_for(spec_arg, inputs)
     tables = [t.strip() for t in args.tables.split(",") if t.strip()] if args.tables else None
     result = build(
         inputs,

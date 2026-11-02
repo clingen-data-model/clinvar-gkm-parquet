@@ -1,7 +1,9 @@
 """Compile the `sections` table spec from a bundle schema set and fixed rules (ADR 0006).
 
 `compile_sections(schema_set, overlay)` returns a spec mapping, the format of a tables.yaml (spec.py), that
-`spec.parse_spec` and `spec.check_rules(..., builtin=True)` accept. The rules hold for every schema version. No
+`spec.parse_spec` and `spec.check_compiled` accept; `compiled_spec(version)` does all of that for a bundle's
+schema_version, which is how the tool gets its `sections` spec, and `recorded_spec` does it again for a built
+directory and holds the recorded hashes against the result (§7). The rules hold for every schema version. No
 section, class or property is named here, except the `loc_` rename (LOC_RENAMES) and the structural names the rules
 read (`extensions`, `id`, `schema_version`). Each schema pattern has one rule:
 
@@ -57,22 +59,26 @@ other than the set's.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from dataclasses import dataclass, field, replace
-from functools import reduce
+from functools import cache, reduce
 from pathlib import Path
 
 import yaml
 
-from .errors import CompileError, SchemaSetError
-from .schemas import SchemaSet, split_ref
+from .compat import BUILTIN_SPECS, COMPILED_SPEC
+from .errors import CompileError, SchemaSetError, SchemaVersionError, SpecError
+from .schemas import SCHEMA_VERSION_PROPERTY, SchemaSet, load_schema_set, split_ref
+from .spec import Spec, SpecSource, check_compiled, parse_spec
 from .sqltemplate import canonical_type
 
-RULES_VERSION = "1.0"  # the version of these rules: with the schema set's sha256, the identity of a table set
+RULES_VERSION = BUILTIN_SPECS[COMPILED_SPEC]  # with the schema set's sha256, the identity of a table set
 LOC_RENAMES = {
     "location": {"start": "loc_start", "end": "loc_end"}
 }  # a choice of this tool: `end` is an SQL keyword
-EXTENSIONS, ID, SCHEMA_VERSION = "extensions", "id", "schema_version"
+EXTENSIONS, ID = "extensions", "id"
 WRITER = {"compression": "snappy", "row_group_size": 122880}
 OVERLAY_DIR = "sections/overlays"
 
@@ -209,7 +215,7 @@ class _Compiler:
     def __init__(self, schema_set: SchemaSet, overlay: dict | None):
         self.schema_set = schema_set
         self.overlay = overlay
-        self.section_names = [n for n in schema_set.bundle.get("properties", {}) if n != SCHEMA_VERSION]
+        self.section_names = list(schema_set.sections)
         self.section = ""
         self.ordered = False  # the table's key_order is `columns`
         self.path: frozenset[str] = frozenset()  # the classes open on the way to the current position
@@ -737,7 +743,7 @@ class _Compiler:
         version = self.schema_set.version
         if not self.section_names:
             raise CompileError(f"schema set {version}: the bundle schema has no sections")
-        declared = self.schema_set.bundle["properties"].get(SCHEMA_VERSION, {}).get("const", version)
+        declared = self.schema_set.bundle["properties"].get(SCHEMA_VERSION_PROPERTY, {}).get("const", version)
         if declared != version:
             raise CompileError(f"schema set {version}: the bundle schema says schema_version {declared!r}")
         tables = []
@@ -748,7 +754,7 @@ class _Compiler:
                 # A schema or overlay of the wrong JSON shape (a list where a mapping belongs, say).
                 raise CompileError(f"schema set {version}: section {name}: malformed: {e!r}") from e
         return {
-            "name": "sections",
+            "name": COMPILED_SPEC,
             "spec_version": RULES_VERSION,
             "status": "draft",
             "bundle_schema_versions": [version],
@@ -816,6 +822,87 @@ def compile_sections(schema_set: SchemaSet, overlay: dict | None = None) -> dict
     """The sections spec of `schema_set`, as a mapping (module docstring). Raises CompileError naming the section
     and position when the schemas (and the overlay) don't determine a table."""
     return _Compiler(schema_set, overlay).spec()
+
+
+def spec_sha256(raw: dict) -> str:
+    """The sha256 of a compiled spec: of its mapping as canonical JSON, prose included. So any change in what the
+    compiler writes for a schema set shows, and the YAML library's formatting doesn't count."""
+    text = json.dumps(raw, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+@cache
+def _compile_once(version: str, schema_set_sha256: str) -> tuple[Spec, SpecSource]:
+    schema_set = load_schema_set(version)
+    raw = compile_sections(schema_set, load_overlay(version))
+    where = f"sections compiled for bundle schema {version}"
+    spec = parse_spec(raw, where=where, require_name=True)
+    check_compiled(spec, where)
+    source = SpecSource(
+        name=COMPILED_SPEC,
+        version=RULES_VERSION,
+        builtin=True,
+        path=None,
+        sha256=spec_sha256(raw),
+        schema_set_sha256=schema_set_sha256,
+    )
+    return spec, source
+
+
+def compiled_spec(version: str) -> tuple[Spec, SpecSource]:
+    """The `sections` spec of bundle schema `version`, checked, and its source. This is the version gate (ADR 0006
+    §6): a version is accepted when its schema set loads and compiles, and refused with the reason otherwise."""
+    try:
+        return _compile_once(version, load_schema_set(version).sha256)
+    except (SchemaSetError, CompileError, SpecError) as e:
+        raise SchemaVersionError(
+            f"bundle schema_version {version!r}: table spec {COMPILED_SPEC} can't read it: {e}"
+        ) from e
+
+
+def recorded_spec(kv: dict[str, str]) -> tuple[Spec, SpecSource]:
+    """The compiled spec that wrote a set, from one file's key-value metadata (keys without the prefix): compiled
+    again for the recorded bundle_schema_version, with the recorded rules version and both hashes held against the
+    result (ADR 0006 §7). A difference is refused: it says which, and which tool version wrote the set."""
+    version, tool = kv.get("bundle_schema_version"), kv.get("tool_version", "?")
+    spec_hash, set_hash = kv.get("table_spec_sha256"), kv.get("schema_set_sha256")
+    if not version or not spec_hash or not set_hash:
+        raise SpecError(
+            f"the files name table spec {COMPILED_SPEC} but don't record bundle_schema_version, table_spec_sha256 "
+            f"and schema_set_sha256 (written by tool {tool}), so what wrote them can't be checked"
+        )
+    rules = kv.get("table_spec_version")
+    if rules != RULES_VERSION:
+        raise SpecError(
+            f"the files were written by {COMPILED_SPEC} {rules} (tool {tool}); this tool compiles {COMPILED_SPEC} "
+            f"{RULES_VERSION}. Use the tool version that wrote them, or build again."
+        )
+    spec, source = compiled_spec(version)
+    if source.schema_set_sha256 != set_hash:
+        raise SpecError(
+            f"the schema set of bundle schema {version} differs: the files (written by tool {tool}) record "
+            f"schema_set_sha256 {set_hash}, this tool loads {source.schema_set_sha256}. Use the tool version that "
+            "wrote them, or build again."
+        )
+    if source.sha256 != spec_hash:
+        raise SpecError(
+            f"the compiled spec of bundle schema {version} differs, from the same schema set: the files (written "
+            f"by tool {tool}) record table_spec_sha256 {spec_hash}, this tool compiles {source.sha256}. Use the "
+            "tool version that wrote them, or build again."
+        )
+    return spec, source
+
+
+def compiled_yaml(version: str) -> str:
+    """The `sections` spec of bundle schema `version` as YAML (`compile-spec`), with its hashes in a comment."""
+    spec, source = compiled_spec(version)  # the gate: the checks and the error text
+    raw = compile_sections(load_schema_set(version), load_overlay(version))
+    header = (
+        f"# Table spec {spec.name} {spec.spec_version}, compiled for bundle schema {version} (ADR 0006).\n"
+        f"# schema_set_sha256: {source.schema_set_sha256}\n"
+        f"# table_spec_sha256: {source.sha256} (of this mapping as canonical JSON, compiler.spec_sha256)\n"
+    )
+    return header + yaml.safe_dump(raw, sort_keys=False, allow_unicode=True, width=100_000)
 
 
 def overlay_path(version: str) -> Path | None:

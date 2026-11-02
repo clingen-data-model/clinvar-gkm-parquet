@@ -382,7 +382,7 @@ def test_unsupported_schema_version_fails(tmp_path):
     )
     path = tmp_path / "b.json.gz"
     path.write_bytes(gzip.compress(text, mtime=0))
-    with pytest.raises(xf.ExtractError, match="schema_version '9.9.9' is not one this tool reads"):
+    with pytest.raises(xf.ExtractError, match="schema_version '9.9.9' is not the one this script reads"):
         run(path, tmp_path / "out")
 
 

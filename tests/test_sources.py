@@ -457,7 +457,6 @@ def test_load_manifest_first_release_has_null_baseline(tmp_path):
 @pytest.mark.parametrize(
     "mutate, match",
     [
-        (lambda d: d["sections"].update(proposition={"deleted": []}), "unknown section 'proposition'"),
         (lambda d: d.update(release="2026-1011"), "release"),
         (lambda d: d.update(baseline_release=20261004), "baseline_release"),
         (lambda d: d["sections"].update(scv={"added": 1}), "deleted is missing"),

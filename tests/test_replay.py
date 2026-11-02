@@ -16,12 +16,19 @@ import json
 import logging
 
 import pytest
-from _fixture import SOURCE_RELEASE
-from _input_helpers import FIXTURE, bundle_bytes, delta_manifest_json, fixture_sections, local_input, write_gz
+from _fixture import SECTIONS, SOURCE_RELEASE
+from _input_helpers import (
+    FIXTURE,
+    bundle_bytes,
+    delta_manifest_json,
+    fixture_sections,
+    local_input,
+    synthetic_delta,
+    write_gz,
+)
 
 from clinvar_gkm_parquet.build import load_inputs
-from clinvar_gkm_parquet.bundle import SECTIONS
-from clinvar_gkm_parquet.errors import BundleFormatError, ChainError
+from clinvar_gkm_parquet.errors import BundleFormatError, ChainError, InputError
 from clinvar_gkm_parquet.model import BuildInputs, DeltaManifest, InputFile
 from clinvar_gkm_parquet.replay import check_chain, check_schema_versions, fold, read_delta
 from clinvar_gkm_parquet.sources import load_manifest, resolve_input
@@ -298,3 +305,11 @@ def test_fold_order_and_tombstones(tmp_path, recs):
     assert ch.final == {_key(k0).encode(): (k0, r1), _key(k1).encode(): None}
     assert ch.full_deletes == {_key(k0).encode(): [1]}  # D2's delete of k1 follows D1's upsert of it
     assert ch.absent_deletes == {}
+
+
+def test_a_manifest_naming_a_section_outside_the_schema_is_refused_with_its_delta(tmp_path):
+    """A manifest states no schema_version, so its sections are judged when its delta is read."""
+    records = {"gene": fixture_sections()["gene"][:1]}
+    delta, man = synthetic_delta(tmp_path, D1, SOURCE_RELEASE, records, {"nope": ["x"]})
+    with pytest.raises(InputError, match=r"names unknown section\(s\) 'nope' \(a 1\.1\.0 bundle has: seq"):
+        read_delta(delta, load_manifest(man))

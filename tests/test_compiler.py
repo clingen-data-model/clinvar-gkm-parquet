@@ -9,30 +9,32 @@ from __future__ import annotations
 
 import copy
 import gzip
+import io
 import json
 import re
+import shutil
 from pathlib import Path
 
 import duckdb
 import pytest
 import yaml
-from _fixture import FIXTURE, FIXTURES, SOURCE_RELEASE
+from _fixture import FIXTURE, FIXTURES, GOLDEN_SECTIONS_SPEC, SOURCE_RELEASE
 from _input_helpers import bundle_bytes, fixture_sections, local_input, write_gz
 
 from clinvar_gkm_parquet import build as build_mod
-from clinvar_gkm_parquet import bundle as bundle_mod
-from clinvar_gkm_parquet import compat, verify
 from clinvar_gkm_parquet import compiler as compiler_mod
-from clinvar_gkm_parquet import spec as spec_mod
-from clinvar_gkm_parquet.compiler import compile_sections, load_overlay, overlay_path
-from clinvar_gkm_parquet.errors import CompileError
-from clinvar_gkm_parquet.model import BuildInputs
+from clinvar_gkm_parquet import sources, verify
+from clinvar_gkm_parquet.bundle import peek_schema_version
+from clinvar_gkm_parquet.cli import main
+from clinvar_gkm_parquet.compiler import compile_sections, compiled_spec, load_overlay, overlay_path, spec_sha256
+from clinvar_gkm_parquet.errors import CompileError, InputError, SpecError, ToolError
+from clinvar_gkm_parquet.model import BuildInputs, InputFile
 from clinvar_gkm_parquet.roundtrip import rebuild
-from clinvar_gkm_parquet.schemas import SchemaFile, SchemaSet, load_schema_set, read_set
-from clinvar_gkm_parquet.spec import Spec, Table, check_rules, load_spec, parse_spec
+from clinvar_gkm_parquet.schemas import SchemaFile, SchemaSet, load_schema_set, read_set, sections_of, write_set
+from clinvar_gkm_parquet.spec import Spec, Table, check_compiled, load_spec, parse_spec, resolve_spec
 
 SCHEMAS = load_schema_set("1.1.0")
-GOLDEN = load_spec("1.0", "sections")
+GOLDEN = parse_spec(yaml.safe_load(GOLDEN_SECTIONS_SPEC.read_text(encoding="utf-8")), require_name=True)
 
 
 def overlay() -> dict:
@@ -41,11 +43,11 @@ def overlay() -> dict:
 
 def checked(raw: dict) -> Spec:
     spec = parse_spec(raw, require_name=True)
-    check_rules(spec, builtin=True)
+    check_compiled(spec, "the test's spec")
     return spec
 
 
-COMPILED = checked(compile_sections(SCHEMAS, load_overlay("1.1.0")))
+COMPILED, SOURCE = compiled_spec("1.1.0")
 
 
 # --- golden: the checked-in spec ---------------------------------------------------------------------------------
@@ -73,9 +75,9 @@ def _column_facts(t: Table, *, ordered: bool) -> dict:
     return facts
 
 
-# Accepted differences between the compiled spec and spec/sections/1.0/tables.yaml, beyond the column and field
-# order of the key-sorted tables (which ADR 0006 allows, because the bundle text doesn't depend on it). Empty: the
-# compiler reproduces every table.
+# Accepted differences between the compiled spec and tests/fixtures/sections-golden/tables.yaml, beyond the column
+# and field order of the key-sorted tables (which ADR 0006 allows, because the bundle text doesn't depend on it).
+# Empty: the compiler reproduces every table.
 ACCEPTED_DIFFERENCES: dict[str, list[str]] = {}
 
 
@@ -97,8 +99,15 @@ def test_compiled_table_equals_the_checked_in_table(golden):
 
 
 def test_tables_are_the_bundle_schema_sections_in_order():
-    assert [t.name for t in COMPILED.tables] == list(compat.SCHEMA_SECTIONS["1.1.0"])
+    assert tuple(t.name for t in COMPILED.tables) == sections_of("1.1.0")
     assert [t.name for t in COMPILED.tables] == [t.name for t in GOLDEN.tables]
+
+
+def test_compiled_spec_is_what_the_tool_resolves():
+    assert compile_sections(SCHEMAS, load_overlay("1.1.0")) is not None
+    assert (SOURCE.name, SOURCE.version, SOURCE.builtin, SOURCE.path) == ("sections", "1.0", True, None)
+    assert SOURCE.sha256 == spec_sha256(compile_sections(SCHEMAS, load_overlay("1.1.0")))
+    assert SOURCE.schema_set_sha256 == SCHEMAS.sha256
 
 
 def test_compiled_spec_keeps_the_checked_in_top_level_facts():
@@ -177,14 +186,12 @@ def _rows(directory: Path, table: Table, names: list[str]) -> list[tuple]:
 @pytest.fixture(scope="module")
 def built(tmp_path_factory) -> tuple[Path, Path]:
     root = tmp_path_factory.mktemp("compiled")
-    build_mod.build(_full(FIXTURE), root / "compiled", spec=COMPILED)
+    build_mod.build(_full(FIXTURE), root / "compiled", spec=COMPILED, spec_source=SOURCE)
     build_mod.build(_full(FIXTURE), root / "checked-in", spec=GOLDEN)
     return root / "compiled", root / "checked-in"
 
 
-def test_build_with_the_compiled_spec_rebuilds_the_bundle_text(built, tmp_path, monkeypatch):
-    # The files name the spec sections 1.0, which until Phase 2 is the checked-in file: write back with this one.
-    monkeypatch.setattr(verify, "spec_for_dir", lambda con, out_dir, spec_arg=None: COMPILED)
+def test_build_with_the_compiled_spec_rebuilds_the_bundle_text(built, tmp_path):
     out = tmp_path / "rebuilt.json"
     result = rebuild(built[0], out)
     assert out.read_bytes() == gzip.decompress(FIXTURE.read_bytes())
@@ -663,16 +670,8 @@ def test_the_contract_set_states_no_pointer_as_iri_reference_and_no_open_value()
     assert re.search(r'"pattern": "\^#/\(allele\|copyNumberCount\|copyNumberChange\)/"', text)
 
 
-@pytest.fixture
-def contract_bundle(tmp_path, monkeypatch) -> tuple[Spec, Path, bytes]:
-    """The contract's spec, and a bundle of the excerpt's records of its sections, keys sorted as it says.
-
-    Accepting a schema_version from its schema set is the gate of Phase 2 (ADR 0006 §6): until then, only this test
-    tells the fixed lists about the made-up version."""
-    monkeypatch.setitem(compat.SCHEMA_SECTIONS, CONTRACT_VERSION, CONTRACT_SECTIONS)
-    accepted = (*compat.ACCEPTED_SCHEMA_VERSIONS, CONTRACT_VERSION)
-    monkeypatch.setattr(spec_mod, "ACCEPTED_SCHEMA_VERSIONS", accepted)
-    monkeypatch.setattr(bundle_mod, "ACCEPTED_SCHEMA_VERSIONS", accepted)
+def contract_text() -> bytes:
+    """The excerpt's records of the contract's sections, keys sorted as the contract says, under its version."""
     sections = {
         name: [
             (
@@ -684,20 +683,288 @@ def contract_bundle(tmp_path, monkeypatch) -> tuple[Spec, Path, bytes]:
         for name, records in fixture_sections().items()
         if name in CONTRACT_SECTIONS
     }
-    text = bundle_bytes(sections, schema_version=CONTRACT_VERSION)
-    spec = checked(contract_spec())
-    return spec, write_gz(tmp_path / "in" / "contract.json.gz", text), text
+    return bundle_bytes(sections, schema_version=CONTRACT_VERSION)
 
 
-def test_real_records_with_sorted_keys_build_and_rebuild_under_the_contract(
-    contract_bundle, tmp_path, monkeypatch
-):
-    spec, path, text = contract_bundle
+@pytest.fixture
+def cache(tmp_path, monkeypatch) -> Path:
+    """Where the tool caches fetched schema sets, private to the test. A set put here is one it has fetched."""
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg"))
+    return tmp_path / "xdg" / "clinvar-gkm-parquet" / "schemas"
+
+
+def cli(capsys, *args) -> tuple[int, str, str]:
+    rc = main([str(a) for a in args])
+    got = capsys.readouterr()
+    return rc, got.out, got.err
+
+
+def test_real_records_with_sorted_keys_build_and_rebuild_under_the_contract(cache, tmp_path, capsys):
+    shutil.copytree(CONTRACT, cache / CONTRACT_VERSION)
+    text = contract_text()
+    bundle_path = write_gz(tmp_path / "in" / "contract.json.gz", text)
     out = tmp_path / "out"
-    build_mod.build(_full(path), out, spec=spec)
-    monkeypatch.setattr(verify, "spec_for_dir", lambda con, out_dir, spec_arg=None: spec)
+    rc, stdout, stderr = cli(
+        capsys, "build", "--full", bundle_path, "--full-source-release", SOURCE_RELEASE, "--out", out
+    )
+    assert rc == 0, stderr
+    assert "of spec sections 1.0" in stdout
+    assert sorted(p.stem for p in out.glob("*.parquet")) == sorted(CONTRACT_SECTIONS)
+    rc, stdout, stderr = cli(capsys, "verify", out, "--roundtrip")
+    assert rc == 0, stdout + stderr
     rebuilt = tmp_path / "rebuilt.json"
-    rebuild(out, rebuilt)
+    rc, _, stderr = cli(capsys, "rebuild", out, "-o", rebuilt)
+    assert rc == 0, stderr
     assert rebuilt.read_bytes() == text
     count = duckdb.connect().execute(f"SELECT count(*) FROM read_parquet('{out}/variation.parquet')").fetchone()[0]
     assert count == len(fixture_sections()["variation"]) > 0
+
+
+def test_a_section_outside_the_versions_schema_is_unknown_there(cache, tmp_path, capsys):
+    shutil.copytree(CONTRACT, cache / CONTRACT_VERSION)
+    records = fixture_sections()
+    bad = write_gz(tmp_path / "in" / "b.json.gz", bundle_bytes({"scv": records["scv"]}, CONTRACT_VERSION))
+    rc, _, stderr = cli(capsys, "build", "--full", bad, "--out", tmp_path / "out")
+    assert rc == 2 and "unknown section 'scv' (a 9.9.0 bundle has: sequenceReference, location" in stderr
+
+
+def test_section_order_is_judged_by_the_versions_schema(cache, tmp_path, capsys):
+    shutil.copytree(CONTRACT, cache / CONTRACT_VERSION)
+    sections = {s: [(k, r) for k, r in fixture_sections()[s]] for s in ("gene", "allele")}  # allele comes first
+    text = bundle_bytes(sections, CONTRACT_VERSION)
+    bad = write_gz(tmp_path / "in" / "b.json.gz", text)
+    rc, _, stderr = cli(capsys, "build", "--full", bad, "--out", tmp_path / "out")
+    assert rc == 2 and "section allele comes after gene" in stderr and "the bundle schema's order" in stderr
+
+
+def test_fixed_specs_keep_their_list_and_look_at_no_schema_set(tmp_path, capsys, monkeypatch):
+    def no_load(*a, **k):
+        raise AssertionError("a fixed spec must refuse from its own list")
+
+    monkeypatch.setattr("clinvar_gkm_parquet.schemas.fetch_set", no_load)
+    bad = write_gz(tmp_path / "in" / "b.json.gz", bundle_bytes({"gene": fixture_sections()["gene"]}, "8.8.8"))
+    for name in ("clinvar-gkm", "baseline"):
+        rc, _, stderr = cli(capsys, "build", "--full", bad, "--spec", name, "--out", tmp_path / name)
+        assert rc == 2 and "bundle schema_version 8.8.8 is not one table spec 1.0 reads (1.1.0)" in stderr
+
+
+def test_a_custom_spec_is_checked_against_the_schema_sets_it_lists(cache, tmp_path, capsys):
+    shutil.copytree(CONTRACT, cache / CONTRACT_VERSION)
+    raw = yaml.safe_load((FIXTURES / "custom-spec" / "tables.yaml").read_text())
+    raw["bundle_schema_versions"] = [CONTRACT_VERSION]
+    path = tmp_path / "custom.yaml"
+    path.write_text(yaml.safe_dump(raw, sort_keys=False))
+    rc, _, stderr = cli(capsys, "build", "--full", FIXTURE, "--spec", path, "--out", tmp_path / "out")
+    assert rc == 2 and f"section(s) ['scv'] are not sections of bundle schema {CONTRACT_VERSION}" in stderr
+
+
+def test_a_custom_spec_listing_a_version_that_cant_load_is_refused(tmp_path, capsys):
+    raw = yaml.safe_load((FIXTURES / "custom-spec" / "tables.yaml").read_text())
+    raw["bundle_schema_versions"] = ["8.8.8"]
+    path = tmp_path / "custom.yaml"
+    path.write_text(yaml.safe_dump(raw, sort_keys=False))
+    rc, _, stderr = cli(capsys, "build", "--full", FIXTURE, "--spec", path, "--out", tmp_path / "out")
+    assert rc == 2 and "bundle_schema_versions 8.8.8: can't read its sections" in stderr and "HTTP 404" in stderr
+
+
+def test_an_unknown_version_whose_schemas_cant_be_fetched_is_refused(tmp_path, capsys):
+    bad = write_gz(tmp_path / "in" / "b.json.gz", bundle_bytes({"gene": fixture_sections()["gene"]}, "8.8.8"))
+    rc, _, stderr = cli(capsys, "build", "--full", bad, "--out", tmp_path / "out")
+    assert rc == 2
+    assert "bundle schema_version '8.8.8': table spec sections can't read it" in stderr
+    assert "clinvar-gkm/8.8.8/clinvar-gkm-bundle.schema.json" in stderr and "HTTP 404" in stderr
+    assert not (tmp_path / "out").exists()
+
+
+def test_a_version_whose_schemas_load_but_miss_the_contract_stops_at_compile(cache, tmp_path, capsys):
+    V_DIR = cache / V
+    write_set(make_set({"gene": closed(id=STRING, x={"type": "object"})}), V_DIR)
+    bad = write_gz(tmp_path / "in" / "b.json.gz", bundle_bytes({"gene": fixture_sections()["gene"]}, V))
+    rc, _, stderr = cli(capsys, "build", "--full", bad, "--out", tmp_path / "out")
+    assert rc == 2
+    assert f"bundle schema_version '{V}': table spec sections can't read it" in stderr
+    assert "section gene: position x: is an open object" in stderr
+    assert "the schema must define it fully" in stderr
+
+
+def test_compile_spec_writes_what_a_build_uses(capsys):
+    rc, stdout, _ = cli(capsys, "compile-spec", "1.1.0")
+    assert rc == 0
+    raw = yaml.safe_load(stdout)
+    assert spec_sha256(raw) == SOURCE.sha256 and parse_spec(raw, require_name=True) == COMPILED
+    assert f"# schema_set_sha256: {SCHEMAS.sha256}" in stdout and f"# table_spec_sha256: {SOURCE.sha256}" in stdout
+
+
+def test_compile_spec_refuses_what_a_build_refuses(capsys):
+    rc, stdout, stderr = cli(capsys, "compile-spec", "8.8.8")
+    assert rc == 2 and not stdout and "table spec sections can't read it" in stderr
+    rc, _, stderr = cli(capsys, "compile-spec", "../1.1.0")
+    assert rc == 2 and "is not a version" in stderr
+
+
+def test_build_api_with_no_spec_compiles_for_the_bundle(tmp_path):
+    result = build_mod.build(_full(FIXTURE), tmp_path / "out")
+    assert len(result.tables) == len(COMPILED.tables)
+    kv = verify.read_kv(duckdb.connect(), tmp_path / "out" / "gene.parquet")
+    assert (kv["table_spec"], kv["table_spec_version"]) == ("sections", "1.0") and "table_spec_builtin" not in kv
+
+
+def test_build_api_labels_a_compiled_spec_passed_without_its_source(tmp_path):
+    build_mod.build(_full(FIXTURE), tmp_path / "out", spec=COMPILED)
+    kv = verify.read_kv(duckdb.connect(), tmp_path / "out" / "gene.parquet")
+    assert "table_spec_builtin" not in kv and kv["table_spec_sha256"] == SOURCE.sha256
+
+
+def test_the_version_comes_from_the_first_lines_of_a_url_with_one_get_and_no_range(monkeypatch):
+    raw = FIXTURE.read_bytes()
+    requests = []
+
+    class Response(io.BytesIO):
+        status = 200
+        headers = {"Content-Length": str(len(raw))}
+
+    def urlopen(req, **kwargs):
+        requests.append(dict(req.headers))
+        return Response(raw)
+
+    monkeypatch.setattr(sources, "_urlopen", urlopen)
+    inp = InputFile("https://example.org/x.json.gz", "x.json.gz", None, None, None, None)
+    assert peek_schema_version(inp) == "1.1.0"
+    assert len(requests) == 1 and "Range" not in requests[0]
+
+
+@pytest.mark.parametrize(
+    "data, error, message",
+    [
+        (gzip.compress(b""), "BundleFormatError", "empty file"),
+        (gzip.compress(b"[\n"), "BundleFormatError", "expected '{' on line 1"),
+        (gzip.compress(b'{\n  "x": 1\n'), "SchemaVersionError", "line 2 must be"),
+        (b"not gzip", "BundleFormatError", "not a complete gzip stream"),
+    ],
+)
+def test_a_file_that_doesnt_start_as_a_bundle_stops_the_peek(tmp_path, data, error, message):
+    path = tmp_path / "b.json.gz"
+    path.write_bytes(data)
+    with pytest.raises(ToolError, match=message) as e:
+        peek_schema_version(local_input(path))
+    assert type(e.value).__name__ == error
+
+
+def test_a_wrong_checksum_is_the_error_a_peek_reports_first(tmp_path):
+    path = tmp_path / "b.json.gz"
+    path.write_bytes(gzip.compress(b"[\n"))
+    with pytest.raises(InputError, match="sha256 mismatch"):
+        peek_schema_version(local_input(path, sha="0" * 64))
+
+
+# --- provenance (ADR 0006 §7) ------------------------------------------------------------------------------------
+
+
+def _rewrite_kv(path: Path, key: str, value: str | None) -> None:
+    """A tampered file: its metadata entry `clinvar_gkm_parquet.<key>` changed (None: removed)."""
+    con = duckdb.connect()
+    rows = con.execute(f"SELECT key, value FROM parquet_kv_metadata('{path}')").fetchall()
+    pairs = {k.decode(): v.decode() for k, v in rows if k.decode().startswith(build_mod.KV_PREFIX)}
+    if value is None:
+        del pairs[build_mod.KV_PREFIX + key]
+    else:
+        pairs[build_mod.KV_PREFIX + key] = value
+    meta = ", ".join(f"'{k}': '{v.replace(chr(39), chr(39) * 2)}'" for k, v in pairs.items())
+    tmp = path.with_name(path.name + ".new")
+    con.execute(f"COPY (SELECT * FROM read_parquet('{path}')) TO '{tmp}' (FORMAT parquet, KV_METADATA {{{meta}}})")
+    con.close()
+    tmp.replace(path)
+
+
+def _tamper_all(directory: Path, key: str, value: str | None) -> None:
+    for p in directory.glob("*.parquet"):
+        _rewrite_kv(p, key, value)
+
+
+@pytest.fixture
+def built_copy(built, tmp_path) -> Path:
+    d = tmp_path / "copy"
+    shutil.copytree(built[0], d)
+    return d
+
+
+def test_files_and_manifest_carry_both_hashes(built):
+    for p in built[0].glob("*.parquet"):
+        kv = verify.read_kv(duckdb.connect(), p)
+        assert kv["table_spec_sha256"] == SOURCE.sha256 and kv["schema_set_sha256"] == SCHEMAS.sha256
+        assert kv["bundle_schema_version"] == "1.1.0" and "table_spec_builtin" not in kv
+    m = json.loads((built[0] / "manifest.json").read_text())
+    assert m["table_spec"] == {
+        "name": "sections",
+        "version": "1.0",
+        "builtin": True,
+        "sha256": SOURCE.sha256,
+        "schema_set_sha256": SCHEMAS.sha256,
+    }
+
+
+@pytest.mark.parametrize("name", ["clinvar-gkm", "baseline"])
+def test_a_fixed_spec_records_no_compiled_hash(tmp_path, capsys, name):
+    out = tmp_path / "out"
+    assert cli(capsys, "build", "--full", FIXTURE, "--spec", name, "--tables", "gene", "--out", out)[0] == 0
+    kv = verify.read_kv(duckdb.connect(), out / "gene.parquet")
+    assert not {"table_spec_sha256", "schema_set_sha256", "table_spec_builtin"} & set(kv)
+    assert "schema_set_sha256" not in json.loads((out / "manifest.json").read_text())["table_spec"]
+
+
+@pytest.mark.parametrize(
+    "key, message",
+    [
+        ("schema_set_sha256", "the schema set of bundle schema 1.1.0 differs: the files (written by tool "),
+        ("table_spec_sha256", "the compiled spec of bundle schema 1.1.0 differs, from the same schema set"),
+    ],
+)
+@pytest.mark.parametrize("command", ["verify", "verify --roundtrip", "rebuild"])
+def test_a_recorded_hash_that_doesnt_hold_is_refused(built_copy, tmp_path, capsys, key, message, command):
+    _tamper_all(built_copy, key, "0" * 64)
+    args = {
+        "verify": ["verify", built_copy],
+        "verify --roundtrip": ["verify", built_copy, "--roundtrip"],
+        "rebuild": ["rebuild", built_copy, "-o", tmp_path / "r.json"],
+    }[command]
+    rc, _, stderr = cli(capsys, *args)
+    assert rc == 2 and message in stderr and "0" * 64 in stderr, stderr
+    assert not (tmp_path / "r.json").exists()
+
+
+def test_a_set_with_no_recorded_hash_is_refused(built_copy, capsys):
+    _tamper_all(built_copy, "schema_set_sha256", None)
+    rc, _, stderr = cli(capsys, "verify", built_copy)
+    assert rc == 2 and "don't record bundle_schema_version, table_spec_sha256 and schema_set_sha256" in stderr
+
+
+def test_a_set_of_other_rules_is_refused_naming_the_tool(built_copy, capsys):
+    _tamper_all(built_copy, "table_spec_version", "9.9")
+    _tamper_all(built_copy, "tool_version", "9.9.9")
+    rc, _, stderr = cli(capsys, "rebuild", built_copy, "-o", built_copy / "r.json")
+    assert rc == 2 and "written by sections 9.9 (tool 9.9.9); this tool compiles sections 1.0" in stderr
+
+
+def test_a_manifest_that_disagrees_with_the_files_is_found(built_copy, tmp_path, capsys):
+    m = json.loads((built_copy / "manifest.json").read_text())
+    m["table_spec"]["schema_set_sha256"] = "0" * 64
+    (built_copy / "manifest.json").write_text(json.dumps(m))
+    rc, stdout, _ = cli(capsys, "verify", built_copy)
+    assert rc == 1 and "table_spec.schema_set_sha256" in stdout
+    rc, _, stderr = cli(capsys, "rebuild", built_copy, "-o", tmp_path / "r.json")
+    assert rc == 2 and "table_spec.schema_set_sha256" in stderr
+
+
+def test_verify_accepts_the_built_in_name_for_a_compiled_set(built, capsys):
+    assert cli(capsys, "verify", built[0], "--spec", "sections")[0] == 0
+    rc, _, stderr = cli(capsys, "verify", built[0], "--spec", "baseline")
+    assert rc == 2 and "--spec baseline is baseline 1.0, but the files were written by sections 1.0" in stderr
+
+
+def test_resolving_the_compiled_spec_needs_a_version():
+    with pytest.raises(SpecError, match="compiled for a bundle's schema_version"):
+        resolve_spec("sections")
+    with pytest.raises(SpecError, match="no built-in table spec sections 9.9"):
+        resolve_spec("sections@9.9", "1.1.0")
+    with pytest.raises(SpecError, match="has no file"):
+        load_spec("1.0", "sections")

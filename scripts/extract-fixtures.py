@@ -67,10 +67,11 @@ from pathlib import Path
 from typing import BinaryIO
 
 from clinvar_gkm_parquet import __version__ as TOOL_VERSION
-from clinvar_gkm_parquet.bundle import SECTIONS, stage_bundle
-from clinvar_gkm_parquet.compat import ACCEPTED_SCHEMA_VERSIONS, TABLE_SPEC_VERSION
+from clinvar_gkm_parquet.bundle import stage_bundle
+from clinvar_gkm_parquet.compat import TABLE_SPEC_VERSION
 from clinvar_gkm_parquet.errors import ToolError
 from clinvar_gkm_parquet.model import InputFile
+from clinvar_gkm_parquet.schemas import sections_of
 from clinvar_gkm_parquet.select import SCHEMA_LINE as _SCHEMA_LINE
 from clinvar_gkm_parquet.select import SECTION_OPEN as _SECTION_OPEN
 from clinvar_gkm_parquet.select import SelectionError, Tap, iter_pointers
@@ -92,6 +93,8 @@ GZIP_LEVEL = 9
 CHECKPOINT_BYTES = 64 << 20  # re-opened streams are checked against pass 1 at every multiple of this
 _READ_BUFFER = 1 << 20
 
+SCHEMA_VERSION = "1.1.0"  # the version whose shapes and sections this script knows (the clinvar-gkm spec's)
+SECTIONS = sections_of(SCHEMA_VERSION)
 SEC_INDEX = {name: i for i, name in enumerate(SECTIONS)}
 PROPOSITION_SECTIONS = tuple(s for s in SECTIONS if s.startswith("proposition"))
 
@@ -452,10 +455,8 @@ def _scan(state: State, f: BinaryIO, pass_no: int) -> tuple[int, int, str | None
     if not m:
         raise ExtractError(f'line 2: expected \'  "schema_version": "<v>",\', got {_short(line)}')
     version = m.group(1).decode()
-    if version not in ACCEPTED_SCHEMA_VERSIONS:
-        raise ExtractError(
-            f"schema_version {version!r} is not one this tool reads ({', '.join(ACCEPTED_SCHEMA_VERSIONS)})"
-        )
+    if version != SCHEMA_VERSION:
+        raise ExtractError(f"schema_version {version!r} is not the one this script reads ({SCHEMA_VERSION})")
     if first:
         state.schema_version = version
     elif version != state.schema_version:

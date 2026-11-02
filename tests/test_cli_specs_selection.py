@@ -17,15 +17,14 @@ from pathlib import Path
 import duckdb
 import pytest
 import yaml
-from _fixture import FIXTURE, SOURCE_RELEASE
+from _fixture import FIXTURE, SECTIONS, SOURCE_RELEASE
 from _input_helpers import D1, D2, bundle_bytes, fixture_sections, local_input, two_synthetic_deltas, write_gz
 
 from clinvar_gkm_parquet import select as sel
-from clinvar_gkm_parquet.bundle import SECTIONS
 from clinvar_gkm_parquet.cli import main
 from clinvar_gkm_parquet.model import BuildInputs
 from clinvar_gkm_parquet.replay import ReplayedSource, load_chain
-from clinvar_gkm_parquet.spec import builtin_dir
+from clinvar_gkm_parquet.spec import builtin_dir, resolve_spec
 
 FULL = ["--full", FIXTURE, "--full-source-release", SOURCE_RELEASE]
 FIXTURE_SHA = (FIXTURE.parent / (FIXTURE.name + ".sha256")).read_text().split()[0]
@@ -123,8 +122,14 @@ def test_default_spec_is_sections(tmp_path, capsys):
     assert (meta["table_spec"], meta["table_spec_version"]) == ("sections", "1.0")
     assert "selection" not in meta and "table_spec_builtin" not in meta
     m = json.loads((out / "manifest.json").read_text())
-    spec_file = builtin_dir("sections", "1.0") / "tables.yaml"
-    assert m["table_spec"] == {"name": "sections", "version": "1.0", "builtin": True, "sha256": sha(spec_file)}
+    _, source = resolve_spec("sections", "1.1.0")
+    assert m["table_spec"] == {
+        "name": "sections",
+        "version": "1.0",
+        "builtin": True,
+        "sha256": source.sha256,
+        "schema_set_sha256": source.schema_set_sha256,
+    }
     assert cli(capsys, "verify", out)[0] == 0
     assert cli(capsys, "verify", out, "--bundle-recompute", *FULL, "--work-dir", tmp_path / "w")[0] == 0
 

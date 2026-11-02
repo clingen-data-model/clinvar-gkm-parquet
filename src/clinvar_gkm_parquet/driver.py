@@ -38,7 +38,7 @@ from .build import SectionPipeline, key_column, sql_ident
 from .errors import InputError
 from .model import BuildInputs, InputFile, StreamedBundle
 from .select import SelectionError, SelectionResult
-from .spec import Spec, Table, resolve_spec
+from .spec import Spec, Table, is_compiled, resolve_spec
 
 SELECTION_BUNDLE_NAME = "clinvar-gkm_selection.json.gz"  # the mini-bundle a build writes in its work directory
 
@@ -293,13 +293,16 @@ def run_selection(
 def run_select_command(args) -> int:
     """`clinvar-gkm-parquet select`: write only the mini-bundle, and print the selection entry a build from it
     would carry. The same inputs and options give the same bytes."""
-    spec, _ = resolve_spec(getattr(args, "spec", None))
+    spec_arg = getattr(args, "spec", None)
+    if not is_compiled(spec_arg):
+        resolve_spec(spec_arg)  # a bad --spec is reported before any input is touched
     drv = driver_from_args(args)
     out = Path(args.out)
     if out.exists():
         raise InputError(f"{out} already exists; select writes a new file")
-    driver_table(spec, drv)
     inputs = build.resolve_build_inputs(args)
+    spec, _ = build.resolve_spec_for(spec_arg, inputs)
+    driver_table(spec, drv)
     root = Path(args.work_dir) if args.work_dir else out.parent
     root.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(prefix=".select-work-", dir=root))

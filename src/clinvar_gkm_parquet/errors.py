@@ -15,7 +15,8 @@ class BundleFormatError(ToolError):
 
 
 class SchemaVersionError(ToolError):
-    """A bundle's schema_version is missing or not in the accepted list (design plan §4.4)."""
+    """A bundle's schema_version is missing, or the tool can't read it: its schema set doesn't load, its sections
+    spec doesn't compile, or the spec asked for doesn't list it (design plan §4.4, ADR 0006 §6)."""
 
 
 class ChainError(ToolError):

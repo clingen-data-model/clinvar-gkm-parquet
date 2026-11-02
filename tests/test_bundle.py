@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 import pytest
-from _fixture import STAGING_NAME
+from _fixture import SECTIONS, STAGING_NAME
 from _input_helpers import (
     FIXTURE,
     PROVENANCE,
@@ -19,7 +19,7 @@ from _input_helpers import (
 )
 
 from clinvar_gkm_parquet import bundle as bundle_mod
-from clinvar_gkm_parquet.bundle import SECTIONS, SectionWriter, canonical_key, stage_bundle, stream_bundle
+from clinvar_gkm_parquet.bundle import SectionWriter, canonical_key, stage_bundle, stream_bundle
 from clinvar_gkm_parquet.errors import BundleFormatError, InputError, SchemaVersionError
 from clinvar_gkm_parquet.sources import resolve_input
 
@@ -180,7 +180,7 @@ def test_unsupported_schema_version(tmp_path, version):
     path = write_gz(tmp_path / "b.json.gz", bundle_bytes({"gene": fixture_sections()["gene"]}, version))
     with pytest.raises(SchemaVersionError) as e:
         stage_bundle(local_input(path), tmp_path / "work")
-    assert "1.1.0" in str(e.value) and "compatibility matrix" in str(e.value)
+    assert repr(version) in str(e.value) and "compatibility matrix" in str(e.value)
 
 
 def test_missing_schema_version(tmp_path):

@@ -1,6 +1,6 @@
 import pytest
 
-from clinvar_gkm_parquet.compat import ACCEPTED_SCHEMA_VERSIONS, TABLE_SPEC_VERSION
+from clinvar_gkm_parquet.compat import TABLE_SPEC_VERSION
 from clinvar_gkm_parquet.errors import SpecError
 from clinvar_gkm_parquet.spec import load_spec, parse_spec
 
@@ -8,7 +8,7 @@ from clinvar_gkm_parquet.spec import load_spec, parse_spec
 def test_spec_loads_and_matches_compat():
     spec = load_spec(TABLE_SPEC_VERSION)
     assert spec.spec_version == TABLE_SPEC_VERSION
-    assert tuple(spec.bundle_schema_versions) == ACCEPTED_SCHEMA_VERSIONS
+    assert tuple(spec.bundle_schema_versions) == ("1.1.0",)
     assert spec.tables, "the spec lists no tables"
     for t in spec.tables:
         assert t.column(t.sort_key)

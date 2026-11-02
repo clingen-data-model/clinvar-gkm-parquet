@@ -42,8 +42,8 @@ from pathlib import Path
 
 import duckdb
 
-from .compat import SCHEMA_SECTIONS
-from .errors import RoundTripError, SpecError
+from .errors import RoundTripError, SchemaSetError, SpecError
+from .schemas import sections_of
 from .spec import RANGE_KINDS, Column, Spec, Table
 
 RECORD_COLUMN = "__record"  # the bundle record, carried by a json table's SQL for the check
@@ -313,7 +313,7 @@ def lossless_problems(spec: Spec) -> list[str]:
     if not spec.lossless:
         return out
     for v in spec.bundle_schema_versions:
-        want = SCHEMA_SECTIONS.get(v, ())
+        want = sections_of(v)
         have = [s for t in spec.tables for s in t.sections]
         if sorted(have) != sorted(want) or len(have) != len(spec.tables):
             out.append(
@@ -445,8 +445,12 @@ def rebuild(
     for k in ("tool_version", "table_spec", "table_spec_version", "bundle_schema_version", "source_bundle_sha256"):
         _shared_kv(kvs, k)
     version = _shared_kv(kvs, "bundle_schema_version")
-    if version not in spec.bundle_schema_versions or version not in SCHEMA_SECTIONS:
+    if version not in spec.bundle_schema_versions:
         raise RoundTripError(f"{out_dir}: bundle_schema_version {version} is not one spec {spec.label} reads")
+    try:
+        sections = sections_of(version)
+    except SchemaSetError as e:
+        raise RoundTripError(f"{out_dir}: bundle_schema_version {version}: {e}") from e
     manifest_path = out_dir / MANIFEST_NAME
     if not manifest_path.exists():
         raise RoundTripError(
@@ -461,6 +465,13 @@ def rebuild(
         raise RoundTripError(f"{manifest_path}: no source_text_sha256, but the files are a lossless build")
     if manifest.get("source_bundle_sha256") != _shared_kv(kvs, "source_bundle_sha256"):
         raise RoundTripError(f"{manifest_path}: source_bundle_sha256 differs from the files'")
+    recorded = manifest.get("table_spec") or {}
+    for key, kv_key in (("sha256", "table_spec_sha256"), ("schema_set_sha256", "schema_set_sha256")):
+        files_have = next(iter(kvs.values())).get(kv_key)
+        if files_have is not None and recorded.get(key) != _shared_kv(kvs, kv_key):
+            raise RoundTripError(
+                f"{manifest_path}: table_spec.{key} {recorded.get(key)} differs from the files' {kv_key}"
+            )
 
     tmp = None
     if out is not None:
@@ -474,13 +485,11 @@ def rebuild(
         configure(con, memory_limit=memory_limit, threads=threads, temp_directory=spill)
         con.execute(macros_sql())
         by_section = {t.sections[0]: t for t in spec.tables}
-        rows = {
-            s: _open_table(con, by_section[s], files[by_section[s].name], spec) for s in SCHEMA_SECTIONS[version]
-        }
-        for s in SCHEMA_SECTIONS[version]:
+        rows = {s: _open_table(con, by_section[s], files[by_section[s].name], spec) for s in sections}
+        for s in sections:
             if not rows[s] and kvs[files[by_section[s].name].name]["section_text_sha256"] != EMPTY_SHA256:
                 raise RoundTripMismatch(f"section {s}: no rows, but the build recorded a non-empty section text")
-        present = [s for s in SCHEMA_SECTIONS[version] if rows[s]]
+        present = [s for s in sections if rows[s]]
         want = {s: kvs[files[by_section[s].name].name]["section_text_sha256"] for s in present}
         sink = _Out(tmp, compresslevel, gz=out is not None and out.name.endswith(".gz"))
         ok = False
