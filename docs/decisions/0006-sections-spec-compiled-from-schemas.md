@@ -23,7 +23,7 @@ A check on 2026-11-02 walked the 1.1.0 schemas with a prototype and compared the
 | Nested positions | mostly | 393 of 457; the other 64 are all inside extension values |
 | Extension value shapes | no | 464 of 471 walked positions are open (`additionalProperties: true`) |
 | Pointer targets | no | no `^#/` pattern in ClinVar-GKM's own schema files; the prototype's targets matched 14 of 28 |
-| Pointer or inline | no | 18 positions allow `iriReference` or a class and are written inline |
+| Pointer or inline | no | 22 positions allow `iriReference` or a class and are written inline |
 | Which allowed properties are emitted | no | `scv`: 313 walked paths, 108 in the spec; `variation`: 563, 50 |
 | Key order on the bundle line | no | 7 sections use the producer's STRUCT order; no record matches the schema's property order |
 

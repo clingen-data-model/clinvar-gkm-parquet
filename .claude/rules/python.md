@@ -13,8 +13,12 @@ passed between stages, and the staging format), `sources.py` (paths, URLs, check
 `spec.py` (loads and checks table specs, built-in or custom), `sqltemplate.py` (renders each table's SQL from the
 spec: from its `sql/<table>.sql`, or from the spec alone with the generic renderer), `baseline.py` (renders the
 baseline spec's id/refs/data tables), `select.py` (the selection engine: pointer walk and mini-bundle),
-`driver.py` (wires selection into `build` and `select`) and `roundtrip.py` (rows back to bundle records: the
-build's round-trip check, `rebuild` and `verify --roundtrip`; ADR 0005). Update this file when the layout changes.
+`driver.py` (wires selection into `build` and `select`), `roundtrip.py` (rows back to bundle records: the
+build's round-trip check, `rebuild` and `verify --roundtrip`; ADR 0005), `schemas.py` (loads a bundle schema set:
+snapshot, cache or fetch; ADR 0006) and `compiler.py` (compiles the `sections` spec from a schema set and its overlay;
+ADR 0006). Outside `src/`: `schemas/<version>/` is the snapshot of a schema set (written by `scripts/vendor-schemas.py`,
+shipped in the wheel as `_schemas`) and `spec/sections/overlays/<version>.yaml` states what that version's schemas
+lack. Update this file when the layout changes.
 
 ## Layout and tooling
 
