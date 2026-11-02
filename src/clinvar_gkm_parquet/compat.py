@@ -1,10 +1,9 @@
 """The compatibility data: what this tool release reads and writes. The source of `version --json`.
 
 Keep in sync with the matrix in README.md (ADR 0002, amended by ADR 0003 and ADR 0006; the release-tool skill
-updates both). A bundle schema_version has no fixed list here: `sections` compiles any version whose schemas meet
-the contract (ADR 0006), `baseline`, `clinvar-gkm` and a custom spec read the versions their tables.yaml lists, and
-every version's sections come from its schema set (schemas.sections_of). This module holds data only; it imports
-the spec loader lazily, because spec.py reads these constants.
+updates both). A bundle schema_version has no fixed list here: `sections` compiles any bundle with its schema and
+column set (ADR 0006), `baseline`, `clinvar-gkm` and a custom spec read the versions their tables.yaml lists. This
+module holds data only; it imports the spec loader lazily, because spec.py reads these constants.
 """
 
 from __future__ import annotations
@@ -22,6 +21,9 @@ BUILTIN_SPECS: dict[str, str] = {
 }
 COMPILED_SPEC = SPEC_NAME  # compiled from a schema and its column set, not read from a tables.yaml (ADR 0006)
 DEFAULT_SPEC = "sections"  # what a build writes when no --spec is given (ADR 0003; baseline until 2026-10-29)
+KV_PREFIX = (
+    "clinvar_gkm_parquet."  # of every key-value entry a build writes; a rename here changes the files' bytes
+)
 PUBLISHED_SPEC = "clinvar-gkm"  # the spec of ClinVar-GKM's published set; its release and the oracle name it
 # The version of the clinvar-gkm spec. Kept under this name for build.py, verify.py and version --json, which
 # read it as "the" table-spec version from before specs had names.

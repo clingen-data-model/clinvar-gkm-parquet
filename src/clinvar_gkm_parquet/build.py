@@ -36,7 +36,7 @@ from pathlib import Path
 import duckdb
 
 from . import __version__, baseline, bundle, compiled, default_pairing, replay, sources, sqltemplate
-from .compat import BUILTIN_SPECS, COMPILED_SPEC
+from .compat import BUILTIN_SPECS, COMPILED_SPEC, KV_PREFIX
 from .errors import BundleFormatError, InputError, SchemaVersionError, SpecError, ToolError
 from .model import (
     BuildInputs,
@@ -52,7 +52,6 @@ from .roundtrip import promise_of
 from .spec import Spec, SpecSource, Table, is_compiled, load_spec, resolve_spec
 from .spec import kv_metadata as spec_kv_metadata
 
-KV_PREFIX = "clinvar_gkm_parquet."
 # Design plan §7.2: the keys every file carries.
 KV_KEYS = (
     "tool_version",
@@ -894,7 +893,8 @@ def write_manifest(
         "label": DERIVED_LABEL,
         "derived": True,
         "note": (
-            "Parquet tables derived from the ClinVar-GKM JSON bundle(s) listed under inputs by "
+            f"Parquet tables derived from the {'' if spec.root else 'ClinVar-GKM '}JSON bundle(s) listed under "
+            "inputs by "
             f"clinvar-gkm-parquet {kv['tool_version']} (table spec {spec_name} {kv['table_spec_version']})"
             f"{subset}. The bundles are the record; these files may be regenerated."
         ),

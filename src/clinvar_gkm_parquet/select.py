@@ -71,6 +71,7 @@ from pathlib import Path
 from typing import BinaryIO, Protocol
 
 from .bundle import LINE_LAYOUT, layout_of, peek_version, stage_bundle
+from .compat import KV_PREFIX
 from .default_pairing import reader_rules, shape_of, version_property
 from .errors import BundleFormatError, InputError, SchemaVersionError, ToolError
 from .model import InputFile
@@ -78,7 +79,7 @@ from .sources import open_stream
 
 log = logging.getLogger(__name__)
 
-SELECTION_METADATA_KEY = "clinvar_gkm_parquet.selection"
+SELECTION_METADATA_KEY = f"{KV_PREFIX}selection"
 CHECKPOINT_BYTES = 64 << 20  # a re-opened stream is checked against pass 1 at every multiple of this
 DEFAULT_COMPRESSLEVEL = 6
 SPOOL_COMPRESSLEVEL = 1
