@@ -64,7 +64,7 @@ from pathlib import Path
 
 import yaml
 
-from .errors import CompileError
+from .errors import CompileError, SchemaSetError
 from .schemas import SchemaSet, split_ref
 from .sqltemplate import canonical_type
 
@@ -159,8 +159,11 @@ def _refine(a: _Alts, b: _Alts) -> _Alts:
     out = _Alts(opaque=opaque, refs=refs, range=a.range and b.range)
     out.scalars = [t for t in a.scalars if t in b.scalars]
     # A pointer is a string, so a pointer pattern narrows a plain string (iriReference, say).
-    pointers = (a.pointers, b.pointers) if a.pointers or b.pointers else ()
-    if pointers and (a.pointers or "string" in a.scalars) and (b.pointers or "string" in b.scalars):
+    if (
+        (a.pointers or b.pointers)
+        and (a.pointers or "string" in a.scalars)
+        and (b.pointers or "string" in b.scalars)
+    ):
         out.pointers = b.pointers or a.pointers
         out.scalars = [t for t in out.scalars if t != "string"]
     if a.items is not None and b.items is not None:
@@ -239,7 +242,7 @@ class _Compiler:
                 raise self.stop(pos, f"class {key} reaches itself", "leave no class that reaches itself")
             try:
                 target, file_id = self.schema_set.resolve(ref, base)
-            except Exception as e:
+            except SchemaSetError as e:
                 raise self.stop(pos, f"unknown $ref: {e}", "name a schema of its set") from e
             out = self._node(target, file_id, (*stack, key), pos)
             if out.fields is not None:  # only an object can reach itself through a property
@@ -373,24 +376,25 @@ class _Compiler:
                 pos, f"class {sorted(reenters)[0]} reaches itself", "leave no class that reaches itself"
             )
         outer, self.path = self.path, self.path | a.refs
-        try:
-            fields, pointers, extension = [], {}, False
-            for name in names:
-                v = self.field(name, (a.fields or {}).get(name, []), shape[name], f"{pos}.{name}")
-                fields.append(f'"{name}" {v.type}')
-                extension = extension or v.extension
-                for p, ts in v.pointers.items():
-                    if len(ts) > 1:
-                        raise self.stop(
-                            f"{pos}.{name}",
-                            f"a pointer inside a value has several targets ({', '.join(ts)}), and only a column "
-                            "can hold its section",
-                            "name one target section here",
-                        )
-                    pointers[f".{name}{p}"] = ts
-        finally:
-            self.path = outer
+        fields, pointers, extension = [], {}, False
+        for name in names:
+            v = self.field(name, (a.fields or {}).get(name, []), shape[name], f"{pos}.{name}")
+            fields.append(f'"{name}" {v.type}')
+            extension = extension or v.extension
+            pointers.update(self.nested_pointers(f".{name}", v, f"{pos}.{name}"))
+        self.path = outer
         return _Value(f"STRUCT({', '.join(fields)})", "object", pointers, extension)
+
+    def nested_pointers(self, prefix: str, v: _Value, pos: str) -> dict[str, list[str]]:
+        """The pointers of a value placed inside another. Only a column can hold a pointer's section."""
+        for targets in v.pointers.values():
+            if len(targets) > 1:
+                raise self.stop(
+                    pos,
+                    f"a pointer inside a value has several targets ({', '.join(targets)})",
+                    "name one target section here",
+                )
+        return {f"{prefix}{p}": targets for p, targets in v.pointers.items()}
 
     def field(self, name: str, decls: list[_Decl], shape: object, pos: str, top: bool = False) -> _Value:
         return self.extensions(decls, shape, pos) if name == EXTENSIONS else self.value(decls, shape, pos, top)
@@ -446,9 +450,6 @@ class _Compiler:
             raise self.bad_overlay(
                 pos, f"contradicts the schema: it says an object, the schema allows {_describe(a)}"
             )
-        return self.object_shape(a, shape, pos)
-
-    def object_shape(self, a: _Alts, shape: dict, pos: str) -> _Value:
         return self.struct(a, shape, self.emitted(a, shape, pos), pos)
 
     def emitted(self, a: _Alts, shape: dict, pos: str) -> list[str]:
@@ -514,7 +515,10 @@ class _Compiler:
             if alt.items is None:
                 slots.append(self.from_schema(alt, value_pos, False))
                 continue
-            for element_alt in self.read(alt.items, value_pos).split():
+            elements = self.read(alt.items, value_pos)
+            if elements.opaque or not elements.says_something():
+                raise self.stop(value_pos, "the value's elements are open", must)
+            for element_alt in elements.split():
                 slots.append(self.list_of(self.from_schema(element_alt, value_pos, False), value_pos))
         return slots
 
@@ -528,7 +532,7 @@ class _Compiler:
         for slot in sorted(by_slot, key=_SLOT_ORDER.index):
             v = by_slot[slot]
             fields.append(f'"value_{slot}" {v.type}')
-            pointers.update({f"[*].value_{slot}{p}": ts for p, ts in v.pointers.items()})
+            pointers.update(self.nested_pointers(f"[*].value_{slot}", v, pos))
         return _Value(f"STRUCT({', '.join(fields)})[]", "object_array", pointers, True)
 
     # --- a table -------------------------------------------------------------------------------------------------
@@ -551,15 +555,21 @@ class _Compiler:
                     "patternProperties, from a section-name pattern to {additionalProperties: <record schema>}"
                 )
             for regex, inner in narrowing.items():
-                if re.search(regex, name):
-                    if set(inner) != {"additionalProperties"} or not isinstance(
-                        inner["additionalProperties"], dict
-                    ):
+                try:
+                    applies = re.search(regex, name)
+                except re.error as e:
+                    version = self.schema_set.version
+                    raise CompileError(
+                        f"schema set {version}: bundle schema allOf[{i}]: bad pattern {regex!r}: {e}"
+                    ) from e
+                if applies:
+                    record = inner.get("additionalProperties")
+                    if set(inner) != {"additionalProperties"} or not isinstance(record, dict):
                         raise CompileError(
                             f"schema set {self.schema_set.version}: bundle schema allOf[{i}].{regex}: the rules "
                             "read only {additionalProperties: <record schema>} here"
                         )
-                    members.append(inner["additionalProperties"])
+                    members.append(record)
         return {"allOf": members}
 
     def table(self, name: str) -> dict:
@@ -581,31 +591,17 @@ class _Compiler:
             names = self.emitted(record, shape, "(the record)")
         else:
             raise self.bad_overlay("(the record)", f"a section's shape is a mapping of properties, not {shape!r}")
-        outer, self.path = self.path, record.refs
-        try:
-            columns = [
-                _column(
-                    "id", "VARCHAR", "never", {"kind": "key", "path": None, "transform": None}, "The bundle key."
-                )
-            ]
-            slots: dict[str, str] = {}
-            for prop in names:
-                decls = record.fields.get(prop, [])
-                if prop == ID:
-                    self.check_id(decls, shape[prop])
-                    continue
+        self.path = frozenset(record.refs)
+        columns = [_column("id", "VARCHAR", "never", _derive("key", None, None), "The bundle key.")]
+        slots: dict[str, str] = {}
+        for prop in names:
+            decls = record.fields.get(prop, [])
+            if prop == ID:
+                self.check_id(decls, shape[prop])
+            else:
                 columns.extend(self.columns(prop, decls, shape[prop], slots))
-        finally:
-            self.path = outer
-        columns.append(
-            _column(
-                "ordinal",
-                "BIGINT",
-                "never",
-                {"kind": "ordinal", "path": None, "transform": None},
-                "The record's position in its bundle section (0 = its first record line).",
-            )
-        )
+        where = "The record's position in its bundle section (0 = its first record line)."
+        columns.append(_column("ordinal", "BIGINT", "never", _derive("ordinal", None, None), where))
         layout: dict = {"key_order": "columns" if self.ordered else "sorted", "record_id": ID in shape}
         if self.ordered:
             layout.update(self.sorted_columns(name, order[name], columns))
@@ -738,9 +734,19 @@ class _Compiler:
 
     def spec(self) -> dict:
         self.check_overlay()
-        if not self.section_names:
-            raise CompileError(f"schema set {self.schema_set.version}: the bundle schema has no sections")
         version = self.schema_set.version
+        if not self.section_names:
+            raise CompileError(f"schema set {version}: the bundle schema has no sections")
+        declared = self.schema_set.bundle["properties"].get(SCHEMA_VERSION, {}).get("const", version)
+        if declared != version:
+            raise CompileError(f"schema set {version}: the bundle schema says schema_version {declared!r}")
+        tables = []
+        for name in self.section_names:
+            try:
+                tables.append(self.table(name))
+            except (AttributeError, KeyError, TypeError, ValueError) as e:
+                # A schema or overlay of the wrong JSON shape (a list where a mapping belongs, say).
+                raise CompileError(f"schema set {version}: section {name}: malformed: {e!r}") from e
         return {
             "name": "sections",
             "spec_version": RULES_VERSION,
@@ -752,7 +758,7 @@ class _Compiler:
                 f"sha256 {self.schema_set.sha256}" + (f", with overlay {version}" if self.overlay else ""),
             ],
             "writer": dict(WRITER),
-            "tables": [self.table(name) for name in self.section_names],
+            "tables": tables,
         }
 
 
@@ -787,7 +793,7 @@ def _clean(text: object) -> str:
     return " ".join(str(text).split()) if text else ""
 
 
-def _derive(kind: str, path: str, transform: str | None, *, targets=None, pointers=None) -> dict:
+def _derive(kind: str, path: str | None, transform: str | None, *, targets=None, pointers=None) -> dict:
     d: dict = {"kind": kind, "path": path, "transform": transform}
     if targets:
         d["targets"] = list(targets)
@@ -821,12 +827,23 @@ def overlay_path(version: str) -> Path | None:
     return None
 
 
+class _OverlayLoader(yaml.SafeLoader):
+    """YAML's last-one-wins would silently hide an overlay entry written twice."""
+
+    def construct_mapping(self, node, deep=False):
+        keys = [k.value for k, _ in node.value if k.tag != "tag:yaml.org,2002:merge"]
+        twice = sorted({k for k in keys if keys.count(k) > 1})
+        if twice:
+            raise yaml.constructor.ConstructorError(None, None, f"{twice} written twice", node.start_mark)
+        return super().construct_mapping(node, deep=deep)
+
+
 def load_overlay(version: str) -> dict | None:
     """The parsed overlay of `version`, or None: a version whose schemas meet the contract has none."""
     path = overlay_path(version)
     if path is None:
         return None
     try:
-        return yaml.safe_load(path.read_text(encoding="utf-8"))
+        return yaml.load(path.read_text(encoding="utf-8"), Loader=_OverlayLoader)
     except (OSError, UnicodeDecodeError, yaml.YAMLError) as e:
         raise CompileError(f"{path}: can't read the overlay: {e}") from e

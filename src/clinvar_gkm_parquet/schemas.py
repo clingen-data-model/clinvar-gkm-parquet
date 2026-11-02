@@ -14,8 +14,11 @@ the set was read from.
 
 Known exception: the bundle schema's declared `$id` (.../clinvar-gkm/<version>/json/ClinvarGkmBundle) returned 404
 on 2026-11-02, and the file is served at .../clinvar-gkm/<version>/clinvar-gkm-bundle.schema.json (ADR 0006). So
-the bundle schema alone may declare an `$id` other than its URL, and the `$id` it declares is the set's key for it.
-Every other file must declare exactly the identifier that reached it.
+the bundle schema alone may declare an `$id` other than its URL, within its version's folder, and the `$id` it
+declares is the set's key for it. Every other file must declare exactly the identifier that reached it.
+
+Only `https://w3id.org/` identifiers are followed, the host the schemas publish under (ADR 0006 §2), so a `$ref` in
+a fetched file can't send the tool anywhere else (another host, or a local file).
 """
 
 from __future__ import annotations
@@ -32,7 +35,8 @@ from pathlib import Path
 from . import sources
 from .errors import SchemaSetError
 
-BUNDLE_URL = "https://w3id.org/clingen/schema/clinvar-gkm/{version}/clinvar-gkm-bundle.schema.json"
+BUNDLE_DIR = "https://w3id.org/clingen/schema/clinvar-gkm/{version}/"
+BUNDLE_URL = BUNDLE_DIR + "clinvar-gkm-bundle.schema.json"
 MANIFEST = "MANIFEST.json"
 _VERSION_RE = re.compile(r"\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?")
 
@@ -126,8 +130,8 @@ def _closure(version: str, url: str, fetch: Callable[[str], bytes]) -> SchemaSet
     bundle_raw = fetch(url)
     bundle = _parse(bundle_raw, url)
     bundle_id = bundle.get("$id")
-    if not isinstance(bundle_id, str) or not bundle_id:
-        raise SchemaSetError(f"{url}: the bundle schema declares no $id")
+    if not isinstance(bundle_id, str) or not bundle_id.startswith(BUNDLE_DIR.format(version=version)):
+        raise SchemaSetError(f"{url}: the bundle schema declares $id {bundle_id!r}, outside its version's folder")
     files = {bundle_id: SchemaFile(bundle_id, url, bundle_raw, bundle)}
     todo = [(ref, bundle_id) for ref in refs_of(bundle)]
     while todo:
@@ -135,6 +139,9 @@ def _closure(version: str, url: str, fetch: Callable[[str], bytes]) -> SchemaSet
         doc_id, _ = split_ref(ref, base)
         if doc_id in files:
             continue
+        parts = urllib.parse.urlsplit(doc_id)
+        if parts.scheme != "https" or parts.netloc != "w3id.org" or parts.query:
+            raise SchemaSetError(f"schema set {version}: {base}: $ref {ref!r}: not a https://w3id.org/ identifier")
         try:
             raw = fetch(doc_id)
         except SchemaSetError as e:
@@ -198,15 +205,18 @@ def read_set(version: str, directory: Path) -> SchemaSet:
 def write_set(schema_set: SchemaSet, directory: Path) -> None:
     """Write `schema_set` as a set on disk: original bytes, plus MANIFEST.json (written last)."""
     entries = []
-    for sid in sorted(schema_set.files):
-        file = schema_set.files[sid]
-        rel = _relative_path(file.url)
-        target = directory / rel
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(file.raw)
-        entries.append({"id": sid, "url": file.url, "file": rel, "sha256": file.sha256})
-    manifest = {"schema_version": schema_set.version, "bundle_id": schema_set.bundle_id, "files": entries}
-    (directory / MANIFEST).write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    try:
+        for sid in sorted(schema_set.files):
+            file = schema_set.files[sid]
+            rel = _relative_path(file.url)
+            target = directory / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(file.raw)
+            entries.append({"id": sid, "url": file.url, "file": rel, "sha256": file.sha256})
+        manifest = {"schema_version": schema_set.version, "bundle_id": schema_set.bundle_id, "files": entries}
+        (directory / MANIFEST).write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    except OSError as e:
+        raise SchemaSetError(f"schema set {schema_set.version}: can't write {directory}: {e}") from e
 
 
 def _relative_path(url: str) -> str:
