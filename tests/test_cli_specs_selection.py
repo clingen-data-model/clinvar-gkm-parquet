@@ -129,6 +129,8 @@ def test_default_spec_is_sections(tmp_path, capsys):
         "builtin": True,
         "sha256": source.sha256,
         "schema_set_sha256": source.schema_set_sha256,
+        "column_set_sha256": source.column_set_sha256,
+        "file": "table-spec.json",
     }
     assert cli(capsys, "verify", out)[0] == 0
     assert cli(capsys, "verify", out, "--bundle-recompute", *FULL, "--work-dir", tmp_path / "w")[0] == 0

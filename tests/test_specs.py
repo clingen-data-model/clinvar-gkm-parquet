@@ -10,8 +10,8 @@ import pytest
 import yaml
 
 from clinvar_gkm_parquet import compat
+from clinvar_gkm_parquet.default_pairing import sections_of
 from clinvar_gkm_parquet.errors import SpecError
-from clinvar_gkm_parquet.schemas import sections_of
 from clinvar_gkm_parquet.spec import (
     SPEC_KV_KEYS,
     kv_metadata,
@@ -293,6 +293,7 @@ def test_kv_metadata_builtin_and_custom(tmp_path):
         "table_spec_version": "1.0",
         "table_spec_sha256": base.sha256,
         "schema_set_sha256": base.schema_set_sha256,
+        "column_set_sha256": base.column_set_sha256,
     }
     _, fixed = resolve_spec("baseline")
     assert kv_metadata(fixed) == {"table_spec": "baseline", "table_spec_version": "1.0"}

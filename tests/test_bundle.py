@@ -20,6 +20,7 @@ from _input_helpers import (
 
 from clinvar_gkm_parquet import bundle as bundle_mod
 from clinvar_gkm_parquet.bundle import SectionWriter, canonical_key, stage_bundle, stream_bundle
+from clinvar_gkm_parquet.default_pairing import reader_rules
 from clinvar_gkm_parquet.errors import BundleFormatError, InputError, SchemaVersionError
 from clinvar_gkm_parquet.sources import resolve_input
 
@@ -56,7 +57,7 @@ def test_sections_match_the_bundle_schema():
 def test_stage_fixture(tmp_path):
     inp = resolve_input(str(FIXTURE))
     assert inp.sha256_source == "sidecar"
-    staged = stage_bundle(inp, tmp_path)
+    staged = stage_bundle(inp, tmp_path, reader_rules())
     assert staged.sha256 == inp.expected_sha256 == sha256_of(FIXTURE)
     assert staged.size == FIXTURE.stat().st_size
     assert staged.schema_version == "1.1.0"
@@ -73,7 +74,7 @@ def _provenance_counts(prov: dict) -> dict[str, int]:
 
 
 def test_staging_is_key_tab_exact_record_bytes(tmp_path):
-    staged = stage_bundle(resolve_input(str(FIXTURE)), tmp_path)
+    staged = stage_bundle(resolve_input(str(FIXTURE)), tmp_path, reader_rules())
     for section, recs in fixture_sections().items():
         sec = staged.sections[section]
         assert sec.path == tmp_path / STAGING_NAME / f"{section}.tsv.gz"
@@ -84,16 +85,16 @@ def test_staging_is_key_tab_exact_record_bytes(tmp_path):
 
 
 def test_no_partial_folders_left(tmp_path):
-    stage_bundle(resolve_input(str(FIXTURE)), tmp_path)
+    stage_bundle(resolve_input(str(FIXTURE)), tmp_path, reader_rules())
     assert [p.name for p in tmp_path.iterdir()] == [STAGING_NAME]
 
 
 def test_restage_replaces(tmp_path):
     inp = resolve_input(str(FIXTURE))
-    stage_bundle(inp, tmp_path)
+    stage_bundle(inp, tmp_path, reader_rules())
     stale = tmp_path / STAGING_NAME / "stale.tsv.gz"
     stale.write_bytes(b"")
-    stage_bundle(inp, tmp_path)
+    stage_bundle(inp, tmp_path, reader_rules())
     assert not stale.exists()
 
 
@@ -102,7 +103,7 @@ def test_bundle_with_no_sections(tmp_path):
     path = write_gz(
         tmp_path / "in" / "clinvar-gkm-delta_2026-1025.json.gz", b'{\n  "schema_version": "1.1.0"\n}\n'
     )
-    staged = stage_bundle(local_input(path), tmp_path / "work")
+    staged = stage_bundle(local_input(path), tmp_path / "work", reader_rules())
     assert staged.sections == {}
 
 
@@ -110,14 +111,14 @@ def test_key_with_escapes_is_kept_as_json(tmp_path):
     key, record = fixture_sections()["gene"][0]
     odd = b'"synthetic \\"q\\" \\\\ caf\\u00e9 \xc3\xbc"'
     path = write_gz(tmp_path / "in" / "b.json.gz", bundle_bytes({"gene": [(odd, record), (key, record)]}))
-    staged = stage_bundle(local_input(path), tmp_path / "work")
+    staged = stage_bundle(local_input(path), tmp_path / "work", reader_rules())
     lines = gzip.decompress(staged.sections["gene"].path.read_bytes()).split(b"\n")
     assert lines[0] == odd + b"\t" + record
 
 
 def test_warns_without_checksum(tmp_path, caplog):
     path = write_gz(tmp_path / "in" / "b.json.gz", bundle_bytes({"gene": fixture_sections()["gene"]}))
-    staged = stage_bundle(local_input(path), tmp_path / "work")
+    staged = stage_bundle(local_input(path), tmp_path / "work", reader_rules())
     assert staged.sha256 == sha256_of(path)
     assert "no published sha256" in caplog.text and staged.sha256 in caplog.text
 
@@ -129,14 +130,14 @@ def test_warns_without_checksum(tmp_path, caplog):
 def test_checksum_mismatch_stages_nothing(tmp_path):
     inp = local_input(FIXTURE, sha="0" * 64)
     with pytest.raises(InputError, match="sha256 mismatch"):
-        stage_bundle(inp, tmp_path)
+        stage_bundle(inp, tmp_path, reader_rules())
     assert list(tmp_path.iterdir()) == []
 
 
 def test_checksum_mismatch_keeps_earlier_staging_untouched_by_partial(tmp_path):
-    stage_bundle(resolve_input(str(FIXTURE)), tmp_path)
+    stage_bundle(resolve_input(str(FIXTURE)), tmp_path, reader_rules())
     with pytest.raises(InputError):
-        stage_bundle(local_input(FIXTURE, sha="0" * 64), tmp_path)
+        stage_bundle(local_input(FIXTURE, sha="0" * 64), tmp_path, reader_rules())
     assert [p.name for p in tmp_path.iterdir()] == [STAGING_NAME]
 
 
@@ -146,9 +147,9 @@ def test_truncated_gzip_reports_checksum_mismatch(tmp_path):
     cut.parent.mkdir()
     cut.write_bytes(data[: len(data) // 2])
     with pytest.raises(InputError, match="sha256 mismatch.*gzip stream is also invalid"):
-        stage_bundle(local_input(cut, sha=sha256_of(FIXTURE)), tmp_path / "work")
+        stage_bundle(local_input(cut, sha=sha256_of(FIXTURE)), tmp_path / "work", reader_rules())
     with pytest.raises(BundleFormatError, match="not a complete gzip stream"):
-        stage_bundle(local_input(cut), tmp_path / "work")
+        stage_bundle(local_input(cut), tmp_path / "work", reader_rules())
     assert list((tmp_path / "work").iterdir()) == []
 
 
@@ -159,16 +160,16 @@ def test_format_error_with_known_checksum_reports_mismatch(tmp_path):
     wrong.parent.mkdir()
     wrong.write_bytes(gzip.compress(b'{\n  "schema_version": "1.1.0",\n  not a section line\n}\n', mtime=0))
     with pytest.raises(InputError, match="sha256 mismatch.*also fails to parse"):
-        stage_bundle(local_input(wrong, sha=sha256_of(FIXTURE)), tmp_path / "work")
+        stage_bundle(local_input(wrong, sha=sha256_of(FIXTURE)), tmp_path / "work", reader_rules())
     with pytest.raises(BundleFormatError):
-        stage_bundle(local_input(wrong), tmp_path / "work")
+        stage_bundle(local_input(wrong), tmp_path / "work", reader_rules())
 
 
 def test_not_gzip(tmp_path):
     path = tmp_path / "plain.json.gz"
     path.write_bytes(gzip.decompress(FIXTURE.read_bytes()))
     with pytest.raises(BundleFormatError, match="gzip"):
-        stage_bundle(local_input(path), tmp_path / "work")
+        stage_bundle(local_input(path), tmp_path / "work", reader_rules())
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -179,7 +180,7 @@ def test_not_gzip(tmp_path):
 def test_unsupported_schema_version(tmp_path, version):
     path = write_gz(tmp_path / "b.json.gz", bundle_bytes({"gene": fixture_sections()["gene"]}, version))
     with pytest.raises(SchemaVersionError) as e:
-        stage_bundle(local_input(path), tmp_path / "work")
+        stage_bundle(local_input(path), tmp_path / "work", reader_rules())
     assert repr(version) in str(e.value) and "compatibility matrix" in str(e.value)
 
 
@@ -187,7 +188,7 @@ def test_missing_schema_version(tmp_path):
     text = bundle_bytes({"gene": fixture_sections()["gene"]}).replace(b'  "schema_version": "1.1.0",\n', b"")
     path = write_gz(tmp_path / "b.json.gz", text)
     with pytest.raises(SchemaVersionError, match="line 2"):
-        stage_bundle(local_input(path), tmp_path / "work")
+        stage_bundle(local_input(path), tmp_path / "work", reader_rules())
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -201,7 +202,7 @@ def _two_sections() -> bytes:
 
 def _stage_text(tmp_path: Path, text: bytes):
     path = write_gz(tmp_path / "in" / "bad.json.gz", text)
-    return stage_bundle(local_input(path), tmp_path / "work")
+    return stage_bundle(local_input(path), tmp_path / "work", reader_rules())
 
 
 def _replace_line(text: bytes, lineno: int, new: bytes | None) -> bytes:
@@ -363,7 +364,7 @@ class _Recorder:
 
 def test_stream_bundle_hands_every_record_to_the_sink():
     sink = _Recorder()
-    streamed = stream_bundle(resolve_input(str(FIXTURE)), sink)
+    streamed = stream_bundle(resolve_input(str(FIXTURE)), sink, reader_rules())
     assert streamed.sha256 == sha256_of(FIXTURE) and streamed.schema_version == "1.1.0"
     secs = fixture_sections()
     assert streamed.counts == {s: len(r) for s, r in secs.items()}

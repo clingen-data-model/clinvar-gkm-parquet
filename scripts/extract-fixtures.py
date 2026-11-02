@@ -69,9 +69,9 @@ from typing import BinaryIO
 from clinvar_gkm_parquet import __version__ as TOOL_VERSION
 from clinvar_gkm_parquet.bundle import stage_bundle
 from clinvar_gkm_parquet.compat import TABLE_SPEC_VERSION
+from clinvar_gkm_parquet.default_pairing import reader_rules, sections_of
 from clinvar_gkm_parquet.errors import ToolError
 from clinvar_gkm_parquet.model import InputFile
-from clinvar_gkm_parquet.schemas import sections_of
 from clinvar_gkm_parquet.select import SCHEMA_LINE as _SCHEMA_LINE
 from clinvar_gkm_parquet.select import SECTION_OPEN as _SECTION_OPEN
 from clinvar_gkm_parquet.select import SelectionError, Tap, iter_pointers
@@ -690,7 +690,7 @@ def validate(gz: bytes, name: str, release: str, sections: dict[str, list[Captur
         path.write_bytes(gz)
         inp = InputFile(str(path), name, release, sha, "explicit", len(gz))
         try:
-            staged = stage_bundle(inp, Path(tmp) / "work")
+            staged = stage_bundle(inp, Path(tmp) / "work", reader_rules())
         except Exception as e:  # noqa: BLE001 (any reader failure means invalid output)
             raise ExtractError(f"the written excerpt does not pass bundle.stage_bundle: {e}") from e
         if staged.sha256 != sha or set(staged.sections) != set(sections):

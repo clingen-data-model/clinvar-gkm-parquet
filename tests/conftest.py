@@ -8,7 +8,7 @@ import urllib.error
 
 import pytest
 
-from clinvar_gkm_parquet import sources
+from clinvar_gkm_parquet import transport
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -30,4 +30,4 @@ def _no_network(request, monkeypatch):
     def refuse(req, **kwargs):
         raise urllib.error.HTTPError(getattr(req, "full_url", str(req)), 404, "no network in unit tests", {}, None)
 
-    monkeypatch.setattr(sources, "_urlopen", refuse)
+    monkeypatch.setattr(transport, "_urlopen", refuse)

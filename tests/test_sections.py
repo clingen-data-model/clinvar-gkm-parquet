@@ -22,8 +22,8 @@ from _tables_helpers import SPEC as CLINVAR_GKM
 from _tables_helpers import connect, read_fixture, rows
 
 from clinvar_gkm_parquet import baseline, build, compat, sqltemplate
+from clinvar_gkm_parquet.default_pairing import sections_of
 from clinvar_gkm_parquet.errors import SpecError
-from clinvar_gkm_parquet.schemas import sections_of
 from clinvar_gkm_parquet.spec import RANGE_KINDS, parse_spec, resolve_spec
 from clinvar_gkm_parquet.sqltemplate import canonical_type, render_generic
 
@@ -53,7 +53,7 @@ def test_sections_is_the_default():
         "1.0",
         True,
     )
-    assert resolve_spec(None, "1.1.0")[0] is SPEC
+    assert resolve_spec(None, "1.1.0")[0] == SPEC
 
 
 def test_spec_shape():

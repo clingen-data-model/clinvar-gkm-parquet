@@ -42,8 +42,10 @@ from pathlib import Path
 
 import duckdb
 
+from .bundle import JSON_LAYOUT, ROOT_VALUES_TABLE
+from .default_pairing import sections_of
+from .default_pairing import version_property as default_version_property
 from .errors import RoundTripError, SchemaSetError, SpecError
-from .schemas import sections_of
 from .spec import RANGE_KINDS, Column, Spec, Table
 
 RECORD_COLUMN = "__record"  # the bundle record, carried by a json table's SQL for the check
@@ -127,9 +129,11 @@ class _Writer:
             return f"CAST({x} AS VARCHAR)"
         if tid == "boolean":
             return f"CASE WHEN {x} THEN 'true' WHEN NOT {x} THEN 'false' END"
+        if tid == "double":  # the shortest text that reads back, as Python's and the check confirms it per row
+            return f"CAST({x} AS VARCHAR)"
         raise SpecError(
             f"table {self.table.name}: column {c.name}: no exact JSON text for type {t} at {rel or '(column)'} "
-            "(the round trip writes VARCHAR, integers and BOOLEAN)"
+            "(the round trip writes VARCHAR, integers, DOUBLE and BOOLEAN)"
         )
 
     def struct(self, x: str, t, rel: str, c: Column, sort: bool, ptrs) -> str:
@@ -210,6 +214,8 @@ class _Writer:
                 raise SpecError(f"{where}: the round trip needs nulls: when-absent (NULL = absent)")
             if kind == "scalar-path":
                 parts.append((prop, self.value(self.ref(c.name), t, "", c, sort, {})))
+            elif kind == "json-text":
+                parts.append((prop, self.ref(c.name)))
             elif kind == "bare-id":
                 parts.append((prop, self.bare_id(c, t, sections, used_sections)))
             elif kind in ("typed-copy", "extension-slot"):
@@ -312,7 +318,7 @@ def lossless_problems(spec: Spec) -> list[str]:
                 out.append(f"table {t.name}: column name {c.name} is reserved for the round-trip check")
     if not spec.lossless:
         return out
-    for v in spec.bundle_schema_versions:
+    for v in spec.bundle_schema_versions if spec.root is None else ():
         want = sections_of(v)
         have = [s for t in spec.tables for s in t.sections]
         if sorted(have) != sorted(want) or len(have) != len(spec.tables):
@@ -338,6 +344,23 @@ def lossless_problems(spec: Spec) -> list[str]:
 # --- a build back to its bundle text ---------------------------------------------------------------------------
 
 
+BYTE_IDENTICAL, JSON_EQUAL = "byte-identical", "json-equal"
+
+
+def promise_of(layout: str) -> str:
+    """What a lossless build promises about the text `rebuild` writes, by the layout its source was in."""
+    return JSON_EQUAL if layout == JSON_LAYOUT else BYTE_IDENTICAL
+
+
+def promise_text(promise: str) -> str:
+    if promise == JSON_EQUAL:
+        return (
+            "JSON-equal to the source, whose layout was not kept: the build read it with every key sorted, and "
+            "this is the canonical line layout of that"
+        )
+    return "the source's uncompressed text, byte for byte"
+
+
 @dataclass
 class RebuildResult:
     out: Path | None  # None: the text was hashed, not written
@@ -346,6 +369,7 @@ class RebuildResult:
     text_size: int
     expected_text_sha256: str  # the manifest's source_text_sha256
     sections: dict[str, int] = field(default_factory=dict)  # section -> records written
+    promise: str = BYTE_IDENTICAL  # what the text is to the source (manifest round_trip.promise)
 
 
 class RoundTripMismatch(RoundTripError):
@@ -424,6 +448,8 @@ def rebuild(
             "(lossless: true); only a full build of such a spec (the default, sections) can be rebuilt"
         )
     files = {name[: -len(".parquet")]: out_dir / name for name in kvs}
+    root_values_file = files.pop(ROOT_VALUES_TABLE, None)
+    kvs = {name: kv for name, kv in kvs.items() if name != f"{ROOT_VALUES_TABLE}.parquet"}
     missing = [t.name for t in spec.tables if t.name not in files]
     if missing:
         raise RoundTripError(f"{out_dir}: missing table(s) {', '.join(missing)}: a rebuild needs every table")
@@ -445,12 +471,15 @@ def rebuild(
     for k in ("tool_version", "table_spec", "table_spec_version", "bundle_schema_version", "source_bundle_sha256"):
         _shared_kv(kvs, k)
     version = _shared_kv(kvs, "bundle_schema_version")
-    if version not in spec.bundle_schema_versions:
+    if spec.bundle_schema_versions and version not in spec.bundle_schema_versions:
         raise RoundTripError(f"{out_dir}: bundle_schema_version {version} is not one spec {spec.label} reads")
-    try:
-        sections = sections_of(version)
-    except SchemaSetError as e:
-        raise RoundTripError(f"{out_dir}: bundle_schema_version {version}: {e}") from e
+    if spec.root is not None:
+        sections = tuple(s for t in spec.tables for s in t.sections)
+    else:
+        try:
+            sections = sections_of(version)
+        except SchemaSetError as e:
+            raise RoundTripError(f"{out_dir}: bundle_schema_version {version}: {e}") from e
     manifest_path = out_dir / MANIFEST_NAME
     if not manifest_path.exists():
         raise RoundTripError(
@@ -466,12 +495,21 @@ def rebuild(
     if manifest.get("source_bundle_sha256") != _shared_kv(kvs, "source_bundle_sha256"):
         raise RoundTripError(f"{manifest_path}: source_bundle_sha256 differs from the files'")
     recorded = manifest.get("table_spec") or {}
-    for key, kv_key in (("sha256", "table_spec_sha256"), ("schema_set_sha256", "schema_set_sha256")):
+    for key, kv_key in (
+        ("sha256", "table_spec_sha256"),
+        ("schema_set_sha256", "schema_set_sha256"),
+        ("column_set_sha256", "column_set_sha256"),
+    ):
         files_have = next(iter(kvs.values())).get(kv_key)
         if files_have is not None and recorded.get(key) != _shared_kv(kvs, kv_key):
             raise RoundTripError(
                 f"{manifest_path}: table_spec.{key} {recorded.get(key)} differs from the files' {kv_key}"
             )
+
+    root_order = manifest.get("source_root")
+    promise = (manifest.get("round_trip") or {}).get("promise")
+    if not isinstance(root_order, list) or promise not in (BYTE_IDENTICAL, JSON_EQUAL):
+        raise RoundTripError(f"{manifest_path}: no source_root and round_trip: not a lossless build's manifest")
 
     tmp = None
     if out is not None:
@@ -490,11 +528,31 @@ def rebuild(
             if not rows[s] and kvs[files[by_section[s].name].name]["section_text_sha256"] != EMPTY_SHA256:
                 raise RoundTripMismatch(f"section {s}: no rows, but the build recorded a non-empty section text")
         present = [s for s in sections if rows[s]]
+        stray = [s for s in present if s not in root_order]
+        if stray:
+            raise RoundTripError(
+                f"{manifest_path}: section(s) {stray} have rows, but source_root doesn't list them"
+            )
         want = {s: kvs[files[by_section[s].name].name]["section_text_sha256"] for s in present}
+        values = _root_values(con, root_values_file)
+        version_property = spec.root.version_property if spec.root is not None else default_version_property()
+        members = []
+        for member in root_order:
+            if member == version_property:
+                members.append(("value", member, json.dumps(version, ensure_ascii=False)))
+            elif member in by_section:
+                s = member
+                members.append(("section", s, by_section[s], rows[s], want.get(s)))
+            elif member in values:
+                members.append(("value", member, values.pop(member)))
+            else:
+                raise RoundTripError(f"{manifest_path}: source_root names {member!r}, and no file holds it")
+        if values:
+            raise RoundTripError(f"{manifest_path}: root value(s) {sorted(values)} are not in source_root")
         sink = _Out(tmp, compresslevel, gz=out is not None and out.name.endswith(".gz"))
         ok = False
         try:
-            _write_text(con, sink, version, [(s, by_section[s], rows[s], want[s]) for s in present], log)
+            _write_text(con, sink, members, log)
             sink.close()
             got = sink.sha.hexdigest()
             if got != expected_text:
@@ -522,6 +580,7 @@ def rebuild(
         text_size=sink.size,
         expected_text_sha256=expected_text,
         sections={s: rows[s] for s in present},
+        promise=promise,
     )
 
 
@@ -543,6 +602,18 @@ class _TextSink:
     def close_section(self, section: str) -> None:
         pass
 
+    def root_value(self, name: str, value: bytes) -> None:
+        pass
+
+
+def _root_values(con: duckdb.DuckDBPyConnection, path: Path | None) -> dict[str, str]:
+    if path is None:
+        return {}
+    from .build import sql_str
+
+    rows = con.execute(f'SELECT "name", "value" FROM read_parquet({sql_str(str(path))})').fetchall()
+    return dict(rows)
+
 
 def _open_table(con: duckdb.DuckDBPyConnection, t: Table, path: Path, spec: Spec) -> int:
     """A view of the table's file, checked: the spec's columns, ordinals 0..n-1. Returns n."""
@@ -563,13 +634,23 @@ def _open_table(con: duckdb.DuckDBPyConnection, t: Table, path: Path, spec: Spec
     return n
 
 
-def _write_text(con, sink: _Out, version: str, sections: list[tuple[str, Table, int, str]], log) -> None:
-    """The bundle text in the assembler's layout (bundle.py): (section, table, rows, recorded sha256) per present
-    section, in order. Each section's record lines are hashed as written and compared with the recorded hash."""
-    sink.write(f'{{\n  "schema_version": "{version}"'.encode() + (b",\n" if sections else b"\n"))
-    for i, (section, t, n, want) in enumerate(sections):
+def _write_text(con, sink: _Out, members: list[tuple], log) -> None:
+    """The bundle text in the line layout (bundle.py), its root members in order: ("value", name, JSON text), or
+    ("section", name, table, rows, recorded sha256). Each section's record lines are hashed as written and compared
+    with the recorded hash; a section with no rows is `{}`."""
+    sink.write(b"{\n")
+    for i, member in enumerate(members):
+        end = b",\n" if i < len(members) - 1 else b"\n"
+        name = json.dumps(member[1], ensure_ascii=False).encode()
+        if member[0] == "value":
+            sink.write(b"  " + name + b": " + member[2].encode("utf-8") + end)
+            continue
+        _, section, t, n, want = member
+        if not n:
+            sink.write(b"  " + name + b": {}" + end)
+            continue
         log(f"section {section}: {n} records")
-        sink.write(f'  "{section}": {{\n'.encode())
+        sink.write(b"  " + name + b": {\n")
         sec = hashlib.sha256()
         first, written = True, 0
         for lines in _record_lines(con, t):
@@ -587,7 +668,7 @@ def _write_text(con, sink: _Out, version: str, sections: list[tuple[str, Table, 
                 f"section {section}: the rebuilt record lines have sha256 {sec.hexdigest()}, the build "
                 f"recorded {want}"
             )
-        sink.write(b"  }" + (b",\n" if i < len(sections) - 1 else b"\n"))
+        sink.write(b"  }" + end)
     sink.write(b"}\n")
 
 
@@ -623,9 +704,11 @@ def verify_roundtrip(
     mismatch is a difference, not an error); with `full`, also with that bundle's uncompressed text (its
     compressed sha256 must be the files' source_bundle_sha256). Refusals (not a lossless build) raise."""
     from . import bundle, sources
-    from .verify import dir_kv
+    from .compiled import reader_rules
+    from .verify import dir_kv, spec_for_dir
 
     out: dict = {"passed": False, "problems": [], "checked": [], "text_sha256": None, "text_size": None}
+    out["promise"] = None
     try:
         r = rebuild(
             out_dir, None, spec_arg=spec_arg, memory_limit=memory_limit, threads=threads, work_dir=work_dir
@@ -633,7 +716,7 @@ def verify_roundtrip(
     except RoundTripMismatch as e:
         out["problems"].append(str(e))
         return out
-    out.update(text_sha256=r.text_sha256, text_size=r.text_size, sections=r.sections)
+    out.update(text_sha256=r.text_sha256, text_size=r.text_size, sections=r.sections, promise=r.promise)
     out["checked"].append("every section's section_text_sha256")
     out["checked"].append("the manifest's source_text_sha256")
     if full is not None:
@@ -643,7 +726,12 @@ def verify_roundtrip(
         finally:
             con.close()
         inp = sources.resolve_input(full, sha256=sha256)
-        streamed = bundle.stream_bundle(inp, _TextSink(), text_digests=True)
+        con = duckdb.connect()
+        try:
+            spec = spec_for_dir(con, Path(out_dir), spec_arg)
+        finally:
+            con.close()
+        streamed = bundle.stream_bundle(inp, _TextSink(), reader_rules(spec), text_digests=True)
         if streamed.sha256 != recorded:
             raise RoundTripError(
                 f"--full {full} has sha256 {streamed.sha256}, but the files were built from {recorded}"
@@ -674,8 +762,9 @@ def run_rebuild_command(args) -> int:
     )
     total = sum(result.sections.values())
     print(
-        f"rebuilt {result.out}: bundle schema {result.schema_version}, {len(result.sections)} section(s), {total} "
+        f"rebuilt {result.out}: bundle schema {result.schema_version or '(none stated)'}, "
+        f"{len(result.sections)} section(s), {total} "
         f"records, {result.text_size} bytes of text, sha256 {result.text_sha256} (matches the manifest's "
-        "source_text_sha256 and every section's section_text_sha256)"
+        f"source_text_sha256 and every section's section_text_sha256): {promise_text(result.promise)}"
     )
     return 0

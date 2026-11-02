@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Write the snapshot of a bundle schema_version's schema set, through the tool's own loader (ADR 0006).
+"""Write a schema set on disk through the tool's loader: a root schema and the closure of its `$ref`s (ADR 0006).
 
-Fetches the bundle schema from its published URL and the closure of its `$ref`s, and writes `schemas/<version>/`:
-one file per schema with its original bytes, plus MANIFEST.json (each `$id`, the URL it was fetched from, sha256).
-An existing snapshot of that version is replaced. Fetched files are JSON data; nothing in them is executed.
+Reads the root from a file or URL, fetches the closure, and writes <directory>: one file per schema with its
+original bytes, plus MANIFEST.json (each `$id`, where it was read from, sha256). An existing set there is replaced.
+Fetched files are JSON data; nothing in them is executed. `build --bundle-schema <directory>` reads a set with no
+network.
 
 Usage:
-    uv run python scripts/vendor-schemas.py <version>
+    uv run python scripts/vendor-schemas.py <schema file or URL> <directory>
 """
 
 from __future__ import annotations
@@ -22,18 +23,18 @@ from clinvar_gkm_parquet.schemas import fetch_set, write_set
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("version", help="the bundle schema_version, e.g. 1.1.0")
+    parser.add_argument("root", help="the root schema: a file or an https:// URL")
+    parser.add_argument("directory", type=Path, help="where to write the set")
     args = parser.parse_args()
     try:
-        schema_set = fetch_set(args.version)
+        schema_set = fetch_set(args.root)
     except ToolError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
-    target = Path(__file__).resolve().parents[1] / "schemas" / args.version
-    if target.exists():
-        shutil.rmtree(target)
-    write_set(schema_set, target)
-    print(f"{target}: {len(schema_set.files)} files, schema set sha256 {schema_set.sha256}")
+    if args.directory.exists():
+        shutil.rmtree(args.directory)
+    write_set(schema_set, args.directory)
+    print(f"{args.directory}: {len(schema_set.files)} files, schema set sha256 {schema_set.sha256}")
     return 0
 
 

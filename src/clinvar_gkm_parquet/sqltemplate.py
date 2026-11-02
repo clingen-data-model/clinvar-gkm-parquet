@@ -5,9 +5,9 @@ a table with no such file, e.g. in a user's own spec) writes that file's text fr
 (`generic_template`: one placeholder per column, `WHERE {{known_keys}}` for `known_fields`) and renders it the
 same way, so a hand-written file of generic columns and the generic renderer give the same SQL byte for byte
 (tests/test_generic.py proves it for every such built-in table). It builds key, record, refs (joined on from
-baseline.refs_ctes), scalar-path, bare-id, pointer-section, typed-copy, extension-slot and range-exact / range-min
-/ range-max columns, with the path rules in spec.py; `computed` columns and row filters need a shipped file
-(`generic_problems`). The built-in sections spec is rendered this way.
+baseline.refs_ctes), scalar-path, bare-id, pointer-section, typed-copy, extension-slot, json-text and range-exact /
+range-min / range-max columns, with the path rules in spec.py; `computed` columns and row filters need a shipped
+file (`generic_problems`). The built-in sections spec is rendered this way.
 
 Owned by the table-spec work package. Contract with build.py:
 
@@ -773,6 +773,7 @@ def _render_text(table: Table, text: str, fast: bool) -> str:
 
 GENERIC_KINDS = (
     "ordinal",
+    "json-text",
     "key",
     "record",
     "refs",
@@ -913,6 +914,8 @@ def _generic_columns(table: Table) -> tuple[Table, list[str]]:
             lines.append(f"{{{{typed {c.name}{' ptr=' + ptr if ptr else ''}}}}} AS {alias}")
         elif kind in _RANGE_PLACEHOLDER:
             lines.append(f"{{{{{_RANGE_PLACEHOLDER[kind]} {c.name}}}}} AS {alias}")
+        elif kind == "json-text":
+            lines.append(f"CAST({{{{json {c.name}}}}} AS VARCHAR) AS {alias}")
         elif kind != "refs":
             raise SpecError(f"table {table.name}: column {c.name}: the generic renderer has no kind {kind!r}")
         cols.append(c)

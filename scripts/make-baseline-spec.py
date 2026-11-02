@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 from clinvar_gkm_parquet.baseline import REFS_TYPE
-from clinvar_gkm_parquet.schemas import sections_of
+from clinvar_gkm_parquet.default_pairing import sections_of
 
 VERSION = "1.0"
 SCHEMA_VERSIONS = ["1.1.0"]

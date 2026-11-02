@@ -127,17 +127,20 @@ Two layers of checks:
 - `parse_spec` checks the format (keys, allowed values, columns that exist). It works on any mapping, so tests
   can build small specs over made-up sections.
 - `check_rules` checks what a spec must hold to be built (`load_spec_file` runs it on every spec file, built-in
-  or custom; `check_compiled` is the same for a compiled spec, which is built in and has no file): a name;
-  bundle schema_versions whose schema sets load, and their sections; one key column and at most one
+  or custom; `check_compiled` is the same for a compiled spec, which has no tables.yaml): a name; bundle
+  schema_versions whose schema sets load, and their sections; one key column and at most one
   record column per table (build.py's self-checks compare them with the bundle's key and record; a table with
   no record column is checked on its keys); a sort key that is the key column, or a documented unique one;
   writer settings build.py can use; a renderer for every table.
 
 Built-in specs are named `sections` (the default), `baseline` and `clinvar-gkm`, each with the one version
 compat.py lists; `resolve_spec` takes a built-in name (`clinvar-gkm`, `clinvar-gkm-1.0`, `clinvar-gkm@1.0`) or a
-path. `baseline` and `clinvar-gkm` are files under spec/. `sections` is compiled from the schema set of a bundle's
-schema_version (compiler.py, ADR 0006), so resolving it takes that version, and its version is the version of the
-compiler's rules: what it writes for a bundle is named by the rules version and the schema set's sha256.
+path. `baseline` and `clinvar-gkm` are files under spec/. `sections` is compiled from a bundle schema and its
+column set (compiler.py, ADR 0006), so resolving it for the default bundle takes the bundle's version; its version
+is the version of the compiler's rules, and `root` says how a bundle's root is read.
+
+`json-text` (derivation kind; VARCHAR, a field path): the value at the path as compact JSON text, for a compiled
+spec's property with no typed form. A JSON null reads as absent; the build's round-trip check stops on it.
 """
 
 from __future__ import annotations
@@ -152,8 +155,8 @@ from pathlib import Path
 import yaml
 
 from .compat import BUILTIN_SPECS, COMPILED_SPEC, DEFAULT_SPEC, PUBLISHED_SPEC
+from .default_pairing import sections_of
 from .errors import SchemaSetError, SpecError
-from .schemas import sections_of
 
 STATUSES = ("draft", "captured", "released")
 NULL_RULES = ("never", "when-absent", "empty-list")
@@ -172,6 +175,7 @@ DERIVATION_KINDS = (
     "range-min",  # the integer, else the Range's [0]
     "range-max",  # the integer, else the Range's [1]
     "ordinal",  # the record's position in its bundle section (0-based)
+    "json-text",  # the value at the path, as compact JSON text
 )
 RANGE_KINDS = ("range-exact", "range-min", "range-max")
 JSON_TYPE_SLOTS = "json-type"  # extension_slots.<column>: each extension fills the slot of its value's JSON type
@@ -198,9 +202,20 @@ LIST_PATH_RE = re.compile(r"\$(?:\.\w+(?:\[\*\])*)+")
 FIELD_PATH_RE = re.compile(r"\$(?:\.\w+)+")
 POINTER_POS_RE = re.compile(r"(?:\[\*\]|\.\w+)+")
 _POINTER_KINDS = ("typed-copy", "extension-slot")
-_FIELD_PATH_KINDS = (*_POINTER_KINDS, *RANGE_KINDS)
-_TOP_KEYS = {"name", "spec_version", "status", "bundle_schema_versions", "sources", "writer", "tables", "lossless"}
-_TOP_OPTIONAL = {"name", "lossless"}
+_FIELD_PATH_KINDS = (*_POINTER_KINDS, *RANGE_KINDS, "json-text")
+_TOP_KEYS = {
+    "name",
+    "spec_version",
+    "status",
+    "bundle_schema_versions",
+    "sources",
+    "writer",
+    "tables",
+    "lossless",
+    "root",
+}
+_TOP_OPTIONAL = {"name", "lossless", "root"}
+_ROOT_KEYS = {"version_property", "other_values"}
 NAME_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*")
 VERSION_RE = re.compile(r"\d+\.\d+")
 
@@ -275,6 +290,14 @@ class Table:
 
 
 @dataclass(frozen=True)
+class RootFormat:
+    """A compiled spec's `root`: how a bundle's root is read, since no fixed version list says."""
+
+    version_property: str | None
+    other_values: bool
+
+
+@dataclass(frozen=True)
 class Spec:
     spec_version: str
     status: str
@@ -284,6 +307,7 @@ class Spec:
     tables: tuple[Table, ...]
     name: str | None = None  # required in every spec file; may be absent only in a mapping given to parse_spec
     lossless: bool = False  # the spec encodes the bundle text: `rebuild` writes it back (ADR 0005)
+    root: RootFormat | None = None  # a compiled spec's reading of the root (ADR 0006)
 
     def table(self, name: str) -> Table:
         for t in self.tables:
@@ -310,6 +334,8 @@ class SpecSource:
     path: Path | None  # None: compiled, no file
     sha256: str  # of the tables.yaml bytes; of a compiled spec, compiler.spec_sha256
     schema_set_sha256: str | None = None  # the schema set a compiled spec was compiled from
+    column_set_sha256: str | None = None  # the column set it was compiled from
+    raw: dict | None = field(default=None, compare=False)  # a compiled spec's mapping
 
     @property
     def label(self) -> str:
@@ -400,7 +426,7 @@ def resolve_spec(arg: str | None, schema_version: str | None = None) -> tuple[Sp
                 raise SpecError(
                     f"table spec {name} is compiled for a bundle's schema_version, and none is known here"
                 )
-            from .compiler import compiled_spec  # compiler imports this module
+            from .compiled import compiled_spec  # compiled imports this module
 
             return compiled_spec(schema_version)
         path = builtin_dir(name, version) / SPEC_FILE
@@ -422,16 +448,23 @@ def resolve_spec(arg: str | None, schema_version: str | None = None) -> tuple[Sp
 # --- key-value metadata (design plan §7.2, ADR 0003) -----------------------------------------------------------
 
 # The spec keys build.py writes in every file's key-value metadata, without build.py's
-# "clinvar_gkm_parquet." prefix, in this order. table_spec_builtin is written for a custom spec only,
-# table_spec_sha256 for a custom or compiled one, schema_set_sha256 for a compiled one.
-SPEC_KV_KEYS = ("table_spec", "table_spec_version", "table_spec_builtin", "table_spec_sha256", "schema_set_sha256")
+# prefix, in this order. table_spec_builtin is written for a custom spec only, table_spec_sha256 for a custom or
+# compiled one, schema_set_sha256 and column_set_sha256 for a compiled one.
+SPEC_KV_KEYS = (
+    "table_spec",
+    "table_spec_version",
+    "table_spec_builtin",
+    "table_spec_sha256",
+    "schema_set_sha256",
+    "column_set_sha256",
+)
 
 
 def kv_metadata(source: SpecSource) -> dict[str, str]:
     """The spec's key-value metadata for every file of a build (keys without the prefix, in SPEC_KV_KEYS order).
     A built-in spec is named by name and version; a custom one also by `table_spec_builtin: false` and the
     sha256 of its file, since its name and version are only what the file says; a compiled one also by the sha256
-    of the compiled spec and of the schema set it was compiled from (ADR 0006 §7)."""
+    of what it makes of the tables, and of the schema set and column set it was compiled from (ADR 0006 §7)."""
     kv = {"table_spec": source.name, "table_spec_version": source.version}
     if not source.builtin:
         kv["table_spec_builtin"] = "false"
@@ -439,22 +472,19 @@ def kv_metadata(source: SpecSource) -> dict[str, str]:
     elif source.schema_set_sha256 is not None:
         kv["table_spec_sha256"] = source.sha256
         kv["schema_set_sha256"] = source.schema_set_sha256
+        kv["column_set_sha256"] = source.column_set_sha256
     return kv
 
 
 def spec_from_kv(kv: dict[str, str], spec_arg: str | None = None) -> tuple[Spec, SpecSource]:
     """The spec that wrote a file, from its key-value metadata (keys without the prefix). A file with no
     table_spec key predates named specs and was written by clinvar-gkm. A custom spec can't be found from the
-    metadata: pass its path as `spec_arg`; its sha256 must equal the recorded one. A compiled spec is compiled
-    again for the recorded bundle_schema_version, and both recorded hashes must hold (compiler.recorded_spec)."""
+    metadata: pass its path as `spec_arg`; its sha256 must equal the recorded one. A compiled spec's file is beside
+    the manifest, so verify.spec_for_dir reads it (compiled.recorded_spec)."""
     name = kv.get("table_spec", PUBLISHED_SPEC)
     version = kv.get("table_spec_version")
     if not version:
         raise SpecError("the file's key-value metadata has no table_spec_version")
-    if name == COMPILED_SPEC and kv.get("table_spec_builtin", "true") != "false":
-        from .compiler import recorded_spec  # compiler imports this module
-
-        return recorded_spec(kv)
     if kv.get("table_spec_builtin", "true") != "false":
         return resolve_spec(f"{name}@{version}")
     sha = kv.get("table_spec_sha256")
@@ -535,6 +565,10 @@ def parse_spec(raw: object, where: str = "tables.yaml", *, require_name: bool = 
     lossless = top.get("lossless", False)
     if not isinstance(lossless, bool):
         raise SpecError(f"{where}: lossless must be true or false")
+    root = None
+    if "root" in top:
+        r = _keys(top["root"], _ROOT_KEYS, _ROOT_KEYS, f"{where}: root")
+        root = RootFormat(r["version_property"], bool(r["other_values"]))
     tables = []
     names: set[str] = set()
     for i, t in enumerate(top["tables"] or []):
@@ -635,6 +669,7 @@ def parse_spec(raw: object, where: str = "tables.yaml", *, require_name: bool = 
         tables=tuple(tables),
         name=name,
         lossless=lossless,
+        root=root,
     )
 
 
@@ -701,8 +736,9 @@ def check_rules(spec: Spec, where: str = "tables.yaml", *, builtin: bool = False
 
 
 def check_compiled(spec: Spec, where: str) -> None:
-    """What a compiled spec must hold to be built (module docstring). It is the tool's own and has no file, and its
-    tables take the generic renderer whatever their names. Raises SpecError naming every problem found."""
+    """What a compiled spec must hold to be built (module docstring). It is the tool's own and has no file, its
+    tables take the generic renderer whatever their names, and its schema has already said what its tables read.
+    Raises SpecError naming every problem found."""
     _check(spec, where, builtin=False, custom=False)
 
 
@@ -712,17 +748,19 @@ def _check(spec: Spec, where: str, *, builtin: bool, custom: bool) -> None:
 
     errs: list[str] = []
     version_sections: dict[str, tuple[str, ...]] = {}
-    for v in spec.bundle_schema_versions:
+    for v in spec.bundle_schema_versions if spec.root is None else ():
         try:
             version_sections[v] = sections_of(v)
         except SchemaSetError as e:
             errs.append(f"bundle_schema_versions {v}: can't read its sections: {e}")
     spec_secs = {s for sections in version_sections.values() for s in sections}
+    if spec.root is not None:
+        spec_secs = {s for t in spec.tables for s in t.sections}
     if spec.name is None:
         errs.append("no name")
     elif custom and spec.name in BUILTIN_SPECS:
         errs.append(f"name {spec.name!r} is a built-in spec's; a custom spec needs its own name")
-    if not spec.bundle_schema_versions:
+    if not spec.bundle_schema_versions and spec.root is None:
         errs.append("bundle_schema_versions is empty")
     if not spec.tables:
         errs.append("no tables")
@@ -783,8 +821,8 @@ def _check(spec: Spec, where: str, *, builtin: bool, custom: bool) -> None:
             bad = sorted(named - spec_secs)
             if bad:
                 errs.append(f"table {t.name}: column {c.name}: targets {bad} are not bundle sections")
-    if (spec.lossless or any(t.json for t in spec.tables)) and len(version_sections) == len(
-        spec.bundle_schema_versions
+    if (spec.lossless or any(t.json for t in spec.tables)) and (
+        spec.root is not None or len(version_sections) == len(spec.bundle_schema_versions)
     ):
         from .roundtrip import lossless_problems  # roundtrip imports this module
 

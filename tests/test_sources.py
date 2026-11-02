@@ -14,11 +14,10 @@ import urllib.error
 import pytest
 from _input_helpers import FIXTURE, delta_manifest_json, local_input, sha256_of
 
-from clinvar_gkm_parquet import sources
+from clinvar_gkm_parquet import transport
 from clinvar_gkm_parquet.errors import InputError
 from clinvar_gkm_parquet.model import InputFile
 from clinvar_gkm_parquet.sources import (
-    USER_AGENT,
     load_index,
     load_manifest,
     open_stream,
@@ -26,6 +25,7 @@ from clinvar_gkm_parquet.sources import (
     resolve_input,
     resolve_release,
 )
+from clinvar_gkm_parquet.transport import USER_AGENT
 
 BASE = "https://data.clinvar-gkm.org"
 L = "v1/1.1/"
@@ -173,8 +173,8 @@ def fake_http(monkeypatch):
         calls.append(req)
         return script.pop(0)(req)
 
-    monkeypatch.setattr(sources, "_urlopen", urlopen)
-    monkeypatch.setattr(sources, "_sleep", sleeps.append)
+    monkeypatch.setattr(transport, "_urlopen", urlopen)
+    monkeypatch.setattr(transport, "_sleep", sleeps.append)
     return calls, sleeps, script
 
 
@@ -394,10 +394,10 @@ def test_no_retry_on_404(fake_http):
 
 def test_gives_up(fake_http):
     calls, _, script = fake_http
-    script.extend([_raise(_http_error("x", 500))] * sources.MAX_ATTEMPTS)
+    script.extend([_raise(_http_error("x", 500))] * transport.MAX_ATTEMPTS)
     with pytest.raises(InputError, match="giving up"):
         open_stream(_url_input(f"{BASE}/{L}x.json.gz"))
-    assert len(calls) == sources.MAX_ATTEMPTS
+    assert len(calls) == transport.MAX_ATTEMPTS
 
 
 def test_local_stream():

@@ -19,6 +19,7 @@ from _fixture import FIXTURE, SECTIONS
 
 from clinvar_gkm_parquet import select as sel
 from clinvar_gkm_parquet.bundle import stage_bundle
+from clinvar_gkm_parquet.default_pairing import reader_rules
 from clinvar_gkm_parquet.errors import BundleFormatError, InputError, SchemaVersionError
 from clinvar_gkm_parquet.model import InputFile
 
@@ -262,7 +263,7 @@ def test_output_passes_stage_bundle(tmp_path):
     assert hashlib.sha256(result.path.read_bytes()).hexdigest() == result.sha256
     assert result.path.stat().st_size == result.size
     inp = InputFile(str(result.path), result.path.name, None, result.sha256, "explicit", result.size)
-    staged = stage_bundle(inp, tmp_path / "work")
+    staged = stage_bundle(inp, tmp_path / "work", reader_rules())
     assert {s: x.records for s, x in staged.sections.items()} == result.section_counts
     assert staged.schema_version == result.schema_version == "1.1.0"
     assert not [p for p in tmp_path.iterdir() if p.name.startswith(".")]  # no work or partial files left

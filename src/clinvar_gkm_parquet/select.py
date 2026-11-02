@@ -70,7 +70,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO, Protocol
 
-from .bundle import bundle_sections, peek_schema_version, stage_bundle
+from .bundle import LINE_LAYOUT, layout_of, peek_version, stage_bundle
+from .default_pairing import reader_rules, shape_of, version_property
 from .errors import BundleFormatError, InputError, SchemaVersionError, ToolError
 from .model import InputFile
 from .sources import open_stream
@@ -389,7 +390,12 @@ class BundleFileSource:
     def schema_version(self) -> str:
         """From the file's first lines, before any pass; pass 1 must read the same."""
         if self._schema_version is None:
-            self._schema_version = peek_schema_version(self.input)
+            if layout_of(self.input) != LINE_LAYOUT:
+                raise SelectionError(f"{self.name}: a selection reads the line layout; this file isn't in it")
+            version = peek_version(self.input, version_property())
+            if version is None:
+                raise SchemaVersionError(f"{self.name}: no {version_property()!r} on line 2")
+            self._schema_version = version
         return self._schema_version
 
     def open_pass(self, number: int) -> AbstractContextManager[RecordPass]:
@@ -478,7 +484,7 @@ class _FilePass:
                 f'{self._src.name}: line 2 must be \'  "schema_version": "<version>",\', got {_short(line)}'
             )
         self.schema_version = m.group(1).decode("utf-8", "replace")
-        self._sections = bundle_sections(self._src.name, self.schema_version)
+        self._sections = shape_of(self.schema_version).collections
         self._more = bool(m.group(2))
 
     def sections(self) -> Iterator[_FileSection]:
@@ -745,7 +751,7 @@ def select(
         raise SelectionError(f"max_depth must be a non-negative integer or None, not {max_depth!r}")
     if isinstance(source, InputFile):
         source = BundleFileSource(source)
-    names = bundle_sections(source.name, source.schema_version)
+    names = shape_of(source.schema_version).collections
     index = section_index(names)
     allowed_list = _allowed(sections, names, index)
     seed_bodies = _seeds(seeds, allowed_list, names, index)
@@ -1168,7 +1174,7 @@ def _validate(
     """Re-read the mini-bundle with stage_bundle: each staged section must hold exactly what was written."""
     inp = InputFile(str(path), name, None, sha, "explicit", size)
     try:
-        staged = stage_bundle(inp, work)
+        staged = stage_bundle(inp, work, reader_rules())
     except ToolError as e:
         raise SelectionError(f"the written mini-bundle does not pass bundle.stage_bundle: {e}") from e
     try:

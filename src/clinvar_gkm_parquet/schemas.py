@@ -1,27 +1,22 @@
-"""Load a bundle schema_version's schema set: the bundle schema plus the closure of its `$ref`s (ADR 0006).
+"""Load a bundle schema set: a root schema plus the closure of its `$ref`s, for any producer (ADR 0006).
 
-A set comes from the snapshot a release ships (`schemas/<version>/` in a source tree,
-`clinvar_gkm_parquet/_schemas/<version>/` in a wheel), else from a user cache, else from the network, which fills
-the cache. Fetched files are JSON data: nothing in them is ever executed.
+The root is a local file, an https:// URL, or a directory holding a set on disk (`read_set`). A set is fetched once
+and cached in a user cache, keyed by the root's URL or, for a local file, its bytes. Fetched files are JSON data:
+nothing in them is ever executed.
+
+Only `https://w3id.org/` identifiers are followed from a `$ref`, the host GA4GH schemas publish under, so a `$ref`
+in a fetched file can't send the tool anywhere else (another host, or a local file). The root itself can be
+anywhere, and its `$id` can be of any form (a URN, or a URL other than the one it was read from): the `$id` it
+declares is the set's key for it, and what a column set pairs with. Every other file must declare exactly the
+identifier that reached it.
 
 A set on disk is one file per schema, original bytes, plus MANIFEST.json:
 
-    {"schema_version": "1.1.0", "bundle_id": "<$id>",
-     "files": [{"id": "<$id>", "url": "<URL it was fetched from>", "file": "<relative path>", "sha256": "..."}]}
-
-`sections_of(version)` is what the tool reads a version's bundle sections from: the bundle schema's properties
-other than schema_version, in schema order, which is the order the assembler writes them in (ADR 0006 §6).
+    {"bundle_id": "<the root's $id>",
+     "files": [{"id": "<$id>", "url": "<where it was read from>", "file": "<relative path>", "sha256": "..."}]}
 
 Identity: `SchemaSet.sha256` is over each `$id` and its file bytes, in `$id` order, so it doesn't depend on where
 the set was read from.
-
-Known exception: the bundle schema's declared `$id` (.../clinvar-gkm/<version>/json/ClinvarGkmBundle) returned 404
-on 2026-11-02, and the file is served at .../clinvar-gkm/<version>/clinvar-gkm-bundle.schema.json (ADR 0006). So
-the bundle schema alone may declare an `$id` other than its URL, within its version's folder, and the `$id` it
-declares is the set's key for it. Every other file must declare exactly the identifier that reached it.
-
-Only `https://w3id.org/` identifiers are followed, the host the schemas publish under (ADR 0006 §2), so a `$ref` in
-a fetched file can't send the tool anywhere else (another host, or a local file).
 """
 
 from __future__ import annotations
@@ -29,21 +24,17 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import re
 import urllib.parse
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 
-from . import sources
 from .errors import SchemaSetError
+from .transport import TOOL_NAME, fetch_bytes, is_url
 
-BUNDLE_DIR = "https://w3id.org/clingen/schema/clinvar-gkm/{version}/"
-BUNDLE_URL = BUNDLE_DIR + "clinvar-gkm-bundle.schema.json"
 MANIFEST = "MANIFEST.json"
-SCHEMA_VERSION_PROPERTY = "schema_version"
-_VERSION_RE = re.compile(r"\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?")
+FOLLOWED_HOST = "w3id.org"
 
 
 @dataclass(frozen=True)
@@ -60,18 +51,12 @@ class SchemaFile:
 
 @dataclass(frozen=True)
 class SchemaSet:
-    version: str
-    bundle_id: str
+    bundle_id: str  # the root schema's $id
     files: dict[str, SchemaFile]  # by `$id`
 
     @property
     def bundle(self) -> dict:
         return self.files[self.bundle_id].doc
-
-    @property
-    def sections(self) -> tuple[str, ...]:
-        """The bundle's sections, in schema order."""
-        return tuple(n for n in self.bundle.get("properties", {}) if n != SCHEMA_VERSION_PROPERTY)
 
     @property
     def sha256(self) -> str:
@@ -87,7 +72,9 @@ class SchemaSet:
         doc_id, pointer = split_ref(ref, base)
         file = self.files.get(doc_id)
         if file is None:
-            raise SchemaSetError(f"schema set {self.version}: {base}: $ref {ref!r}: no schema {doc_id} in the set")
+            raise SchemaSetError(
+                f"schema set {self.bundle_id}: {base}: $ref {ref!r}: no schema {doc_id} in the set"
+            )
         node = file.doc
         for step in pointer.split("/")[1:] if pointer else ():
             step = urllib.parse.unquote(step).replace("~1", "/").replace("~0", "~")
@@ -96,15 +83,18 @@ class SchemaSet:
             elif isinstance(node, dict) and step in node:
                 node = node[step]
             else:
-                raise SchemaSetError(f"schema set {self.version}: {base}: $ref {ref!r}: no {step!r} in {doc_id}")
+                raise SchemaSetError(f"schema set {self.bundle_id}: {base}: $ref {ref!r}: no {step!r} in {doc_id}")
         if not isinstance(node, dict):
-            raise SchemaSetError(f"schema set {self.version}: {base}: $ref {ref!r} is not a schema object")
+            raise SchemaSetError(f"schema set {self.bundle_id}: {base}: $ref {ref!r} is not a schema object")
         return node, doc_id
 
 
 def split_ref(ref: str, base: str) -> tuple[str, str]:
-    """(the absolute `$id` of the file `ref` names, the JSON pointer inside it; '' for the whole file)."""
-    absolute, _, fragment = urllib.parse.urljoin(base, ref).partition("#")
+    """(the `$id` of the file `ref` names, the JSON pointer inside it; '' for the whole file)."""
+    if ref.startswith("#"):  # within the file, whatever form its $id has (urljoin can't join a URN)
+        absolute, fragment = base, ref[1:]
+    else:
+        absolute, _, fragment = urllib.parse.urljoin(base, ref).partition("#")
     if fragment and not fragment.startswith("/"):
         raise SchemaSetError(f"{base}: $ref {ref!r}: only JSON-pointer fragments (#/...) are understood")
     return absolute, fragment
@@ -135,35 +125,36 @@ def _parse(raw: bytes, where: str) -> dict:
     return doc
 
 
-def _closure(version: str, url: str, fetch: Callable[[str], bytes]) -> SchemaSet:
-    """Walk the `$ref`s from the bundle schema at `url`; each file comes from `fetch`, sequentially."""
-    bundle_raw = fetch(url)
-    bundle = _parse(bundle_raw, url)
-    bundle_id = bundle.get("$id")
-    if not isinstance(bundle_id, str) or not bundle_id.startswith(BUNDLE_DIR.format(version=version)):
-        raise SchemaSetError(f"{url}: the bundle schema declares $id {bundle_id!r}, outside its version's folder")
-    files = {bundle_id: SchemaFile(bundle_id, url, bundle_raw, bundle)}
-    todo = [(ref, bundle_id) for ref in refs_of(bundle)]
+def _closure(root_url: str, root_raw: bytes, fetch: Callable[[str], bytes]) -> SchemaSet:
+    """Walk the `$ref`s from the root schema; each file comes from `fetch`, sequentially."""
+    root = _parse(root_raw, root_url)
+    root_id = root.get("$id")
+    if not isinstance(root_id, str) or not root_id:
+        raise SchemaSetError(f"{root_url}: the root schema declares no $id")
+    files = {root_id: SchemaFile(root_id, root_url, root_raw, root)}
+    todo = [(ref, root_id) for ref in refs_of(root)]
     while todo:
         ref, base = todo.pop(0)
         doc_id, _ = split_ref(ref, base)
         if doc_id in files:
             continue
         parts = urllib.parse.urlsplit(doc_id)
-        if parts.scheme != "https" or parts.netloc != "w3id.org" or parts.query:
-            raise SchemaSetError(f"schema set {version}: {base}: $ref {ref!r}: not a https://w3id.org/ identifier")
+        if parts.scheme != "https" or parts.netloc != FOLLOWED_HOST or parts.query:
+            raise SchemaSetError(
+                f"schema set {root_id}: {base}: $ref {ref!r}: not a https://{FOLLOWED_HOST}/ identifier"
+            )
         try:
             raw = fetch(doc_id)
         except SchemaSetError as e:
-            raise SchemaSetError(f"schema set {version}: {base}: $ref {ref!r}: {e}") from e
+            raise SchemaSetError(f"schema set {root_id}: {base}: $ref {ref!r}: {e}") from e
         doc = _parse(raw, doc_id)
         if doc.get("$id") != doc_id:
             raise SchemaSetError(
-                f"schema set {version}: {doc_id} (reached from {base}) declares $id {doc.get('$id')!r}"
+                f"schema set {root_id}: {doc_id} (reached from {base}) declares $id {doc.get('$id')!r}"
             )
         files[doc_id] = SchemaFile(doc_id, doc_id, raw, doc)
         todo.extend((r, doc_id) for r in refs_of(doc))
-    return SchemaSet(version, bundle_id, files)
+    return SchemaSet(root_id, files)
 
 
 def _check_closed(schema_set: SchemaSet, where: str) -> None:
@@ -176,15 +167,14 @@ def _check_closed(schema_set: SchemaSet, where: str) -> None:
                 raise SchemaSetError(f"{where}: {e}") from e
 
 
-def read_set(version: str, directory: Path) -> SchemaSet:
+def read_set(directory: Path) -> SchemaSet:
     """A set on disk (module docstring). Each file's sha256 and `$id` must equal the manifest's."""
+    directory = Path(directory)
     path = directory / MANIFEST
     try:
         manifest = _parse(path.read_bytes(), str(path))
     except OSError as e:
         raise SchemaSetError(f"{path}: can't read the manifest: {e}") from e
-    if manifest.get("schema_version") != version:
-        raise SchemaSetError(f"{path}: is for schema_version {manifest.get('schema_version')!r}, not {version}")
     entries = manifest.get("files")
     keys = {"id", "url", "file", "sha256"}
     if not (isinstance(entries, list) and all(isinstance(e, dict) and keys <= set(e) for e in entries)):
@@ -205,7 +195,7 @@ def read_set(version: str, directory: Path) -> SchemaSet:
         if doc.get("$id") != entry["id"]:
             raise SchemaSetError(f"{file_path}: declares $id {doc.get('$id')!r}, not {entry['id']}")
         files[entry["id"]] = SchemaFile(entry["id"], entry["url"], raw, doc)
-    schema_set = SchemaSet(version, manifest.get("bundle_id"), files)
+    schema_set = SchemaSet(manifest.get("bundle_id"), files)
     if schema_set.bundle_id not in files:
         raise SchemaSetError(f"{path}: bundle_id {schema_set.bundle_id} is not one of its files")
     _check_closed(schema_set, str(path))
@@ -214,6 +204,7 @@ def read_set(version: str, directory: Path) -> SchemaSet:
 
 def write_set(schema_set: SchemaSet, directory: Path) -> None:
     """Write `schema_set` as a set on disk: original bytes, plus MANIFEST.json (written last)."""
+    directory = Path(directory)
     entries = []
     try:
         for sid in sorted(schema_set.files):
@@ -223,58 +214,40 @@ def write_set(schema_set: SchemaSet, directory: Path) -> None:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(file.raw)
             entries.append({"id": sid, "url": file.url, "file": rel, "sha256": file.sha256})
-        manifest = {"schema_version": schema_set.version, "bundle_id": schema_set.bundle_id, "files": entries}
+        manifest = {"bundle_id": schema_set.bundle_id, "files": entries}
         (directory / MANIFEST).write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     except OSError as e:
-        raise SchemaSetError(f"schema set {schema_set.version}: can't write {directory}: {e}") from e
+        raise SchemaSetError(f"schema set {schema_set.bundle_id}: can't write {directory}: {e}") from e
 
 
 def _relative_path(url: str) -> str:
-    """Where a schema lives inside a set directory: its URL's path."""
+    """Where a schema lives inside a set directory: its URL's path, or a local root's file name."""
     parts = urllib.parse.urlsplit(url)
-    rel = urllib.parse.unquote(parts.path).lstrip("/")
+    rel = urllib.parse.unquote(parts.path).lstrip("/") if parts.scheme else url
     if not rel or ".." in rel.split("/"):
         raise SchemaSetError(f"{url}: can't be a file name in a schema set")
     return rel
 
 
-def snapshot_dir(version: str) -> Path | None:
-    """The shipped snapshot of `version`: in the wheel, or schemas/ in a source tree; None if there is none."""
-    for root in (Path(__file__).parent / "_schemas", Path(__file__).resolve().parents[2] / "schemas"):
-        if (root / version / MANIFEST).is_file():
-            return root / version
-    return None
-
-
-def snapshot_versions() -> list[str]:
-    """The versions this tool ships a snapshot of, sorted by version number."""
-    found: set[str] = set()
-    for root in (Path(__file__).parent / "_schemas", Path(__file__).resolve().parents[2] / "schemas"):
-        if root.is_dir():
-            found.update(p.parent.name for p in root.glob(f"*/{MANIFEST}"))
-    return sorted(found, key=lambda v: [int(x) if x.isdigit() else 0 for x in re.split(r"[.+-]", v)])
-
-
 def default_cache_dir() -> Path:
-    """$XDG_CACHE_HOME/clinvar-gkm-parquet/schemas, or ~/.cache/... (the fetched sets)."""
+    """$XDG_CACHE_HOME/<tool>, or ~/.cache/<tool>: fetched schema sets and column sets."""
     base = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
-    return Path(base) / "clinvar-gkm-parquet" / "schemas"
+    return Path(base) / TOOL_NAME
 
 
-def _http_fetch(url: str) -> bytes:
-    return sources._fetch_bytes(url)
+def _read_root(source: str, fetch: Callable[[str], bytes]) -> tuple[str, bytes]:
+    """(what a set records as the root's location, its bytes)."""
+    try:
+        if is_url(source):
+            return source, fetch(source)
+        return Path(source).name, Path(source).read_bytes()
+    except SchemaSetError:
+        raise
+    except Exception as e:
+        raise SchemaSetError(f"can't read the root schema {source}: {e}") from e
 
 
-def _check_version(version: str) -> None:
-    """A version comes from a bundle's text and names a directory and a URL."""
-    if not _VERSION_RE.fullmatch(version):
-        raise SchemaSetError(f"schema_version {version!r} is not a version")
-
-
-def fetch_set(version: str, *, fetch: Callable[[str], bytes] = _http_fetch) -> SchemaSet:
-    """`version`'s schema set from the network: the bundle schema's published URL, then its `$ref` closure."""
-    _check_version(version)
-
+def _fetch(fetch: Callable[[str], bytes]) -> Callable[[str], bytes]:
     def checked(url: str) -> bytes:
         try:
             return fetch(url)
@@ -283,29 +256,41 @@ def fetch_set(version: str, *, fetch: Callable[[str], bytes] = _http_fetch) -> S
         except Exception as e:
             raise SchemaSetError(f"can't fetch {url}: {e}") from e
 
-    return _closure(version, BUNDLE_URL.format(version=version), checked)
+    return checked
+
+
+def fetch_set(source: str, *, fetch: Callable[[str], bytes] = fetch_bytes) -> SchemaSet:
+    """The schema set whose root is `source`, a file or URL, with its `$ref` closure read from the network."""
+    checked = _fetch(fetch)
+    root_url, root_raw = _read_root(str(source), checked)
+    return _closure(root_url, root_raw, checked)
 
 
 def load_schema_set(
-    version: str, *, cache_dir: Path | None = None, fetch: Callable[[str], bytes] = _http_fetch
+    source: str | Path, *, cache_dir: Path | None = None, fetch: Callable[[str], bytes] = fetch_bytes
 ) -> SchemaSet:
-    """`version`'s schema set: the shipped snapshot, else the cache, else fetched and cached. A directory is read
-    once per process."""
-    _check_version(version)
-    snapshot = snapshot_dir(version)
-    if snapshot is not None:
-        return _read_once(version, snapshot)
-    cached = (cache_dir or default_cache_dir()) / version
-    if not (cached / MANIFEST).is_file():
-        write_set(fetch_set(version, fetch=fetch), cached)
-    return _read_once(version, cached)
+    """The schema set whose root is `source`: a directory holding a set on disk; else a file or URL, read from the
+    cache when it is there, else fetched and cached. A directory is read once per process."""
+    source = str(source)
+    if not is_url(source) and Path(source).is_dir():
+        return _read_once(Path(source))
+    checked = _fetch(fetch)
+    if is_url(source):
+        key = hashlib.sha256(source.encode()).hexdigest()
+        directory = (cache_dir or default_cache_dir()) / "schemas" / key
+        if (directory / MANIFEST).is_file():
+            return _read_once(directory)
+        root_url, root_raw = _read_root(source, checked)
+    else:
+        root_url, root_raw = _read_root(source, checked)
+        key = hashlib.sha256(root_raw).hexdigest()
+        directory = (cache_dir or default_cache_dir()) / "schemas" / key
+        if (directory / MANIFEST).is_file():
+            return _read_once(directory)
+    write_set(_closure(root_url, root_raw, checked), directory)
+    return _read_once(directory)
 
 
 @cache
-def _read_once(version: str, directory: Path) -> SchemaSet:
-    return read_set(version, directory)
-
-
-def sections_of(version: str) -> tuple[str, ...]:
-    """The sections of a bundle of `version`, in schema order. Raises SchemaSetError if its set can't load."""
-    return load_schema_set(version).sections
+def _read_once(directory: Path) -> SchemaSet:
+    return read_set(directory)

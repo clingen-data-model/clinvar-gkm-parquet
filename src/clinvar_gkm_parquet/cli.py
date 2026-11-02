@@ -11,7 +11,7 @@ from .errors import ToolError
 
 SPEC_HELP = (
     "table spec: a built-in name (sections, the default: one table per bundle section, a typed column per "
-    "record property, compiled from the schemas of the bundle's schema_version; "
+    "record property, compiled from a bundle schema and its column set; "
     "baseline: per section id, refs and the record as data; clinvar-gkm, clinvar-gkm-1.0 or "
     "clinvar-gkm@1.0 for the 22 tables of ClinVar-GKM's published set) or the path of a tables.yaml"
 )
@@ -26,6 +26,17 @@ def _inputs(p: argparse.ArgumentParser) -> None:
     p.add_argument("--index", help="the line index (default: the published v1/1.1/index.json)")
     p.add_argument("--full-source-release", help="YYYY-MM-DD the full represents, if the index can't name it")
     p.add_argument("--sha256", help="expected sha256 of --full (overrides discovery)")
+
+
+def _pairing(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--bundle-schema",
+        help="any producer's bundle schema: a file, a URL, or a directory holding a schema set; with --column-set",
+    )
+    p.add_argument(
+        "--column-set",
+        help="the column set that pairs with --bundle-schema: a file or URL (docs/column-set-format.md)",
+    )
 
 
 def _selection(p: argparse.ArgumentParser, *, required: bool) -> None:
@@ -68,6 +79,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     _inputs(b)
     b.add_argument("--spec", help=SPEC_HELP)
+    _pairing(b)
     b.add_argument("--out", required=True, type=Path, help="output directory")
     b.add_argument("--tables", help="comma-separated subset of tables (default: every table in the spec)")
     b.add_argument("--keep-work", action="store_true", help="keep the staging files (and the mini-bundle)")
@@ -132,9 +144,10 @@ def _parser() -> argparse.ArgumentParser:
 
     c = sub.add_parser(
         "compile-spec",
-        help="write the sections spec of a bundle schema_version as YAML (its tables and columns), with no build",
+        help="write the sections spec of a pairing, or of the default bundle at a version, as YAML, with no build",
     )
-    c.add_argument("schema_version", help="a bundle schema_version, e.g. 1.1.0")
+    c.add_argument("schema_version", nargs="?", help="a version of the default bundle, e.g. 1.1.0")
+    _pairing(c)
 
     ver = sub.add_parser("version", help="tool version and compatibility")
     ver.add_argument("--json", action="store_true")
@@ -167,9 +180,18 @@ def _version(args: argparse.Namespace) -> int:
 
 
 def _compile_spec(args: argparse.Namespace) -> int:
-    from .compiler import compiled_yaml
+    from .compiled import compile_pairing, compiled_spec, compiled_yaml
 
-    sys.stdout.write(compiled_yaml(args.schema_version))
+    pairing = args.bundle_schema, args.column_set
+    if args.schema_version is not None and pairing != (None, None):
+        raise ToolError("compile-spec takes a version, or --bundle-schema and --column-set; not both")
+    if args.schema_version is not None:
+        _, source = compiled_spec(args.schema_version)
+    elif None in pairing:
+        raise ToolError("compile-spec takes a version, or --bundle-schema and --column-set together")
+    else:
+        _, source = compile_pairing(*pairing)
+    sys.stdout.write(compiled_yaml(source))
     return 0
 
 

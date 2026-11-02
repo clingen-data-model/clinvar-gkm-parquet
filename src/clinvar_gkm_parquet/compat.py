@@ -12,14 +12,15 @@ from __future__ import annotations
 import duckdb
 
 from . import __version__
+from .compiler import RULES_VERSION, SPEC_NAME
 
 # The built-in table specs (ADR 0003): name -> the one version of it this release writes.
 BUILTIN_SPECS: dict[str, str] = {
-    "sections": "1.0",
+    SPEC_NAME: RULES_VERSION,
     "baseline": "1.0",
     "clinvar-gkm": "1.0",
 }
-COMPILED_SPEC = "sections"  # compiled from the bundle's schema set, not read from a tables.yaml (ADR 0006)
+COMPILED_SPEC = SPEC_NAME  # compiled from a schema and its column set, not read from a tables.yaml (ADR 0006)
 DEFAULT_SPEC = "sections"  # what a build writes when no --spec is given (ADR 0003; baseline until 2026-10-29)
 PUBLISHED_SPEC = "clinvar-gkm"  # the spec of ClinVar-GKM's published set; its release and the oracle name it
 # The version of the clinvar-gkm spec. Kept under this name for build.py, verify.py and version --json, which
@@ -28,9 +29,10 @@ TABLE_SPEC_VERSION = BUILTIN_SPECS[PUBLISHED_SPEC]
 
 
 SCHEMA_VERSION_RULE = (
-    "sections compiles any bundle schema_version whose schemas meet the contract (ADR 0006): the versions in "
-    "snapshotted_schema_versions work offline, any other is fetched once and cached. Every other spec reads the "
-    "bundle_schema_versions it lists."
+    "sections compiles any bundle from its schema and column set (ADR 0006). With neither given, it reads the "
+    "default bundle's: the versions in snapshotted_schema_versions work offline, and any other whose schema and "
+    "column set are published is fetched once and cached. Every other spec reads the bundle_schema_versions it "
+    "lists."
 )
 
 
@@ -39,8 +41,8 @@ def version_info() -> dict:
     as before specs had names; `table_specs` lists every built-in spec and marks the default. A compiled spec has
     no one table set, so its entry has `tables_by_schema_version` (the snapshotted versions) instead of
     `tables`."""
-    from .compiler import compiled_spec
-    from .schemas import snapshot_versions
+    from .compiled import compiled_spec
+    from .default_pairing import snapshot_versions
     from .spec import load_builtin
 
     published = load_builtin(PUBLISHED_SPEC)

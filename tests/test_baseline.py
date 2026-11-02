@@ -17,7 +17,7 @@ import duckdb
 import pytest
 
 from clinvar_gkm_parquet import baseline, build, sqltemplate
-from clinvar_gkm_parquet.schemas import sections_of
+from clinvar_gkm_parquet.default_pairing import sections_of
 from clinvar_gkm_parquet.spec import resolve_spec
 
 FIXTURE = Path(__file__).parent / "fixtures" / "real-1.1.0" / "clinvar-gkm_excerpt.json.gz"

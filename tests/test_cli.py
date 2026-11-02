@@ -9,7 +9,7 @@ def test_version_json(capsys):
     info = json.loads(capsys.readouterr().out)
     assert info["table_spec_version"] == TABLE_SPEC_VERSION
     assert info["snapshotted_schema_versions"] == ["1.1.0"]
-    assert "compiles any bundle schema_version whose schemas meet the contract" in info["schema_version_rule"]
+    assert "sections compiles any bundle from its schema and column set" in info["schema_version_rule"]
     assert "accepted_schema_versions" not in info  # it can't state a closed list any more (ADR 0006 §6)
     assert info["duckdb_version"] == "1.5.4"
     assert info["tables"]

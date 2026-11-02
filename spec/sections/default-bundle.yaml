@@ -1,0 +1,10 @@
+# The tool's default bundle: what it reads with no --bundle-schema and --column-set. Data, not code: the compiler and the
+# readers know nothing of it. {version} is the bundle's own version, read from version_property.
+#
+# A version with a shipped snapshot works offline: its schema set in schemas/<version>/ (scripts/vendor-schemas.py) and
+# its column set in spec/sections/column-sets/<version>.columns.yaml. Any other is fetched once from these URLs, and
+# cached. ClinVar-GKM publishes the column set with each schema tag from now on; 1.1.0 was published before that, so its
+# column set ships only here.
+version_property: schema_version
+schema_url: https://w3id.org/clingen/schema/clinvar-gkm/{version}/clinvar-gkm-bundle.schema.json
+column_set_url: https://w3id.org/clingen/schema/clinvar-gkm/{version}/clinvar-gkm-bundle.columns.yaml

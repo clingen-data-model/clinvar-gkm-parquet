@@ -28,7 +28,8 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 
 from . import sources
-from .bundle import bundle_sections, canonical_key, stream_bundle
+from .bundle import canonical_key, stream_bundle
+from .default_pairing import reader_rules, shape_of
 from .errors import BundleFormatError, ChainError, InputError
 from .model import BuildInputs, DeltaBundle, DeltaManifest, InputFile
 
@@ -79,6 +80,9 @@ class _MemorySink:
     def close_section(self, section: str) -> None:
         pass
 
+    def root_value(self, name: str, value: bytes) -> None:
+        raise BundleFormatError(f"a delta holds root value {name!r}; deltas hold collections only")
+
 
 def _manifest_sha(m: DeltaManifest) -> str | None:
     sha = m.raw.get("sha256") or (m.raw.get("bundle") or {}).get("sha256")
@@ -88,10 +92,10 @@ def _manifest_sha(m: DeltaManifest) -> str | None:
 def read_delta(inp: InputFile, man: DeltaManifest) -> DeltaBundle:
     """Read one delta bundle into memory and check it is the one its manifest names (release, sha256)."""
     sink = _MemorySink()
-    streamed = stream_bundle(inp, sink)
+    streamed = stream_bundle(inp, sink, reader_rules())
     if inp.release and inp.release != man.release:
         raise ChainError(f"{inp.name} (release {inp.release}) is paired with the manifest for {man.release}")
-    sections = bundle_sections(inp.name, streamed.schema_version)
+    sections = shape_of(streamed.schema_version).collections
     unknown = [s for s in man.raw.get("sections", {}) if s not in sections]
     if unknown:
         raise InputError(
@@ -277,7 +281,7 @@ class ReplayedSource:
 
     def _records(self, number: int) -> Iterator[tuple[str, bytes, bytes]]:
         changes, releases, name = self.chain.changes, self.chain.releases, self.files.name
-        sections = bundle_sections(name, self.schema_version)
+        sections = shape_of(self.schema_version).collections
         warn = number == 1
         done: set[str] = set()
         buf: list[tuple[bytes, bytes]] = []  # what SectionReplay writes, handed on at once

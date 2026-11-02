@@ -24,9 +24,9 @@ from _tables_helpers import connect, read_fixture
 from clinvar_gkm_parquet import bundle
 from clinvar_gkm_parquet.build import EMPTY_SHA256, KV_PREFIX
 from clinvar_gkm_parquet.cli import main
+from clinvar_gkm_parquet.default_pairing import reader_rules, sections_of
 from clinvar_gkm_parquet.errors import RoundTripError, SpecError
 from clinvar_gkm_parquet.roundtrip import RoundTripMismatch, lossless_problems, rebuild, record_sql
-from clinvar_gkm_parquet.schemas import sections_of
 from clinvar_gkm_parquet.spec import parse_spec, resolve_spec
 from clinvar_gkm_parquet.sqltemplate import render_generic
 
@@ -134,10 +134,10 @@ def test_lossless_spec_rules(change, message):
         check_compiled(spec, "the test's spec")
 
 
-def test_record_sql_refuses_a_float_column():
+def test_record_sql_refuses_a_type_with_no_exact_text():
     raw = _raw_sections()
-    raw["tables"][3]["columns"][3]["type"] = "DOUBLE"  # copyNumberCount.copies
-    with pytest.raises(SpecError, match="no exact JSON text for type DOUBLE"):
+    raw["tables"][3]["columns"][3]["type"] = "DATE"  # copyNumberCount.copies
+    with pytest.raises(SpecError, match="no exact JSON text for type DATE"):
         record_sql(parse_spec(raw).table("copyNumberCount"))
 
 
@@ -189,10 +189,10 @@ def test_stream_bundle_text_digests():
             pass
 
     sink = Sink()
-    got = bundle.stream_bundle(local_input(FIXTURE), sink, text_digests=True)
+    got = bundle.stream_bundle(local_input(FIXTURE), sink, reader_rules(), text_digests=True)
     assert (got.text_sha256, got.text_size) == (hashlib.sha256(TEXT).hexdigest(), len(TEXT))
     assert sink.texts == {s: hashlib.sha256(b).hexdigest() for s, b in section_texts(TEXT).items()}
-    assert bundle.stream_bundle(local_input(FIXTURE), Sink()).text_sha256 is None
+    assert bundle.stream_bundle(local_input(FIXTURE), Sink(), reader_rules()).text_sha256 is None
 
 
 def test_verify_roundtrip(built, capsys):

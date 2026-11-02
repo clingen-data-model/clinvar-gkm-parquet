@@ -35,7 +35,7 @@ from pathlib import Path
 
 import duckdb
 
-from . import __version__, baseline, bundle, replay, sources, sqltemplate
+from . import __version__, baseline, bundle, compiled, default_pairing, replay, sources, sqltemplate
 from .compat import BUILTIN_SPECS, COMPILED_SPEC
 from .errors import BundleFormatError, InputError, SchemaVersionError, SpecError, ToolError
 from .model import (
@@ -48,6 +48,7 @@ from .model import (
     StreamedBundle,
     TableResult,
 )
+from .roundtrip import promise_of
 from .spec import Spec, SpecSource, Table, is_compiled, load_spec, resolve_spec
 from .spec import kv_metadata as spec_kv_metadata
 
@@ -74,6 +75,7 @@ KV_ORDER = (
     "table_spec_builtin",
     "table_spec_sha256",
     "schema_set_sha256",
+    "column_set_sha256",
     "table",
     "bundle_schema_version",
     "source_bundle_sha256",
@@ -222,14 +224,9 @@ def spec_kv(spec: Spec, source: SpecSource | None) -> dict[str, str]:
         return spec_kv_metadata(source)
     if spec.name is None:
         return {"table_spec_version": spec.spec_version}
-    if spec.name == COMPILED_SPEC:
-        from .compiler import compiled_spec  # compiler imports what this module does
-
-        compiled, compiled_source = compiled_spec(spec.bundle_schema_versions[0])
-        if compiled == spec:
-            return spec_kv_metadata(compiled_source)
-    elif BUILTIN_SPECS.get(spec.name) == spec.spec_version and load_spec(spec.spec_version, spec.name) == spec:
-        return {"table_spec": spec.name, "table_spec_version": spec.spec_version}
+    if spec.root is None and BUILTIN_SPECS.get(spec.name) == spec.spec_version:
+        if spec.name != COMPILED_SPEC and load_spec(spec.spec_version, spec.name) == spec:
+            return {"table_spec": spec.name, "table_spec_version": spec.spec_version}
     return {"table_spec": spec.name, "table_spec_version": spec.spec_version, "table_spec_builtin": "false"}
 
 
@@ -405,6 +402,23 @@ def _check_group(con, spec: Spec, group: _Group, written: dict[str, Path], fps: 
 
 def _paths(tables: list[Table], written: dict[str, Path]) -> list[tuple[Path, str, str | None]]:
     return [(written[t.name], key_column(t), record_column(t)) for t in tables]
+
+
+def write_root_values(values: dict[str, bytes], spec: Spec, out_dir: Path, kv: dict[str, str]) -> TableResult:
+    """The table of a bundle's root values, name and JSON text: only when it has any."""
+    path = out_dir / f"{bundle.ROOT_VALUES_TABLE}.parquet"
+    con = duckdb.connect()
+    try:
+        con.execute('CREATE TABLE t ("name" VARCHAR, "value" VARCHAR)')
+        con.executemany("INSERT INTO t VALUES (?, ?)", [(k, v.decode("utf-8")) for k, v in values.items()])
+        con.execute(
+            f'COPY (SELECT * FROM t ORDER BY "name") TO {sql_str(str(path))} (FORMAT parquet, '
+            f"COMPRESSION {sql_str(spec.writer['compression'])}, ROW_GROUP_SIZE {spec.writer['row_group_size']}, "
+            f"KV_METADATA {_kv_sql(kv, bundle.ROOT_VALUES_TABLE)})"
+        )
+    finally:
+        con.close()
+    return TableResult(bundle.ROOT_VALUES_TABLE, path, len(values), file_sha256(path), path.stat().st_size)
 
 
 def _copy_sql(spec: Spec, table: Table, sql: str, path: Path, kv: dict[str, str]) -> str:
@@ -627,7 +641,9 @@ class SectionPipeline:
         self.section_text_sha256: dict[str, str] = {}  # section -> sha256 of its record lines, with text_digests
         self.chain = chain  # the deltas already read (replay.load_chain), or None to read them here
         self.schema_version: str | None = None
+        self.rules = compiled.reader_rules(spec)
         self.sections: tuple[str, ...] = ()  # the bundle's sections in schema order, from begin()
+        self.root_values: dict[str, bytes] = {}  # root values, as JSON text (bundle.py)
         self.process, self.needed, self.on_begin = process, needed, on_begin
         self.shared_con = con
         self.memory_limit, self.threads, self.keep_work = memory_limit, threads, keep_work
@@ -664,7 +680,7 @@ class SectionPipeline:
             self.log(
                 f"streaming {inputs.full.name}" + (f" with {len(self.deltas)} delta(s)" if self.deltas else "")
             )
-            full = bundle.stream_bundle(inputs.full, self, text_digests=self.text_digests)
+            full = bundle.stream_bundle(inputs.full, self, self.rules, text_digests=self.text_digests)
             for s in self.sections:  # sections after the full's last one
                 if s not in self.counts:
                     self._absent_section(s)
@@ -743,14 +759,14 @@ class SectionPipeline:
 
     def begin(self, schema_version: str) -> None:
         spec = self.spec
-        if schema_version not in spec.bundle_schema_versions:
+        if spec.bundle_schema_versions and schema_version not in spec.bundle_schema_versions:
             raise SchemaVersionError(
                 f"bundle schema_version {schema_version} is not one table spec {spec.spec_version} reads "
                 f"({', '.join(spec.bundle_schema_versions)})"
             )
         replay.check_schema_versions(self.inputs.full.name, schema_version, self.deltas)
         self.schema_version = schema_version
-        self.sections = bundle.bundle_sections(self.inputs.full.name, schema_version)
+        self.sections = self.rules.shape_of(schema_version).collections
         self._order = {s: i for i, s in enumerate(self.sections)}
         if self.on_begin is not None:
             self.on_begin(self, schema_version)
@@ -774,6 +790,9 @@ class SectionPipeline:
     def section_text(self, section: str, sha256: str) -> None:
         """The sha256 of the section's record lines (text_digests), before close_section hands it over."""
         self.section_text_sha256[section] = sha256
+
+    def root_value(self, name: str, value: bytes) -> None:
+        self.root_values[name] = value
 
     # --- sections ----------------------------------------------------------------------------------------------
 
@@ -897,7 +916,15 @@ def write_manifest(
             "version": kv["table_spec_version"],
             "builtin": kv.get("table_spec_builtin") != "false",
             "sha256": kv.get("table_spec_sha256") or spec_sha256,
-            **({"schema_set_sha256": kv["schema_set_sha256"]} if "schema_set_sha256" in kv else {}),
+            **(
+                {
+                    "schema_set_sha256": kv["schema_set_sha256"],
+                    "column_set_sha256": kv["column_set_sha256"],
+                    "file": compiled.COMPILED_SPEC_FILE,
+                }
+                if "schema_set_sha256" in kv
+                else {}
+            ),
         },
         "table_spec_version": kv["table_spec_version"],
         "table_spec_status": spec.status,
@@ -933,6 +960,8 @@ def write_manifest(
         # A lossless build (ADR 0005): the full's uncompressed text, which `rebuild` writes back.
         manifest["source_text_sha256"] = full.text_sha256
         manifest["source_text_size"] = full.text_size
+        manifest["source_root"] = list(full.root)
+        manifest["round_trip"] = {"promise": promise_of(full.layout), "source_layout": full.layout}
     path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     return manifest
 
@@ -1024,6 +1053,12 @@ def build(
     code is never reached. `render` defaults to `render_table`."""
     if spec is None:
         spec, spec_source = resolve_spec_for(None, inputs)
+    if (
+        spec_source is not None
+        and spec_source.raw is not None
+        and bundle.layout_of(inputs.full) != bundle.LINE_LAYOUT
+    ):
+        spec, spec_source = compiled.for_sorted_input(spec, spec_source)
     render = render or render_table
     names = list(dict.fromkeys(tables)) if tables else [t.name for t in spec.tables]
     unknown = [n for n in names if n not in {t.name for t in spec.tables}]
@@ -1044,7 +1079,9 @@ def build(
         existing = sorted(
             p.name
             for p in out_dir.iterdir()
-            if p.name == MANIFEST_NAME or p.name.endswith(".parquet") or p.name.endswith(".parquet.tmp")
+            if p.name in (MANIFEST_NAME, compiled.COMPILED_SPEC_FILE)
+            or p.name.endswith(".parquet")
+            or p.name.endswith(".parquet.tmp")
         )
         if existing:
             raise InputError(
@@ -1128,6 +1165,10 @@ def build(
         if selected is not None and keep_work and log:
             log(f"kept the mini-bundle: {selected.bundle.source}")
         ordered = [results[n] for n in names]
+        if pipe.root_values and not tables:
+            ordered.append(write_root_values(pipe.root_values, spec, out_dir, kv))
+        if spec_source is not None and spec_source.raw is not None:
+            compiled.write_compiled(spec_source, out_dir)
         manifest_path = out_dir / MANIFEST_NAME
         write_manifest(
             manifest_path,
@@ -1154,6 +1195,8 @@ def build(
             (out_dir / t.file_name).unlink(missing_ok=True)
             (out_dir / (t.file_name + ".tmp")).unlink(missing_ok=True)
         (out_dir / MANIFEST_NAME).unlink(missing_ok=True)
+        (out_dir / compiled.COMPILED_SPEC_FILE).unlink(missing_ok=True)
+        (out_dir / f"{bundle.ROOT_VALUES_TABLE}.parquet").unlink(missing_ok=True)
         raise
     finally:
         if not keep_work:
@@ -1220,10 +1263,28 @@ def _log(msg: str) -> None:
     print(f"clinvar-gkm-parquet: {msg}", file=sys.stderr, flush=True)
 
 
-def resolve_spec_for(arg: str | None, inputs: BuildInputs) -> tuple[Spec, SpecSource]:
-    """The spec a `--spec` value names, for these inputs: the compiled spec needs the full's schema_version, read
-    from its first lines before anything else is (ADR 0006). Any other spec doesn't read the bundle here."""
-    return resolve_spec(arg, bundle.peek_schema_version(inputs.full) if is_compiled(arg) else None)
+def resolve_spec_for(
+    arg: str | None, inputs: BuildInputs, bundle_schema: str | None = None, column_set: str | None = None
+) -> tuple[Spec, SpecSource]:
+    """The spec a `--spec` value names, for these inputs. A pairing (`bundle_schema`, `column_set`) compiles for
+    any bundle. With none, the compiled spec is the default bundle's, for the version the full's first lines state
+    (ADR 0006). Any other spec doesn't read the bundle here."""
+    if (bundle_schema is None) != (column_set is None):
+        raise InputError("--bundle-schema and --column-set go together: a schema and the column set it pairs with")
+    if bundle_schema is not None:
+        if not is_compiled(arg):
+            raise InputError(f"--bundle-schema and --column-set compile the sections spec; not with --spec {arg}")
+        return compiled.compile_pairing(str(bundle_schema), str(column_set))
+    if not is_compiled(arg):
+        return resolve_spec(arg)
+    prop = default_pairing.version_property()
+    version = bundle.peek_version(inputs.full, prop)
+    if version is None:
+        raise SchemaVersionError(
+            f"{inputs.full.name}: no {prop!r} at the root, so it isn't the tool's default bundle; give its schema "
+            "and column set with --bundle-schema and --column-set. See the compatibility matrix in the README."
+        )
+    return resolve_spec(arg, version)
 
 
 def run_build_command(args) -> int:
@@ -1236,7 +1297,10 @@ def run_build_command(args) -> int:
         resolve_spec(spec_arg)  # a bad --spec is reported before any input is touched
     driver = driver_from_args(args)
     inputs = resolve_build_inputs(args)
-    spec, source = resolve_spec_for(spec_arg, inputs)
+    pairing = getattr(args, "bundle_schema", None), getattr(args, "column_set", None)
+    if pairing[0] is not None and (driver is not None or inputs.deltas):
+        raise InputError("--bundle-schema and --column-set build a whole bundle: not with --driver or --delta")
+    spec, source = resolve_spec_for(spec_arg, inputs, *pairing)
     tables = [t.strip() for t in args.tables.split(",") if t.strip()] if args.tables else None
     result = build(
         inputs,
