@@ -32,7 +32,8 @@ sections:
 **What is a collection.** A root property of the schema is a collection when it has `patternProperties`, or
 `additionalProperties` holding a schema. It is one table, named as the property. Any other root property is a root value
 (such as `metadata`): it needs no entry, and the tool keeps it as JSON text in the table `root_values`, name and value,
-which exists only when a bundle has any. The `version_property` is neither. Name a property under `collections` only if
+which exists only when a bundle has any. A root member the schema doesn't name is kept the same way, unless the schema's
+root has `additionalProperties: false`; then it stops the build. The `version_property` is neither. Name a property under `collections` only if
 the schema is silent about it, such as a bare `{"type": "object"}`.
 
 ## Shapes

@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 import gzip
 import json
+import re
 from pathlib import Path
 
 import duckdb
@@ -717,3 +718,37 @@ def test_a_root_closed_to_other_properties_holding_only_collections_has_no_other
     schema_set = make_set({"t": closed(x=STRING)}, additionalProperties=False)
     assert root_parts(schema_set).other_values is False
     assert root_parts(make_set({"t": closed(x=STRING)})).other_values is True
+
+
+def test_the_format_docs_small_example_compiles():
+    text = (Path(__file__).resolve().parents[1] / "docs" / "column-set-format.md").read_text()
+    doc = yaml.safe_load(re.search(r"```yaml\n(.*?)```", text, re.S).group(1))
+    extensions = {"type": "array", "items": {"$ref": f"{W3}/Extension"}}
+    open_value = {"type": ["number", "string", "boolean", "object", "array", "null"]}
+    coding = closed(code=STRING, system=STRING, extra=STRING)
+    mapping = closed(coding=coding, relation=STRING)
+    gene = closed(id=STRING, type=STRING, name=STRING, mappings={"type": "array", "items": mapping}, other=STRING)
+    variant = closed(
+        id=STRING, type=STRING, name=STRING, gene=IRI, start=INT_OR_RANGE, end=INT_OR_RANGE, extensions=extensions
+    )
+    schema_set = make_set({"gene": gene, "variant": variant}, {"Extension": closed(name=STRING, value=open_value)})
+    bundle_id = doc["schema"]
+    bundle = {**schema_set.bundle, "$id": bundle_id}
+    files = {k: v for k, v in schema_set.files.items() if k != ROOT}
+    files[bundle_id] = SchemaFile(bundle_id, bundle_id, b"{}", bundle)
+    t = checked(compile_sections(SchemaSet(bundle_id, files), doc)).table("variant")
+    assert [c.name for c in t.columns] == [
+        "id",
+        "type",
+        "name",
+        "gene",
+        "start",
+        "start_min",
+        "start_max",
+        "stop_pos",
+        "stop_pos_min",
+        "stop_pos_max",
+        "extensions",
+        "ordinal",
+    ]
+    assert t.column("extensions").type == 'STRUCT("name" VARCHAR, value_string VARCHAR, value_boolean BOOLEAN)[]'

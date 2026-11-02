@@ -104,7 +104,7 @@ def test_wheel_includes_the_spec_tree():
     tomllib = pytest.importorskip("tomllib")  # Python 3.11+
     py = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     assert py["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"]["spec"] == "clinvar_gkm_parquet/_spec"
-    assert BASELINE_FILE.is_file() and CLINVAR_GKM_FILE.is_file() and (ROOT / "spec/sections/overlays").is_dir()
+    assert BASELINE_FILE.is_file() and CLINVAR_GKM_FILE.is_file() and (ROOT / "spec/sections/column-sets").is_dir()
     assert (
         py["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"]["schemas"]
         == "clinvar_gkm_parquet/_schemas"

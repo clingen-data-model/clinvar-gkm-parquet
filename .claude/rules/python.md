@@ -13,12 +13,22 @@ passed between stages, and the staging format), `sources.py` (paths, URLs, check
 `spec.py` (loads and checks table specs, built-in or custom), `sqltemplate.py` (renders each table's SQL from the
 spec: from its `sql/<table>.sql`, or from the spec alone with the generic renderer), `baseline.py` (renders the
 baseline spec's id/refs/data tables), `select.py` (the selection engine: pointer walk and mini-bundle),
-`driver.py` (wires selection into `build` and `select`), `roundtrip.py` (rows back to bundle records: the
-build's round-trip check, `rebuild` and `verify --roundtrip`; ADR 0005), `schemas.py` (loads a bundle schema set:
-snapshot, cache or fetch; ADR 0006) and `compiler.py` (compiles the `sections` spec from a schema set and its overlay;
-ADR 0006). Outside `src/`: `schemas/<version>/` is the snapshot of a schema set (written by `scripts/vendor-schemas.py`,
-shipped in the wheel as `_schemas`) and `spec/sections/overlays/<version>.yaml` states what that version's schemas
-lack. Update this file when the layout changes.
+`driver.py` (wires selection into `build` and `select`) and `roundtrip.py` (rows back to bundle records: the
+build's round-trip check, `rebuild` and `verify --roundtrip`; ADR 0005). Update this file when the layout changes.
+
+**The generic core** (ADR 0006) holds no ClinVar-GKM name or URL and imports nothing that does; `tests/test_any_bundle.py`
+enforces it. Keep it that way, because it is meant to move to the GKM Toolkit:
+
+- `compiler.py` compiles a table spec from a schema set and its column set; `columnset.py` loads a column set
+  (`docs/column-set-format.md`); `schemas.py` loads a schema set from a file, URL or directory; `bundle.py` holds the two
+  readers behind the sink interface; `transport.py` reads bytes from a path or URL; `model.py` and `errors.py`.
+
+**The tool around it:** `compiled.py` (a compiled spec as the stages use it: checks, `table-spec.json`, reading it back) and
+`default_pairing.py` (the default bundle, read from `spec/sections/default-bundle.yaml`) name no producer either, but import
+the spec loader. `sources.py`, `replay.py`, `select.py`, `driver.py` and the `clinvar-gkm` spec are ClinVar-GKM's layer.
+
+Outside `src/`: `schemas/<version>/` is the snapshot of a schema set (written by `scripts/vendor-schemas.py`, shipped in
+the wheel as `_schemas`) and `spec/sections/column-sets/<version>.columns.yaml` the column set of a published version.
 
 ## Layout and tooling
 
@@ -45,9 +55,11 @@ lack. Update this file when the layout changes.
 - Compute the sha256 of the compressed bytes while streaming, and check it against the published checksum
   (`<file>.sha256` sidecar, the line `index.json`, or a frozen line's `MANIFEST.json`) when one is available.
   Refuse on a mismatch.
-- Read `schema_version` from the bundle itself. A spec that lists versions refuses any other; `sections` is compiled
-  for it and refuses a version whose schema set doesn't load or compile (ADR 0006). Nothing in the package lists
-  sections or versions: a bundle's sections come from its version's schema set (`schemas.sections_of`).
+- A file in another JSON layout is read whole, by the general reader: never read a large file that way. Layout is chosen per
+  file (`bundle.sniff_layout`), not by the pairing.
+- With no pairing, read `schema_version` from the bundle itself. A spec that lists versions refuses any other; `sections`
+  refuses a version whose pairing doesn't load or compile (ADR 0006). Nothing in the package lists sections or versions: a
+  bundle's collections come from its schema (`compiler.root_parts`).
 
 ## Fail loudly
 
@@ -57,8 +69,8 @@ lack. Update this file when the layout changes.
 ## Network
 
 - Every HTTP request sends `User-Agent: clinvar-gkm-parquet/<version>`.
-- Schema sets are fetched from `https://w3id.org/` only, as JSON data, once per version, into the user cache
-  (`$XDG_CACHE_HOME/clinvar-gkm-parquet/schemas/`); a shipped snapshot is never fetched.
+- A schema set's `$ref`s are followed on `https://w3id.org/` only, as JSON data, once per root, into the user cache
+  (`$XDG_CACHE_HOME/clinvar-gkm-parquet/`); a set on disk is never fetched.
 - Respect the CDN limit of 250 requests per 10 s: one stream per large file, retry 429 and 5xx with backoff,
   resume interrupted downloads with HTTP `Range`.
 - Unit tests never touch the network, and `tests/conftest.py` enforces it and gives the suite a private cache.
@@ -71,4 +83,5 @@ lack. Update this file when the layout changes.
 - Golden expectations come from the real published Parquet for the same release and ids, not from the code
   under test. `tests/fixtures/sections-golden/` is the hand-researched `sections` spec for 1.1.0, what the compiler
   must reproduce; a build doesn't load it.
-- A schema set for a test goes in the cache directory (set `XDG_CACHE_HOME`): the real path, no patching.
+- A schema set for a test is a directory given to `--bundle-schema`: the real path, no patching. `tests/fixtures/civic/` and
+  `tests/fixtures/clinvar-sub-bundle/` are real bundles of another producer and another layout, with their sources recorded.

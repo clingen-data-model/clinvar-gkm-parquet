@@ -88,27 +88,47 @@ All notable changes to this tool. Each release states the table-spec versions it
   `CLINVAR_GKM_FIXTURE=<folder>` still runs the suite on another excerpt (the `provisional` and `real` values
   are gone), and the skips and strict xfails for the provisional fixture's shapes are removed. No tool
   behaviour changes.
-- **`sections` is compiled at run time from the bundle's schemas** (ADR 0006; unreleased). A build reads the bundle's
-  `schema_version` from its first lines, loads that version's schema set (the bundle schema plus the closure of its
-  `$ref`s: the shipped snapshot `schemas/1.1.0/`, else the cache, else fetched once from `w3id.org`) and compiles the
-  spec with fixed rules, plus `spec/sections/overlays/1.1.0.yaml` for what the 1.1.0 schemas lack. On 1.1.0 the compiled
+- **The compile-and-build path is generic: any bundle plus its schema and column set** (ADR 0006; unreleased). `build
+  --bundle-schema <path|url|dir> --column-set <path|url> --full <bundle>` compiles a table spec for any producer's bundle,
+  and `compile-spec` shows the result. A column set ([`docs/column-set-format.md`](docs/column-set-format.md)) is required
+  and authoritative: it states the columns, and a schema's `$id` pairs with it. No ClinVar-GKM name or URL is in that path
+  (a test enforces it). Proved on two real CIViC bundles, whose schema has a URN `$id`, with no version, pretty-printed,
+  with empty collections and root values: rebuilt JSON equals the source, `metadata` included.
+- **The default bundle is a data file**, `spec/sections/default-bundle.yaml`. With no flags, a build reads the bundle's
+  `schema_version` from its first lines and takes that version's pairing: the shipped snapshot `schemas/1.1.0/` with
+  `spec/sections/column-sets/1.1.0.columns.yaml`, else the published URLs, fetched once and cached. On 1.1.0 the compiled
   tables equal the previous file's (names, types, nulls, derivations) with no listed difference, except column and field
   order in the 13 key-sorted tables, which is now schema order; rows are equal per column by name, and `rebuild` gives
   the same text (2026-09-23 weekly delta: sha256 `fb247dc2…`). `spec/sections/1.0/tables.yaml` moved to
   `tests/fixtures/sections-golden/`, the golden the compiler must reproduce; a build doesn't load it.
-- **Behaviour change: no fixed list of bundle versions for `sections`.** A version is accepted when its schema set loads
-  and compiles, and refused with the reason (the fetch failure, or the section and position that stop the compile)
-  otherwise. `baseline`, `clinvar-gkm` and a custom spec keep the versions they list; a custom spec's sections are checked
-  against those versions' schema sets, so one listing a version the tool hasn't snapshotted reads or fetches its schemas
-  when it loads. A bundle's sections and their order now come from its version's schema set in the reader, replay, the
-  selection engine and `rebuild`. A delta manifest's sections are checked when its delta is read, not when the manifest
-  is, because a manifest states no version. Error text changes: an unknown version's message gives the reason.
-- **New key-value entries on a `sections` build:** `table_spec_sha256` (of the compiled spec, canonical JSON) and
-  `schema_set_sha256`, with `table_spec.schema_set_sha256` in the manifest. `verify` and `rebuild` compile again for the
-  recorded version and refuse a differing hash, saying which and which tool version wrote the set. So a set built before
-  this change, which has neither, must be rebuilt (`sections` was an unreleased draft). `clinvar-gkm` and `baseline` output
-  is byte-identical on the real excerpt.
-- New command `compile-spec <schema_version>`: writes the compiled spec as YAML, with both hashes in a comment.
+- **Behaviour change: no fixed list of bundle versions for `sections`.** A version is accepted when its pairing loads and
+  compiles, and refused with the reason otherwise. `baseline`, `clinvar-gkm` and a custom spec keep the versions they list;
+  a custom spec's sections are checked against those versions' schema sets, so one listing an unsnapshotted version reads or
+  fetches its schemas when it loads. A bundle's collections and their order come from its schema in the reader, replay, the
+  selection engine and `rebuild`. A delta manifest's sections are checked when its delta is read, because a manifest states
+  no version. Error text changes: an unknown version's message gives the reason.
+- **Two readers, chosen per file by its first lines.** The line layout is streamed by the strict grammar, as before, and now
+  also takes `"<collection>": {}` and root values on one line, and a file with no version line under a pairing. Any other
+  JSON is read whole (in memory), every record's keys sorted, a duplicate key or a non-JSON number refused. A plain `.json`
+  file works as well as gzip. `clinvar-gkm`, `baseline` and selections read only the line layout.
+- **The round trip states its promise.** The manifest gains `round_trip` (`promise`: `byte-identical` | `json-equal`,
+  `source_layout`) and `source_root` (the root's members, in order). `rebuild` and `verify --roundtrip` state which holds, and
+  a file in another layout is written back in the canonical line layout.
+- **Root values** (`metadata`, say) are kept in a `root_values` table (`name`, `value` as JSON text), which exists only when a
+  bundle has any and which `rebuild` writes back. An empty collection is a zero-row table, written back as `{}`.
+- **New value kinds in a compiled spec:** a float is a DOUBLE column or `value_number` slot, its text confirmed by the row
+  check; `json` keeps a record property as JSON text (derivation kind `json-text`), for a map whose keys are data or a
+  position that is a pointer in one record and an object in another; `prop as name` renames a column, which replaces the
+  tool's built-in `loc_` rename. Two `allOf` declarations of one property now both hold: a profile narrows its base.
+- **New key-value entries on a compiled build:** `table_spec_sha256` (of what affects the tables: not `description`,
+  `transform`, `sources` or `status`), `schema_set_sha256` and `column_set_sha256`, also in the manifest's `table_spec`, and
+  its compiled spec beside the manifest as `table-spec.json`. `verify` and `rebuild` read that file and refuse a hash that
+  differs, naming the tool that wrote the set; they don't recompile or need the schemas. So a `sections` set built before
+  this change must be rebuilt (it was an unreleased draft). `clinvar-gkm` and `baseline` output is byte-identical on the
+  real excerpt.
+- New command `compile-spec <schema_version>` or `compile-spec --bundle-schema ... --column-set ...`: writes the compiled spec
+  as YAML, with the hashes in a comment. `scripts/vendor-schemas.py <schema> <directory>` writes a schema set a build can read
+  with no network.
 - **`version --json` changes:** `accepted_schema_versions` is removed, because it can no longer be a closed list.
   `schema_version_rule` states the rule and `snapshotted_schema_versions` lists what works offline. Each `table_specs`
   entry gains `compiled`, and the compiled entry has `tables_by_schema_version` instead of `tables`. The other keys keep

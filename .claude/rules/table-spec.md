@@ -16,12 +16,13 @@ format and location (`spec/<MAJOR>.<MINOR>/tables.yaml`, one directory per spec 
 ## Spec files and the compiled spec
 
 `spec/<MAJOR>.<MINOR>/` (`clinvar-gkm`) and `spec/baseline/<MAJOR>.<MINOR>/` hold spec files. `sections` has no file: it
-is compiled at run time from the schema set of the bundle's `schema_version`
-([ADR 0006](../../docs/decisions/0006-sections-spec-compiled-from-schemas.md)). `spec/sections/overlays/<version>.yaml`
-states only what a published version's schemas lack; a version whose schemas meet the contract has none.
+is compiled at run time from a bundle schema and its column set
+([ADR 0006](../../docs/decisions/0006-sections-spec-compiled-from-schemas.md), format in
+[`docs/column-set-format.md`](../../docs/column-set-format.md)). `spec/sections/column-sets/<version>.columns.yaml` holds
+the column set of a published ClinVar-GKM version, and `spec/sections/default-bundle.yaml` says where others are.
 
-What versions a `sections` table set is the rules version (`compat.BUILTIN_SPECS["sections"]`, the rules in
-`compiler.py`) plus the schema set's sha256. Each build records the schema set's and the compiled spec's sha256.
+What identifies a compiled table set is `table_spec_sha256`, of what affects the tables; `schema_set_sha256` and
+`column_set_sha256` say what it came from. All three, and the compiled spec itself (`table-spec.json`), are in every set.
 
 ## Every column cites the bundle
 
@@ -47,20 +48,20 @@ makes the output conform to an existing spec is a tool PATCH, not a spec change.
 
 The table applies to spec files. For `sections`:
 
-- **A schema change needs no bump.** The columns follow the schema, so ClinVar-GKM's schema version names them, and the
-  producer announces those changes (ADR 0006).
-- **A change to the rules bumps the rules version**, by the table: what an existing schema set compiles to is what the
-  table judges. So does a change to a released overlay that changes a compiled table.
-- **Any change to what the compiler writes for a schema set changes the compiled spec's sha256**, prose included, and
-  `verify` and `rebuild` then refuse sets written before it. Call that out in the changelog; those sets are rebuilt, or
-  read with the tool version that wrote them.
+- **A pairing change needs no bump.** The columns follow the column set, so the producer names them and announces changes
+  (ADR 0006).
+- **A change to the rules bumps the rules version** (`compiler.RULES_VERSION`), by the table: what an existing pairing
+  compiles to is what the table judges.
+- **A built set doesn't depend on the rules:** it carries its compiled spec, so `verify` and `rebuild` read an older set
+  with no recompile. They do need a tool that understands that spec's format.
+- Rewording changes no hash: `table_spec_sha256` leaves out `description`, `transform`, `sources` and `status`.
 - The golden test (`tests/test_compiler.py` against `tests/fixtures/sections-golden/`) lists every accepted difference
   on 1.1.0, and the lossless round trip must still pass on the real excerpt.
 
 ## What moves with a spec change (same PR)
 
 - The new `spec/<version>/` directory (copy the previous one; never edit a released one), or for `sections` the rules
-  version, or the overlay.
+  version, or a column set under `spec/sections/column-sets/`.
 - The table SQL and the spec-conformance test.
 - The compatibility matrix: `README.md` and the package's `version --json` data.
 - The changelog entry, listing every added, changed or removed column.

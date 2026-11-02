@@ -16,11 +16,12 @@ Every step that publishes (tag push, PyPI, GitHub Release) needs the user's expl
   - **MAJOR**: a breaking CLI change, a table-spec MAJOR, or dropping a `schema_version` a fixed spec lists or a
     snapshot;
   - **MINOR**: a fixed spec listing a new `schema_version`, a new snapshot, a table-spec MINOR, or a new feature
-    (`sections` reads a new `schema_version` that meets the contract with no release, ADR 0006);
+    (`sections` reads a new `schema_version` with a published column set and no release, ADR 0006);
   - **PATCH**: a fix that doesn't change the table spec (including a fix that makes output conform to it).
 - Table-spec version: changes only if the release ships a new `spec/<version>/` or new `sections` rules (see
   `.claude/rules/table-spec.md`).
-- Snapshot the schema sets the release was tested with: `scripts/vendor-schemas.py <version>`.
+- Snapshot the schema sets the release was tested with: `scripts/vendor-schemas.py <schema URL> schemas/<version>`,
+  and their column sets in `spec/sections/column-sets/<version>.columns.yaml`.
 
 ## 2. Verify before tagging
 
