@@ -3,7 +3,7 @@
 #
 # Source of every fact, unless a comment says otherwise: the ClinVar-GKM producer at origin/1.0 c8d9c000
 # (src/procedures/gkm-*-proc.sql, gkm-proposition-section-func.sql, src/scripts/export-gkm-dicts.sh), as researched for
-# spec/sections/1.0, and checked on every record of the real excerpt and of the 2026-09-23 weekly delta by the build's
+# tests/fixtures/sections-golden/, and checked on every record of the real excerpt and of the 2026-09-23 weekly delta by the build's
 # round-trip check.
 #
 # In sections, a listed property is one the producer emits; a bare name takes its type from the schema. `id` is listed

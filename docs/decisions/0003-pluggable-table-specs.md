@@ -46,7 +46,8 @@ Users also want tables shaped for their own queries. The maintainer decided on 2
    `src/clinvar_gkm_parquet/baseline.py` renders it, under the same contract as the template renderer: one
    SELECT over `bundle_<section>(key, record)`.
 
-   3a. **The sections spec** (`spec/sections/1.0/tables.yaml`; added 2026-10-29, the default) also has one table
+   3a. **The sections spec** (added 2026-10-29, the default; compiled from the bundle's schemas since
+   [ADR 0006](0006-sections-spec-compiled-from-schemas.md), which moved its file to the golden test) also has one table
    per section, named as the section and sorted by `id`, with the same writer settings, but types the record
    instead of carrying it: `id` (the bundle key) first, then every top-level property of the record as its own
    column, named exactly as the property, and **no `data` column**. A scalar is a `scalar-path` column; a

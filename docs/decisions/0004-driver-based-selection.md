@@ -37,8 +37,8 @@ wired (`src/clinvar_gkm_parquet/driver.py`: `build --driver ...` and the `select
 6. **The output is a mini-bundle**: the selected records verbatim, in the exact bundle line layout (design plan
    §4.2), every record's bytes copied exactly, in source section order and source key order. The normal build
    then runs on it, with any spec.
-7. **Validity.** The engine checks the source's sha256 when an expected one is known, checks `schema_version`
-   against `compat.ACCEPTED_SCHEMA_VERSIONS`, checks every re-opened pass against pass 1, and fails on driver
+7. **Validity.** The engine checks the source's sha256 when an expected one is known, checks the sections
+   against the schema set of the bundle's `schema_version` (ADR 0006), checks every re-opened pass against pass 1, and fails on driver
    keys the driver section doesn't hold (naming up to ten). A pointer to a key its section doesn't hold is
    recorded as dangling in the result, never a failure (a full bundle should have none). The mini-bundle is
    re-read with `bundle.stage_bundle` before it is moved into place.

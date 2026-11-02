@@ -9,9 +9,10 @@ those Parquet tables from any bundle, including archived releases, so the Parque
 regenerated from the bundle it came from.
 
 > **Status:** not yet released. The first code (v0, design plan §12 step 1) is merged and tested on a real
-> excerpt of the published 2026-10-18 bundle. Table spec 1.0 is a draft: its names and types match ClinVar-GKM's
-> published 1.1.0 Parquet export, and it is final once the oracle has run against that export
-> ([design plan](docs/plans/2026-10-20-design.md) §3.2, §8.2). Until the tool ships, ClinVar-GKM builds its published
+> excerpt of the published 2026-10-18 bundle. The `clinvar-gkm` table spec 1.0 is a draft: its names and types match
+> ClinVar-GKM's published 1.1.0 Parquet export, and it is final once the oracle has run against that export
+> ([design plan](docs/plans/2026-10-20-design.md) §3.2, §8.2). The default `sections` spec is compiled from the bundle's
+> schemas ([ADR 0006](docs/decisions/0006-sections-spec-compiled-from-schemas.md), proposed). Until the tool ships, ClinVar-GKM builds its published
 > Parquet set with its own BigQuery export.
 >
 > ClinVar-GKM publishes **one** Parquet dataset, at `https://data.clinvar-gkm.org/v1/1.1/parquet/`,
@@ -27,17 +28,21 @@ regenerated from the bundle it came from.
 This tool is versioned **independently** of the ClinVar-GKM bundle schema, because the two release on
 different cadences ([ADR 0002](docs/decisions/0002-independent-tool-versioning.md)). Every release states:
 
-- the bundle `schema_version`s it accepts as input (the tool reads each bundle's self-declared
-  `schema_version` and refuses versions it does not support);
 - the built-in Parquet **table specs** it writes, each with its own version, and which one is the default
-  ([ADR 0003](docs/decisions/0003-pluggable-table-specs.md)). A spec defines the tables and columns.
+  ([ADR 0003](docs/decisions/0003-pluggable-table-specs.md)). A spec defines the tables and columns;
+- the bundle `schema_version`s they read. The tool reads each bundle's self-declared `schema_version`. `sections`
+  compiles any version whose schemas meet the contract
+  ([ADR 0006](docs/decisions/0006-sections-spec-compiled-from-schemas.md)), and the snapshotted versions work offline;
+  any other is fetched once and cached, and a version that can't load or compile is refused with the reason. `baseline`,
+  `clinvar-gkm` and a custom spec read the versions they list and refuse any other.
 
-| Tool version | Bundle input (`schema_version`) | Built-in table specs |
-| --- | --- | --- |
-| *(none released yet)* | | |
-| *(unreleased `main`)* | 1.1.0 | `sections` 1.0 (default; draft), `baseline` 1.0 (draft), `clinvar-gkm` 1.0 (draft) |
+| Tool version | `sections` reads (snapshotted) | `baseline`, `clinvar-gkm` read | Built-in table specs |
+| --- | --- | --- | --- |
+| *(none released yet)* | | | |
+| *(unreleased `main`)* | any version meeting the contract (1.1.0) | 1.1.0 | `sections` 1.0 (default; draft), `baseline` 1.0 (draft), `clinvar-gkm` 1.0 (draft) |
 
-- `sections`: one table per bundle section (20), keyed by `id`, with every record property its own typed column
+- `sections`: one table per bundle section (20 in 1.1.0), keyed by `id`, compiled from the schemas of the bundle's
+  `schema_version`, with every record property its own typed column
   (named as the property; pointers as bare ids; extensions in `value_<type>` slots by the JSON type of their
   value) and no `data` column. A property, value type or record shape the spec doesn't cover stops the build.
   It is lossless ([ADR 0005](docs/decisions/0005-lossless-sections-build.md)): each table also has `ordinal`
@@ -48,11 +53,13 @@ different cadences ([ADR 0002](docs/decisions/0002-independent-tool-versioning.m
 - `clinvar-gkm`: the 22 tables of ClinVar-GKM's published Parquet set, with typed columns matching its BigQuery
   export; the spec the oracle compares and the one ClinVar-GKM's release build names.
 
-`version --json` gives the same (`table_specs`, `default_table_spec`). See the
+`version --json` gives the same (`table_specs`, `default_table_spec`, `schema_version_rule`,
+`snapshotted_schema_versions`). See the
 [design plan](docs/plans/2026-10-20-design.md#92-compatibility-matrix-planned) for the planned releases.
 
-Each Parquet file records, in its key-value metadata, the tool version, the spec's name and version (and, for a
-custom spec, the sha256 of its file), the source bundles' sha256s, for a lossless build the sha256 of its
+Each Parquet file records, in its key-value metadata, the tool version, the spec's name and version (for a custom
+spec, also the sha256 of its file; for `sections`, the sha256 of its schema set and of its compiled spec, which `verify`
+and `rebuild` compile again and compare), the source bundles' sha256s, for a lossless build the sha256 of its
 section's text and, for a selective build, the selection
 ([design plan](docs/plans/2026-10-20-design.md#72-key-value-metadata-every-file) §7.2).
 
@@ -84,6 +91,9 @@ clinvar-gkm-parquet select --full clinvar-gkm_2026-1018.json.gz --out omim.json.
 clinvar-gkm-parquet build --spec baseline --full clinvar-gkm_2026-1018.json.gz --out omim/ \
     --driver submitter --where "data->>'\$.name' = 'OMIM'" --follow in --max-depth 1
 
+# The columns the sections spec has for a bundle schema_version, with no build
+clinvar-gkm-parquet compile-spec 1.1.0 > sections-1.1.0.yaml
+
 # Back from Parquet to the bundle: a full sections build rebuilds the bundle's text byte for byte
 clinvar-gkm-parquet rebuild out/ -o clinvar-gkm_2026-1018.json.gz
 
@@ -108,13 +118,13 @@ boolean expression over that table as the spec builds it), `--ids k1,k2` and `--
 [design plan](docs/plans/2026-10-20-design.md) §4.5 and §10. `verify --spec <file>` is required for a custom
 spec; `verify --against` (the oracle) takes a full `clinvar-gkm` build only.
 
-A spec file uses the format of the built-in ones (`spec/sections/1.0/tables.yaml`, `spec/1.0/tables.yaml`;
+A spec file uses the format of the built-in ones (`spec/1.0/tables.yaml`, or `compile-spec` for `sections`;
 reference in `src/clinvar_gkm_parquet/spec.py`). Its tables need no SQL: each column names a derivation kind
 (`scalar-path`, `bare-id`, `pointer-section`, `typed-copy`, `extension-slot`, `range-exact`, `range-min`,
 `range-max`, `refs`, `ordinal`, plus the `key` and an optional `record` column) and a path such as `$.name` or
 `$.contributions[*].contributor`; extension slots go by name or, with `json-type`, by the JSON type of the value.
 A spec that should rebuild the bundle states `lossless: true`, an `ordinal` column and a `json` block per table,
-and the `targets` of every pointer (as `spec/sections/1.0/tables.yaml` does). Example:
+and the `targets` of every pointer (as `compile-spec`'s output does). Example:
 [`tests/fixtures/custom-spec/tables.yaml`](tests/fixtures/custom-spec/tables.yaml). Only `computed` columns and
 row filters need a SQL file the tool ships.
 

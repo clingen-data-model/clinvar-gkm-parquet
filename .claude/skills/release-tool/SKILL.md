@@ -13,16 +13,19 @@ Every step that publishes (tag push, PyPI, GitHub Release) needs the user's expl
 
 - Read `version --json` on `main` and the changelog since the last tag.
 - Tool version (semver):
-  - **MAJOR**: a breaking CLI change, a table-spec MAJOR, or dropping an accepted `schema_version`;
-  - **MINOR**: a new accepted `schema_version`, a table-spec MINOR, or a new feature;
+  - **MAJOR**: a breaking CLI change, a table-spec MAJOR, or dropping a `schema_version` a fixed spec lists or a
+    snapshot;
+  - **MINOR**: a fixed spec listing a new `schema_version`, a new snapshot, a table-spec MINOR, or a new feature
+    (`sections` reads a new `schema_version` that meets the contract with no release, ADR 0006);
   - **PATCH**: a fix that doesn't change the table spec (including a fix that makes output conform to it).
-- Table-spec version: changes only if the release ships a new `spec/<version>/` (see
+- Table-spec version: changes only if the release ships a new `spec/<version>/` or new `sections` rules (see
   `.claude/rules/table-spec.md`).
+- Snapshot the schema sets the release was tested with: `scripts/vendor-schemas.py <version>`.
 
 ## 2. Verify before tagging
 
 - `uv run ruff check` and `uv run pytest` pass.
-- For every `schema_version` the release accepts, run `build` then `verify` on a **real published bundle**
+- For every `schema_version` the release snapshots or a fixed spec lists, run `build` then `verify` on a **real published bundle**
   of that version (a monthly full, plus a delta chain if replay changed), and record the commands and results.
 - If the table spec or the build logic changed: rerun the oracle against ClinVar-GKM's published latest Parquet
   for the same release (design plan §8), or the bundle recompute if no BigQuery export exists for that release.
@@ -32,8 +35,8 @@ Every step that publishes (tag push, PyPI, GitHub Release) needs the user's expl
 ## 3. Update the compatibility matrix (one PR)
 
 - The package's compatibility data (the source of `version --json`).
-- The table in `README.md`: one row per tool release, with accepted `schema_version`s and the table-spec
-  version it writes.
+- The table in `README.md`: one row per tool release, with the snapshotted `schema_version`s, what the fixed specs
+  list, and the table-spec versions it writes.
 - `CHANGELOG.md`: the version, date, accepted `schema_version`s, table-spec version, and every change.
 - Merge only with the user's OK.
 

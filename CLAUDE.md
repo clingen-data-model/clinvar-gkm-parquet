@@ -43,11 +43,13 @@ See [ADR 0002](docs/decisions/0002-independent-tool-versioning.md). In short:
 - **Tool version:** semver, independent of the bundle schema version (they release on different cadences).
 - **Table-spec version:** `MAJOR.MINOR`, versioned separately from the tool. It defines the tables, columns,
   types and derivations. MINOR = additive (new table, new trailing column); MAJOR = anything else.
-- **Compatibility matrix:** every tool release declares the bundle `schema_version`s it accepts and the
-  table-spec version it writes. The tool reads each bundle's self-declared `schema_version` and **refuses**
-  any version not in its list. The matrix lives in `README.md` and in `version --json`; keep both in sync.
+- **Compatibility matrix:** every tool release declares the table-spec versions it writes and the bundle
+  `schema_version`s they read. The tool reads each bundle's self-declared `schema_version`. `sections` is compiled
+  from that version's schemas and **refuses** a version that doesn't load and compile
+  ([ADR 0006](docs/decisions/0006-sections-spec-compiled-from-schemas.md)); `baseline`, `clinvar-gkm` and a custom spec
+  **refuse** any version not in their list. The matrix lives in `README.md` and in `version --json`; keep both in sync.
 - Each Parquet file records the tool version, the table-spec version and the source bundle sha256(s) in its
-  key-value metadata.
+  key-value metadata; a compiled `sections` file also the sha256 of its schema set and of its compiled spec.
 
 ## Testing and verification
 
@@ -57,8 +59,8 @@ See [ADR 0002](docs/decisions/0002-independent-tool-versioning.md). In short:
   BigQuery-exported latest Parquet table by table (schema, row counts, id sets, every typed column, `data`).
   Every difference is either fixed or listed, explained and accepted by the maintainer before rollout.
 - **Bundle recompute:** id sets equal the bundle sections, and `data` equals the bundle record.
-- Unknown `schema_version`, unknown bundle section, or unknown extension name: fail loudly. Never drop rows
-  or values silently.
+- A `schema_version` the spec can't read, unknown bundle section, or unknown extension name: fail loudly. Never
+  drop rows or values silently.
 
 ## Published data access
 

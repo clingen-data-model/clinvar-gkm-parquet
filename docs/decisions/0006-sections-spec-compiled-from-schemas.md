@@ -8,7 +8,7 @@
 
 ## Context
 
-The default `sections` spec (ADR 0003) is a checked-in file, `spec/sections/1.0/tables.yaml`, written by hand from
+The default `sections` spec (ADR 0003) was a checked-in file, `spec/sections/1.0/tables.yaml`, written by hand from
 the ClinVar-GKM producer's procedures and checked against the schemas and real records. A new bundle
 `schema_version` stops the build until someone researches a new spec and cuts a tool release. The maintainer wants
 the conversion driven by the bundle schema and the schemas it references (clinvar-gkm, va-spec, cat-vrs, vrs,
@@ -47,6 +47,7 @@ become a column, and that the tool compiles at run time.
    | Schema pattern | Rule |
    | --- | --- |
    | A property of the bundle schema other than `schema_version` | a section: one table, in schema order |
+   | A bundle-level `allOf` member: `patternProperties` from a section-name pattern to `{additionalProperties: <record schema>}` | narrows the records of the sections it matches, as a further `allOf` member of their class |
    | A property of the section's class | a column of the same name, in schema order |
    | The record's `id` | the key column |
    | Object, or array of objects | a nested STRUCT, or a list of them |
@@ -54,7 +55,7 @@ become a column, and that the tool compiles at run time.
    | A pointer position | a bare id in the property's column, plus `<column>_section` if it has several targets |
    | Integer or `Range` at the top level | `<prop>`, `<prop>_min`, `<prop>_max` |
    | An `extensions` list | `{name, value_<json type>}` slots, one per JSON type its values can take |
-   | Any other pattern, a nested integer-or-Range, or a class that reaches itself | stops the compile, naming the position |
+   | Any other pattern, a nested integer-or-Range, a float, a pointer with several targets inside a value, or a class that reaches itself | stops the compile, naming the position |
 
    One naming exception stays, because it is a choice of this tool and not a schema fact: `location.start` and
    `location.end` are `loc_start` and `loc_end` (`end` is an SQL keyword).
@@ -66,17 +67,26 @@ become a column, and that the tool compiles at run time.
      `iriReference` from positions that are always inline;
    - narrow an integer-or-Range to the kind the producer writes when it never writes the other;
    - leave no class that reaches itself;
+   - use no floats: a lossless table has no exact JSON text for one, so `number` stops the compile;
+   - keep a pointer with several target sections at the top level of a record, because only a column can hold the
+     section it names;
+   - make each extension element exactly `{name, value}`;
+   - use no `if/then` in an emitted position;
    - and the producer writes every key sorted, so the tool needs one key-order rule.
 5. **1.1.0 needs an overlay, because its schemas and bundles are published.** `spec/sections/overlays/1.1.0.yaml`
-   states only what the 1.1.0 schemas lack, in those same terms. The compiler refuses an overlay entry that
-   contradicts the schema or matches nothing, so the file can't drift or hide a mistake. A version whose schemas meet
-   the contract has no overlay.
+   states only what the 1.1.0 schemas lack, in compact shapes that map one to one to the contract: a property list is
+   a narrowed class, `->a|b` is the pattern `^#/(a|b)/`, `integer` narrows an integer-or-Range, `[string, boolean]` is
+   a closed extension value. The compiler refuses an overlay entry that contradicts the schema or matches nothing, so
+   the file can't drift or hide a mistake. A version whose schemas meet the contract has no overlay.
 6. **The version gate moves.** A bundle's version is accepted for `sections` when its schema set loads and compiles;
    anything else is refused and names the reason. This replaces, for `sections`, the fixed list of ADR 0002. The
    sections a bundle may hold come from its schema, not from a list in the tool. `clinvar-gkm` stays hand-maintained
-   and keeps its fixed list, because it has to match the BigQuery export (the oracle).
+   and keeps its fixed list, because it has to match the BigQuery export (the oracle). `baseline` keeps its list too,
+   and a custom spec stays bound by the versions it lists, its sections checked against those versions' schema sets.
 7. **Each build records what it compiled from.** Every file and the manifest carry the sha256 of the schema set and of
-   the compiled spec, so a build can be reproduced and checked, and `verify` and `rebuild` recompile and compare.
+   the compiled spec, so a build can be reproduced and checked, and `verify` and `rebuild` recompile and compare. A
+   difference is refused, saying which hash differs and which tool version wrote the set. The compiled spec's hash is
+   over its mapping as canonical JSON, prose included, so `compile-spec` shows exactly what it covers.
 8. **The build's row-by-row round trip (ADR 0005) stays the safety net.** A record the compiled spec can't reproduce
    stops the build, whatever the schema said.
 
@@ -92,9 +102,17 @@ become a column, and that the tool compiles at run time.
   sha256.
 - The contract is a change ClinVar-GKM has to make. Until it does, a new schema version fails to compile, loudly,
   rather than producing a wrong table. This repo doesn't edit ClinVar-GKM; the request goes through a paired note.
+- The contract's real cost: the bundle schema references GA4GH classes directly (`MappableConcept` for `gene` and
+  `condition`), and `Coding` is emitted with four different field sets. "Allow only what's emitted" therefore means a
+  narrowed ClinVar-GKM profile for nearly every class. `tests/fixtures/schema-contract/9.9.0/` shows what it takes for
+  9 of the 20 sections.
+- A snapshot can differ from what ClinVar-GKM built against: `$ref`s resolve to each repo's tag, not to ClinVar-GKM's
+  submodule pin. For 1.1.0, va-spec's `Statement` at tag 1.1.0 (`d9da20c`) adds `direction` to `required`, one commit
+  after the pin `29573487`. The other 94 of the 95 files are byte-identical to the pins. The compiler doesn't read
+  `required`, so this doesn't change the output.
 - The bundle schema's own `$id` (`.../clinvar-gkm/1.1.0/json/ClinvarGkmBundle`) returned 404 on 2026-11-02, while the
   file is served at `.../clinvar-gkm/1.1.0/clinvar-gkm-bundle.schema.json`. The tool uses the second URL; the paired
   note asks ClinVar-GKM to align them.
 - A first run on an unsnapshotted version needs the network; after that it reads the cache.
-- `spec/sections/1.0/tables.yaml` stops being the source. It remains as the test that the compiler reproduces it on
-  1.1.0, apart from listed differences.
+- `spec/sections/1.0/tables.yaml` stops being the source. It moves to `tests/fixtures/sections-golden/tables.yaml` and
+  remains as the test that the compiler reproduces it on 1.1.0, apart from listed differences (none so far).

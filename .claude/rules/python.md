@@ -45,7 +45,9 @@ lack. Update this file when the layout changes.
 - Compute the sha256 of the compressed bytes while streaming, and check it against the published checksum
   (`<file>.sha256` sidecar, the line `index.json`, or a frozen line's `MANIFEST.json`) when one is available.
   Refuse on a mismatch.
-- Read `schema_version` from the bundle itself and refuse a version the tool doesn't list.
+- Read `schema_version` from the bundle itself. A spec that lists versions refuses any other; `sections` is compiled
+  for it and refuses a version whose schema set doesn't load or compile (ADR 0006). Nothing in the package lists
+  sections or versions: a bundle's sections come from its version's schema set (`schemas.sections_of`).
 
 ## Fail loudly
 
@@ -55,13 +57,18 @@ lack. Update this file when the layout changes.
 ## Network
 
 - Every HTTP request sends `User-Agent: clinvar-gkm-parquet/<version>`.
+- Schema sets are fetched from `https://w3id.org/` only, as JSON data, once per version, into the user cache
+  (`$XDG_CACHE_HOME/clinvar-gkm-parquet/schemas/`); a shipped snapshot is never fetched.
 - Respect the CDN limit of 250 requests per 10 s: one stream per large file, retry 429 and 5xx with backoff,
   resume interrupted downloads with HTTP `Range`.
-- Unit tests never touch the network. Network tests are opt-in (`pytest -m network`).
+- Unit tests never touch the network, and `tests/conftest.py` enforces it and gives the suite a private cache.
+  Network tests are opt-in (`pytest -m network`).
 
 ## Tests
 
 - Fixtures are small excerpts of real published bundles, made by a checked-in script that records the source
   URL, release, schema_version and source sha256. Don't hand-write bundle records.
 - Golden expectations come from the real published Parquet for the same release and ids, not from the code
-  under test.
+  under test. `tests/fixtures/sections-golden/` is the hand-researched `sections` spec for 1.1.0, what the compiler
+  must reproduce; a build doesn't load it.
+- A schema set for a test goes in the cache directory (set `XDG_CACHE_HOME`): the real path, no patching.
