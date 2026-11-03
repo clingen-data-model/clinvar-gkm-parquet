@@ -17,5 +17,5 @@ SELECT
   {{typed contributions ptr=[].contributor}} AS "contributions",
   {{bare_id has_evidence_lines}} AS "has_evidence_lines",
   record AS "data"
-FROM bundle_scv
+FROM {{source}}
 WHERE {{known_keys}}

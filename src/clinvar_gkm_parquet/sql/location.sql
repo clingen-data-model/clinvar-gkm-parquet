@@ -13,4 +13,4 @@ SELECT
   cgp_coordinate_bound(json_extract(record, '$.start'), 1, {{ctx loc_start_max}}, key) AS "loc_start_max",
   cgp_coordinate_bound(json_extract(record, '$.end'), 0, {{ctx loc_end_min}}, key) AS "loc_end_min",
   cgp_coordinate_bound(json_extract(record, '$.end'), 1, {{ctx loc_end_max}}, key) AS "loc_end_max"
-FROM bundle_location
+FROM {{source}}

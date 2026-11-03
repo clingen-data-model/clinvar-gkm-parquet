@@ -10,7 +10,7 @@ SELECT
   {{bare_id object_id}} AS "object_id",
   {{pointer_section object_type}} AS "object_type",
   {{bare_id condition_qualifier_id}} AS "condition_qualifier_id",
-  'ncbigene:' || cgp_str(json_extract(record, '$.geneContextQualifier.primaryCoding.code'), {{ctx gene_context_id}}, key, '(column)') AS "gene_context_id",
+  'ncbigene:' || cgp_str({{json gene_context_id}}, {{ctx gene_context_id}}, key, '(column)') AS "gene_context_id",
   {{scalar gene_context_name}} AS "gene_context_name",
   CAST(flatten(list_transform(
     list_filter(gcq_ext, lambda e: json_extract_string(e, '$.name') = 'submittedGeneSymbols'),
@@ -32,8 +32,8 @@ SELECT
   {{scalar penetrance}} AS "penetrance",
   record AS "data"
 FROM (
-  SELECT key, record,
+  SELECT *,
     -- [] when there is no qualifier or it has no extensions
-    coalesce(CAST(json_extract(record, '$.geneContextQualifier.extensions') AS JSON[]), []) AS gcq_ext
-  FROM bundle_propositionSomaticClinicalImpact
+    coalesce(CAST({{json submitted_gene_symbols}} AS JSON[]), []) AS gcq_ext
+  FROM {{source}}
 )

@@ -1,4 +1,4 @@
-"""Data passed between the stages: inputs, staged bundles, delta manifests, build results.
+"""Data passed between the stages: inputs, streamed and staged bundles, delta manifests, build results.
 
 Stage interfaces (each module owns its half):
 
@@ -6,16 +6,22 @@ Stage interfaces (each module owns its half):
               (explicit, `.sha256` sidecar, line index, frozen-line MANIFEST.json), opens byte streams, and
               reads the line index and delta manifests.
 - bundle.py   streams one bundle once: hashes the compressed bytes, checks schema_version, classifies every
-              line (design plan §4.2) and writes one staging file per section -> StagedBundle.
-- replay.py   checks a delta chain and loads the final per-section state into DuckDB tables
-              `bundle_<section>(key VARCHAR, record VARCHAR)`; with no deltas it loads the full as is.
-- build.py    runs each table's SQL (sqltemplate.py renders it from the spec) over those tables and writes
-              `<table>.parquet` with the spec's writer settings and key-value metadata, then the manifest.
-- verify.py   checks a built directory against the spec, the bundle (recompute) or a reference set (oracle).
+              line (design plan §4.2) and hands each record to a sink -> StreamedBundle.
+- replay.py   checks a delta chain, reads the (small) deltas into memory and folds them into one net change map
+              per section (design plan §4.3), which the build applies while the full streams past.
+- build.py    the section pipeline (design plan §6.2): streams the full once, applies the change map, stages
+              only the current section as chunk files, and hands each closed section to a worker thread that
+              loads it into DuckDB as `bundle_<section>(key VARCHAR, record VARCHAR)`, runs the SQL of every table
+              that reads it (sqltemplate.py renders it from the spec), writes `<table>.parquet` with the spec's
+              writer settings and key-value metadata, and drops it. Then the manifest.
+- verify.py   checks a built directory against the spec, the bundle (recompute, on the same pipeline) or a
+              reference set (oracle).
 
-Staging file format (one per section): gzip text, one record per line, `<key as JSON string>\\t<record>\\n`,
-in bundle order. `<record>` is the exact bytes from the bundle line (the trailing `,` removed), so `data`
-equals the bundle record byte for byte. JSON text never holds a raw tab or newline, so the split is unambiguous.
+Staging format: gzip text, one record per line, `<key as JSON string>\\t<record>\\n`. `<record>` is the exact
+bytes from the bundle line (the trailing `,` removed), so `data` equals the bundle record byte for byte. JSON
+text never holds a raw tab or newline, so the split is unambiguous. The build writes a section as chunk files
+(`<section>.<nnnn>.tsv.gz`) holding the section's final state: the full's records in bundle order, less the keys
+the deltas replace or delete, then the deltas' net upserts. `stage_bundle` writes one file per section.
 """
 
 from __future__ import annotations
@@ -48,6 +54,41 @@ class DeltaManifest:
 
 
 @dataclass(frozen=True)
+class StreamedBundle:
+    """What one pass over a bundle found."""
+
+    input: InputFile
+    sha256: str  # computed over the compressed bytes while streaming
+    size: int  # compressed bytes read
+    schema_version: str
+    counts: dict[str, int]  # section -> records, for the sections the bundle has
+
+
+@dataclass(frozen=True)
+class DeltaBundle:
+    """A delta bundle read into memory (deltas are small: a weekly delta is about 10 MB gzip)."""
+
+    streamed: StreamedBundle
+    sections: dict[str, list[tuple[bytes, bytes]]]  # section -> [(key as JSON bytes, record bytes)], file order
+
+    @property
+    def input(self) -> InputFile:
+        return self.streamed.input
+
+    @property
+    def sha256(self) -> str:
+        return self.streamed.sha256
+
+    @property
+    def size(self) -> int:
+        return self.streamed.size
+
+    @property
+    def schema_version(self) -> str:
+        return self.streamed.schema_version
+
+
+@dataclass(frozen=True)
 class StagedSection:
     name: str
     path: Path  # staging file (format above)
@@ -57,11 +98,23 @@ class StagedSection:
 
 @dataclass(frozen=True)
 class StagedBundle:
+    """A whole bundle staged to one file per section (bundle.stage_bundle)."""
+
     input: InputFile
     sha256: str  # computed over the compressed bytes while streaming
     size: int  # compressed bytes read
     schema_version: str
     sections: dict[str, StagedSection]
+
+
+@dataclass(frozen=True)
+class SectionChunks:
+    """One section's final state, staged by the pipeline and handed to the worker."""
+
+    section: str
+    paths: tuple[Path, ...]  # chunk files (format above); empty when the final state has no records
+    records: int
+    max_line_bytes: int = 0
 
 
 @dataclass(frozen=True)

@@ -4,4 +4,4 @@ SELECT
   {{scalar concept_type}} AS "concept_type",
   {{scalar name}} AS "name",
   record AS "data"
-FROM bundle_gene
+FROM {{source}}

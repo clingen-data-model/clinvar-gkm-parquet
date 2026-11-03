@@ -1,0 +1,104 @@
+# A custom table spec for the tests (tests/test_generic.py): typed tables that no shipped sql/<table>.sql
+# implements, so the generic renderer builds them from the derivation kinds alone (spec.py, ADR 0003). Types of
+# the typed copies are the clinvar-gkm 1.0 ones (spec/1.0/tables.yaml). Not a built-in spec: its output is never
+# the published set.
+name: summary-example
+spec_version: "0.1"
+status: draft
+bundle_schema_versions: ["1.1.0"]
+sources:
+  - "spec/1.0/tables.yaml (clinvar-gkm 1.0): the nested types of variation.mappings and scv.classification"
+writer: {compression: zstd, row_group_size: 4096}
+tables:
+  - name: variation_summary
+    sections: [variation]
+    row_filter: null
+    sort_key: id
+    description: One row per ClinVar variant, with its members and mappings typed.
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: The bundle key.
+      - name: name
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: scalar-path, path: $.name, transform: null}
+        description: ClinVar's preferred name.
+      - name: members
+        type: VARCHAR[]
+        nulls: empty-list
+        derivation: {kind: bare-id, path: "$.members[*]", transform: "strip ^#/[^/]+/ from each pointer"}
+        description: Ids of the member variants.
+      - name: mappings
+        type: 'STRUCT(coding STRUCT("system" VARCHAR, code VARCHAR, iris VARCHAR[]), relation VARCHAR)[]'
+        nulls: empty-list
+        derivation: {kind: typed-copy, path: $.mappings, transform: null}
+        description: Identifiers for this variant in other systems.
+      - name: mapping_codes
+        type: VARCHAR[]
+        nulls: empty-list
+        derivation: {kind: scalar-path, path: "$.mappings[*].coding.code", transform: null}
+        description: The code of every mapping, in order.
+      - name: refs
+        type: STRUCT(path VARCHAR, section VARCHAR, id VARCHAR)[]
+        nulls: empty-list
+        derivation: {kind: refs, path: $, transform: null}
+        description: Every pointer in the record (as in the baseline spec).
+      - name: data
+        type: JSON
+        nulls: never
+        derivation: {kind: record, path: null, transform: null}
+        description: The bundle record, byte for byte.
+
+  - name: scv_summary
+    sections: [scv]
+    row_filter: null
+    sort_key: id
+    description: One row per SCV, with its classification typed and its pointers split out.
+    columns:
+      - name: id
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: key, path: null, transform: null}
+        description: The bundle key.
+      - name: classification
+        type: 'STRUCT("type" VARCHAR, conceptType VARCHAR, "name" VARCHAR, primaryCoding STRUCT(code VARCHAR, "system" VARCHAR), "extensions" STRUCT("name" VARCHAR, value_string VARCHAR)[])'
+        nulls: when-absent
+        derivation: {kind: typed-copy, path: $.classification, transform: "nested extensions by extension_slots"}
+        description: The submitted classification.
+      - name: proposition_id
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: bare-id, path: $.proposition, transform: "strip ^#/[^/]+/"}
+        description: The proposition's id.
+      - name: proposition_section
+        type: VARCHAR
+        nulls: when-absent
+        derivation: {kind: pointer-section, path: $.proposition, transform: "<section> of ^#/<section>/"}
+        description: The proposition's section.
+      - name: contributor_ids
+        type: VARCHAR[]
+        nulls: empty-list
+        derivation: {kind: bare-id, path: "$.contributions[*].contributor", transform: "strip ^#/[^/]+/ from each pointer"}
+        description: The submitter of every contribution, in order.
+      - name: contribution_dates
+        type: DATE[]
+        nulls: empty-list
+        derivation: {kind: scalar-path, path: "$.contributions[*].date", transform: "YYYY-MM-DD cast to DATE"}
+        description: The date of every contribution, in order.
+      - name: evidence_line_sections
+        type: VARCHAR[]
+        nulls: empty-list
+        derivation: {kind: pointer-section, path: $.hasEvidenceLines, transform: "<section> of each pointer"}
+        description: The section of every evidence line pointer.
+      - name: data
+        type: VARCHAR
+        nulls: never
+        derivation: {kind: record, path: null, transform: null}
+        description: The bundle record, byte for byte.
+    extension_slots:
+      classification:
+        description: value_string
+

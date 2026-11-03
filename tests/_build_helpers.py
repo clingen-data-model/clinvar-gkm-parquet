@@ -11,6 +11,7 @@ import json
 
 import duckdb
 
+from clinvar_gkm_parquet.bundle import SECTIONS
 from clinvar_gkm_parquet.spec import Spec, Table, parse_spec
 
 
@@ -151,3 +152,39 @@ KV = {
     "source_release": "2026-10-18",
     "duckdb_version": duckdb.__version__,
 }
+
+
+def passthrough_spec(drop: tuple[str, ...] = ()):
+    """One table per bundle section: id = key, data = record. Exercises the real reader, replay, pipeline,
+    build and verify on a real bundle without depending on the table SQL (tests/test_tables*.py)."""
+    col = lambda n, k: {  # noqa: E731
+        "name": n,
+        "type": "VARCHAR",
+        "nulls": "never",
+        "derivation": {"kind": k, "path": None, "transform": None},
+        "description": "",
+    }
+    raw = {
+        "spec_version": "9.9",
+        "status": "draft",
+        "bundle_schema_versions": ["1.1.0"],
+        "sources": [],
+        "writer": {"compression": "snappy", "row_group_size": 122880},
+        "tables": [
+            {
+                "name": s,
+                "sections": [s],
+                "row_filter": None,
+                "sort_key": "id",
+                "description": "",
+                "columns": [col("id", "key"), col("data", "record")],
+            }
+            for s in SECTIONS
+            if s not in drop
+        ],
+    }
+    return parse_spec(raw)
+
+
+def passthrough_sql(t) -> str:
+    return f'SELECT key AS id, record AS data FROM "bundle_{t.name}"'

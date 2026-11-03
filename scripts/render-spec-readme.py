@@ -109,7 +109,12 @@ def render(version: str) -> str:
             _cell(t.description),
             "",
             f"`{t.file_name}` · sections: {', '.join(t.sections)} · sort key: `{t.sort_key}`"
-            + (f" · row filter: {t.row_filter}" if t.row_filter else ""),
+            + (f" · row filter: {t.row_filter}" if t.row_filter else "")
+            + (
+                " · known fields: a top-level record field no column reads stops the build"
+                if t.known_fields
+                else ""
+            ),
             "",
             "| # | Column | Type | Nulls | Derivation | Path | Transform | Description |",
             "| ---: | --- | --- | --- | --- | --- | --- | --- |",
@@ -119,9 +124,12 @@ def render(version: str) -> str:
             desc = _cell(c.description)
             if (t.name, c.name) in notes:
                 desc += f" **Unconfirmed:** {_cell(notes[(t.name, c.name)])}"
+            transform = _cell(d.transform)
+            if d.pointers:
+                transform += f"{'; ' if transform else ''}pointers: {', '.join(f'`{x}`' for x in d.pointers)}"
             out.append(
                 f"| {i} | `{c.name}` | `{_short(c.type)}` | {c.nulls} | {d.kind} | "
-                f"{'`' + d.path + '`' if d.path else ''} | {_cell(d.transform)} | {desc} |"
+                f"{'`' + d.path + '`' if d.path else ''} | {transform} | {desc} |"
             )
         nested = [c for c in t.columns if c.type != _short(c.type)]
         if nested:

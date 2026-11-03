@@ -1,13 +1,26 @@
 import gzip
 import hashlib
 import json
+import threading
 from argparse import Namespace
 from pathlib import Path
 
 import duckdb
 import pytest
-from _build_helpers import KV, SQL, load_sections, make_con, make_spec, render, render_with, section_rows
-from _fixture import COUNTS, FIXTURE, IS_PROVISIONAL
+from _build_helpers import (
+    KV,
+    SQL,
+    load_sections,
+    make_con,
+    make_spec,
+    render,
+    render_with,
+    section_rows,
+)
+from _build_helpers import passthrough_spec as _passthrough_spec
+from _build_helpers import passthrough_sql as _passthrough_sql
+from _fixture import COUNTS, FIXTURE, IS_PROVISIONAL, SOURCE_RELEASE
+from _input_helpers import D1, D2, bundle_bytes, fixture_sections, local_input, two_synthetic_deltas, write_gz
 
 from clinvar_gkm_parquet import build as build_mod
 from clinvar_gkm_parquet.build import (
@@ -21,8 +34,9 @@ from clinvar_gkm_parquet.build import (
     resolve_build_inputs,
     run_build_command,
 )
-from clinvar_gkm_parquet.errors import InputError, SpecError
-from clinvar_gkm_parquet.model import BuildInputs, DeltaManifest, InputFile, StagedBundle, StagedSection
+from clinvar_gkm_parquet.bundle import SECTIONS
+from clinvar_gkm_parquet.errors import BundleFormatError, InputError, SpecError
+from clinvar_gkm_parquet.model import BuildInputs, InputFile
 
 
 def _sha(p: Path) -> str:
@@ -32,6 +46,12 @@ def _sha(p: Path) -> str:
 def _kv(con, path):
     rows = con.execute(f"SELECT key, value FROM parquet_kv_metadata('{path}')").fetchall()
     return {k.decode(): v.decode() for k, v in rows}
+
+
+def _inp(name, release):
+    return InputFile(
+        source=f"/x/{name}", name=name, release=release, expected_sha256=None, sha256_source=None, size=10
+    )
 
 
 # --- the table stage -------------------------------------------------------------------------------------------
@@ -241,191 +261,276 @@ def test_kv_metadata_has_no_timestamp_and_deltas_json():
     assert kv["source_deltas"].startswith('[{"release":"2026-10-04","sha256":')
 
 
-# --- the whole build, with the input stages stubbed -------------------------------------------------------------
+# --- the whole build: the section pipeline on the real fixture -------------------------------------------------
+#
+# A pass-through spec (one table per bundle section: id = key, data = record) exercises the real reader, replay,
+# pipeline, build and manifest on a real bundle without depending on the table SQL (tests/test_tables*.py).
 
 
-def _inp(name, release):
-    return InputFile(
-        source=f"/x/{name}", name=name, release=release, expected_sha256=None, sha256_source=None, size=10
-    )
+def _failing_sql(t) -> str:
+    """Fails while the rows are read, as a record the spec can't map does."""
+    return f"""SELECT key AS id, error('boom')::VARCHAR AS data FROM "bundle_{t.name}\""""
 
 
 @pytest.fixture
-def stubbed(monkeypatch, tmp_path):
-    """build() with stage_bundle / check_chain / load_state / sqltemplate replaced by test doubles."""
-    spec = make_spec()
-    calls: dict = {"staged": [], "chain": None}
-    full_rows = section_rows()
+def passthrough(monkeypatch):
+    monkeypatch.setattr(build_mod.sqltemplate, "macros_sql", lambda: "SELECT 1")
+    monkeypatch.setattr(build_mod, "render_table", _passthrough_sql)
+    return _passthrough_spec()
 
-    def stage_bundle(inp, work_dir):
-        work_dir.mkdir(parents=True, exist_ok=True)
-        sections = {}
-        for s in ("thing", "kv", "ev"):
-            p = work_dir / f"{s}.tsv.gz"
-            with gzip.open(p, "wt") as fh:
-                fh.write("staged\n")
-            sections[s] = StagedSection(s, p, 1)
-        calls["staged"].append((inp.name, work_dir))
-        sha = hashlib.sha256(inp.name.encode()).hexdigest()
-        return StagedBundle(input=inp, sha256=sha, size=123, schema_version="1.1.0", sections=sections)
 
-    def load_state(con, full, deltas):
-        calls["deltas"] = deltas
-        return load_sections(con, full_rows)
-
-    def check_chain(full_source_release, manifests):
-        calls["chain"] = (full_source_release, [m.release for m in manifests])
-
-    def load_manifest(inp):
-        rel = {"d1.json.gz.manifest": "2026-10-04", "d2.manifest": "2026-10-11"}[inp.name]
-        base = {"2026-10-04": "2026-09-28", "2026-10-11": "2026-10-04"}[rel]
-        return DeltaManifest(release=rel, baseline_release=base, deleted={}, checkpoint_full=None)
-
-    monkeypatch.setattr(build_mod.bundle, "stage_bundle", stage_bundle)
-    monkeypatch.setattr(build_mod.replay, "load_state", load_state)
-    monkeypatch.setattr(build_mod.replay, "check_chain", check_chain)
-    monkeypatch.setattr(build_mod.sources, "load_manifest", load_manifest)
-    monkeypatch.setattr(build_mod.sqltemplate, "macros_sql", lambda: "CREATE MACRO bare_id(p) AS p")
-    monkeypatch.setattr(build_mod.sqltemplate, "render", render)
-    inputs = BuildInputs(
-        full=_inp("clinvar-gkm_2026-10.json.gz", "2026-09-28"),
-        full_source_release="2026-09-28",
-        deltas=(
-            (_inp("d1.json.gz", "2026-10-04"), _inp("d1.json.gz.manifest", "2026-10-04")),
-            (_inp("d2.json.gz", "2026-10-11"), _inp("d2.manifest", "2026-10-11")),
-        ),
+def _fixture_inputs(deltas=(), full: InputFile | None = None) -> BuildInputs:
+    sha = (FIXTURE.parent / (FIXTURE.name + ".sha256")).read_text().split()[0]
+    inp = full or InputFile(
+        source=str(FIXTURE),
+        name=FIXTURE.name,
+        release="2026-10-18",
+        expected_sha256=sha,
+        sha256_source="sidecar",
+        size=FIXTURE.stat().st_size,
     )
-    return spec, inputs, calls
+    return BuildInputs(full=inp, full_source_release=SOURCE_RELEASE, deltas=tuple(deltas))
 
 
-def test_build_end_to_end_with_stubs(stubbed, tmp_path):
-    spec, inputs, calls = stubbed
+def _two_deltas(tmp_path):
+    return two_synthetic_deltas(tmp_path, SOURCE_RELEASE)
+
+
+def _stage_dirs(work: Path) -> dict[str, int]:
+    """section -> chunk files present, under every build-*/stage of `work`."""
+    out = {}
+    for d in work.glob("build-*/stage/*"):
+        n = len(list(d.glob("*.tsv.gz")))
+        if n:
+            out[d.name] = n
+    return out
+
+
+def test_build_end_to_end_with_deltas(passthrough, tmp_path):
+    spec = passthrough
+    deltas = _two_deltas(tmp_path)
     out = tmp_path / "out"
-    res = build(inputs, out, spec=spec, threads=2, memory_limit="1GB")
-    assert calls["chain"] == ("2026-09-28", ["2026-10-04", "2026-10-11"])
-    assert [n for n, _ in calls["staged"]] == ["clinvar-gkm_2026-10.json.gz", "d1.json.gz", "d2.json.gz"]
-    assert res.source_release == "2026-10-11"
-    assert sorted(p.name for p in out.iterdir()) == [
-        "evA.parquet",
-        "evB.parquet",
-        "kv.parquet",
-        "manifest.json",
-        "thing.parquet",
-    ]
-    # the work dir (a sibling, created by the build) is gone
-    assert not (tmp_path / "out.work").exists()
+    res = build(_fixture_inputs(deltas), out, spec=spec, threads=2, memory_limit="1GB")
+    assert res.source_release == D2
+    assert [t.table for t in res.tables] == list(SECTIONS)  # spec order
+    assert sorted(p.name for p in out.iterdir()) == sorted([f"{s}.parquet" for s in SECTIONS] + ["manifest.json"])
+    assert not (tmp_path / "out.work").exists()  # the work dir (a sibling, created by the build) is gone
     con = duckdb.connect()
-    kv = _kv(con, out / "thing.parquet")
-    full_sha = hashlib.sha256(b"clinvar-gkm_2026-10.json.gz").hexdigest()
+    kv = _kv(con, out / "gene.parquet")
+    full_sha = _fixture_inputs().full.expected_sha256
     assert kv[KV_PREFIX + "source_bundle_sha256"] == full_sha
-    assert kv[KV_PREFIX + "source_release"] == "2026-10-11"
+    assert kv[KV_PREFIX + "source_release"] == D2
     assert kv[KV_PREFIX + "table_spec_version"] == "9.9"
     assert json.loads(kv[KV_PREFIX + "source_deltas"]) == [
-        {"release": "2026-10-04", "sha256": hashlib.sha256(b"d1.json.gz").hexdigest()},
-        {"release": "2026-10-11", "sha256": hashlib.sha256(b"d2.json.gz").hexdigest()},
+        {"release": D1, "sha256": _sha(Path(deltas[0][0].source))},
+        {"release": D2, "sha256": _sha(Path(deltas[1][0].source))},
     ]
+    gene = dict(con.execute(f"SELECT id, data FROM read_parquet('{out / 'gene.parquet'}')").fetchall())
+    s = fixture_sections()
+    assert gene[json.loads(s["gene"][0][0])] == s["gene"][1][1].decode()  # updated by D1
+    assert "synthetic:gene-new" not in gene  # added by D1, deleted by D2
+    assert len(gene) == COUNTS["gene"]
     m = json.loads((out / "manifest.json").read_text())
     assert m["label"] == "derived from the bundle; may be regenerated" and m["derived"] is True
-    assert m["source_release"] == m["release"] == "2026-10-11"
+    assert m["source_release"] == m["release"] == D2
     assert m["build_date"] == m["ended_at"][:10]
     assert m["schema_version"] == m["bundle_schema_version"] == "1.1.0"
-    assert m["sections"] == {"ev": 14, "kv": 5, "thing": 30}
-    assert m["tables"]["thing"] == {
-        "file": "thing.parquet",
-        "rows": 30,
-        "sha256": _sha(out / "thing.parquet"),
-        "size": (out / "thing.parquet").stat().st_size,
+    assert m["sections"] == {s: COUNTS.get(s, 0) - (s == "scv") for s in sorted(SECTIONS)}
+    assert m["tables"]["gene"] == {
+        "file": "gene.parquet",
+        "rows": COUNTS["gene"],
+        "sha256": _sha(out / "gene.parquet"),
+        "size": (out / "gene.parquet").stat().st_size,
     }
-    assert m["inputs"]["full"]["sha256"] == full_sha and m["inputs"]["full"]["source_release"] == "2026-09-28"
-    assert [d["release"] for d in m["inputs"]["deltas"]] == ["2026-10-04", "2026-10-11"]
+    assert m["inputs"]["full"]["sha256"] == full_sha and m["inputs"]["full"]["source_release"] == SOURCE_RELEASE
+    assert [d["release"] for d in m["inputs"]["deltas"]] == [D1, D2]
+    assert m["inputs"]["deltas"][0]["bundle"]["sha256"] == _sha(Path(deltas[0][0].source))
     for k in ("generated_at", "started_at", "tool_version", "duckdb_version", "note"):
         assert m[k]
     # the fields ClinVar-GKM's r2_layout.build_index reads (its own parquet-manifest shape)
     assert m["builder"] == f"clinvar-gkm-parquet {m['tool_version']}" and m["dataset"] is None
     assert m["files"] == [
         {"name": n, "size": (out / n).stat().st_size, "sha256": _sha(out / n)}
-        for n in ("evA.parquet", "evB.parquet", "kv.parquet", "thing.parquet")
+        for n in sorted(f"{s}.parquet" for s in SECTIONS)
     ]
 
 
-def test_build_refuses_an_output_dir_holding_a_set(stubbed, tmp_path):
-    spec, inputs, calls = stubbed
+def test_build_refuses_an_output_dir_holding_a_set(passthrough, tmp_path, monkeypatch):
     out = tmp_path / "out"
-    build(inputs, out, spec=spec)
-    calls["staged"].clear()
+    build(_fixture_inputs(), out, spec=passthrough, tables=["gene"])
+    calls = []
+    monkeypatch.setattr(build_mod.bundle, "stream_bundle", lambda *a: calls.append(a))
     with pytest.raises(InputError, match="already holds .*manifest.json"):
-        build(inputs, out, spec=spec, tables=["kv"])
-    assert calls["staged"] == []  # refused before any staging
+        build(_fixture_inputs(), out, spec=passthrough, tables=["submitter"])
+    assert calls == []  # refused before anything was read
 
 
-def test_failed_build_leaves_no_partial_set(stubbed, tmp_path, monkeypatch):
-    spec, inputs, _ = stubbed
-    monkeypatch.setattr(build_mod.sqltemplate, "render", render_with(thing="SELECT error('boom')"))
+def test_failed_build_leaves_no_partial_set(passthrough, tmp_path, monkeypatch):
+    def render(t):  # rcv is the last section: every other table has been written when it fails
+        return _failing_sql(t) if t.name == "rcv" else _passthrough_sql(t)
+
+    monkeypatch.setattr(build_mod, "render_table", render)
     out = tmp_path / "out"
-    with pytest.raises(SpecError, match="table thing: query failed"):
-        build(inputs, out, spec=spec)  # thing is built last, after evA, evB and kv were written
+    with pytest.raises(SpecError, match="table rcv: query failed.*boom"):
+        build(_fixture_inputs(), out, spec=passthrough)
     assert list(out.iterdir()) == []
+    assert not (tmp_path / "out.work").exists()
 
 
-def test_build_keep_work_keeps_staging(stubbed, tmp_path):
-    spec, inputs, calls = stubbed
+def test_build_keep_work_keeps_staging(passthrough, tmp_path):
     work = tmp_path / "w"
-    build(inputs, tmp_path / "out", spec=spec, work_dir=work, keep_work=True, tables=["kv"])
-    staged = [d for _, d in calls["staged"]]
-    assert all((d / "kv.tsv.gz").exists() for d in staged)
-    assert list(work.glob("build-*/state.duckdb"))
+    build(_fixture_inputs(), tmp_path / "out", spec=passthrough, work_dir=work, keep_work=True)
+    assert set(_stage_dirs(work)) == {s for s in SECTIONS if COUNTS.get(s)}
 
 
-def test_build_deletes_staging_per_section(stubbed, tmp_path, monkeypatch):
-    spec, inputs, calls = stubbed
-    seen = {}
+def test_build_stages_a_section_at_a_time(passthrough, tmp_path, monkeypatch):
+    """While a section's tables are built, the chunks of the sections before it are gone and at most
+    QUEUE_SIZE + 1 later sections are staged (queued, or being read); every DuckDB connection is closed."""
+    work = tmp_path / "w"
+    work.mkdir()
+    seen: dict[str, dict[str, int]] = {}
     real = build_mod.build_tables
 
     def spy(con, spec_, names, out_dir, kv, **kw):
-        done = kw["on_section_done"]
-
-        def wrapped(section):
-            done(section)
-            seen[section] = [(d / f"{section}.tsv.gz").exists() for _, d in calls["staged"]]
-            seen[section + "_dropped"] = build_mod.relation_kind(con, f"bundle_{section}") is None
-
-        kw["on_section_done"] = wrapped
+        (section,) = {spec_.table(n).sections[0] for n in names}
+        seen[section] = _stage_dirs(work)
         return real(con, spec_, names, out_dir, kv, **kw)
 
     monkeypatch.setattr(build_mod, "build_tables", spy)
-    work = tmp_path / "w"
-    work.mkdir()
-    build(inputs, tmp_path / "out", spec=spec, work_dir=work)
-    assert seen["kv"] == [False, False, False] and seen["kv_dropped"]
-    assert seen["ev"] == [False, False, False] and seen["thing_dropped"]
+    build(_fixture_inputs(), tmp_path / "out", spec=passthrough, work_dir=work)
+    assert list(seen) == list(SECTIONS)  # each section once, in bundle order
+    order = {s: i for i, s in enumerate(SECTIONS)}
+    for section, staged in seen.items():
+        assert all(order[s] >= order[section] for s in staged), (section, staged)
+        assert len([s for s in staged if s != section]) <= build_mod.QUEUE_SIZE + 1, (section, staged)
+        if COUNTS.get(section):
+            assert section in staged  # its chunks stay until its tables are built (the view reads them)
     assert work.exists() and not list(work.iterdir())  # a given work dir stays, emptied
 
 
-def test_build_refuses_unknown_section(stubbed, tmp_path, monkeypatch):
-    spec, inputs, _ = stubbed
+def test_small_chunks_give_the_same_files(passthrough, tmp_path, monkeypatch):
+    a = build(_fixture_inputs(), tmp_path / "a", spec=passthrough)
+    monkeypatch.setattr(build_mod, "CHUNK_BYTES", 2048)
+    monkeypatch.setattr(build_mod.bundle, "_WRITE_CHUNK", 512)
+    work = tmp_path / "w"
+    b = build(_fixture_inputs(), tmp_path / "b", spec=passthrough, work_dir=work, keep_work=True)
+    assert max(_stage_dirs(work).values()) > 3  # several chunks per section
+    assert [(t.table, t.sha256) for t in a.tables] == [(t.table, t.sha256) for t in b.tables]
 
-    def load_state(con, full, deltas):
-        return load_sections(con, {**section_rows(), "mystery": [("k", "{}")]})
 
-    monkeypatch.setattr(build_mod.replay, "load_state", load_state)
-    with pytest.raises(SpecError, match=r"section\(s\) \['mystery'\] are not read by any table"):
-        build(inputs, tmp_path / "out", spec=spec)
+def test_tables_subset_stages_only_the_sections_it_reads(passthrough, tmp_path):
+    work = tmp_path / "w"
+    res = build(
+        _fixture_inputs(),
+        tmp_path / "out",
+        spec=passthrough,
+        tables=["scv", "gene"],
+        work_dir=work,
+        keep_work=True,
+    )
+    assert [t.table for t in res.tables] == ["scv", "gene"]
+    assert set(_stage_dirs(work)) == {"gene", "scv"}
+    m = json.loads((tmp_path / "out" / "manifest.json").read_text())
+    assert m["sections"] == {s: COUNTS.get(s, 0) for s in sorted(SECTIONS)}  # every section read and counted
+
+
+def test_tables_subset_still_checks_every_line(passthrough, tmp_path):
+    text = gzip.decompress(FIXTURE.read_bytes()) + b"\n"  # trailing garbage after the last section
+    path = write_gz(tmp_path / "bad.json.gz", text)
+    with pytest.raises(BundleFormatError, match="trailing data"):
+        build(
+            _fixture_inputs(full=local_input(path)),
+            tmp_path / "out",
+            spec=passthrough,
+            tables=["sequenceReference"],
+        )
+    assert list((tmp_path / "out").iterdir()) == []
+
+
+def test_worker_failure_stops_the_reader(passthrough, tmp_path, monkeypatch):
+    closed = []
+    real_close = build_mod.SectionPipeline._close
+
+    def close(self, section):
+        closed.append(section)
+        real_close(self, section)
+
+    def render(t):
+        return _failing_sql(t) if t.name == "sequenceReference" else _passthrough_sql(t)
+
+    monkeypatch.setattr(build_mod.SectionPipeline, "_close", close)
+    monkeypatch.setattr(build_mod, "render_table", render)
+    with pytest.raises(SpecError, match="table sequenceReference: query failed.*boom"):
+        build(_fixture_inputs(), tmp_path / "out", spec=passthrough)
+    assert len(closed) <= build_mod.QUEUE_SIZE + 2 < len(SECTIONS)  # the reader stopped early
+    assert list((tmp_path / "out").iterdir()) == []
+    assert not any(t.name == "clinvar-gkm-parquet-worker" for t in threading.enumerate())
+
+
+def test_reader_failure_stops_the_worker(passthrough, tmp_path):
+    text = gzip.decompress(FIXTURE.read_bytes()).replace(b"\n}\n", b"\n}\njunk\n")
+    path = write_gz(tmp_path / "bad.json.gz", text)
+    with pytest.raises(BundleFormatError, match="trailing data"):
+        build(_fixture_inputs(full=local_input(path)), tmp_path / "out", spec=passthrough)
+    assert list((tmp_path / "out").iterdir()) == []  # the tables built before the error are removed
+    assert not (tmp_path / "out.work").exists()
+    assert not any(t.name == "clinvar-gkm-parquet-worker" for t in threading.enumerate())
+
+
+def test_checksum_mismatch_found_at_the_end_removes_the_tables(passthrough, tmp_path):
+    full = local_input(FIXTURE, sha="0" * 64)
+    with pytest.raises(InputError, match="sha256 mismatch"):
+        build(_fixture_inputs(full=full), tmp_path / "out", spec=passthrough)
+    assert list((tmp_path / "out").iterdir()) == []
+
+
+def test_worker_failure_with_a_wrong_checksum_reports_the_mismatch(passthrough, tmp_path, monkeypatch):
+    monkeypatch.setattr(build_mod, "render_table", _failing_sql)
+    full = local_input(FIXTURE, sha="0" * 64)
+    with pytest.raises(InputError, match="sha256 mismatch.*also fails"):
+        build(_fixture_inputs(full=full), tmp_path / "out", spec=passthrough)
+
+
+def test_full_without_a_checksum_is_hashed_first(passthrough, tmp_path):
+    path = tmp_path / "in" / "clinvar-gkm_copy.json.gz"
+    path.parent.mkdir()
+    path.write_bytes(FIXTURE.read_bytes())  # no sidecar
+    logs = []
+    build(
+        _fixture_inputs(full=local_input(path)),
+        tmp_path / "out",
+        spec=passthrough,
+        tables=["gene"],
+        log=logs.append,
+    )
+    assert any("hashing clinvar-gkm_copy.json.gz first" in m for m in logs)
+    kv = _kv(duckdb.connect(), tmp_path / "out" / "gene.parquet")
+    assert kv[KV_PREFIX + "source_bundle_sha256"] == _sha(FIXTURE)
+
+
+def test_spec_may_read_a_subset_of_the_sections(tmp_path, monkeypatch):
+    """A (custom) spec need not read every bundle section: the others are still read, checked and counted, but
+    no table is built from them. A section the bundle schema lacks is refused by the reader (test_bundle.py)."""
+    monkeypatch.setattr(build_mod.sqltemplate, "macros_sql", lambda: "SELECT 1")
+    monkeypatch.setattr(build_mod, "render_table", _passthrough_sql)
+    res = build(_fixture_inputs(), tmp_path / "out", spec=_passthrough_spec(drop=("gene",)))
+    assert "gene" not in {t.table for t in res.tables} and len(res.tables) == len(SECTIONS) - 1
+    m = json.loads((tmp_path / "out" / "manifest.json").read_text())
+    assert m["sections"]["gene"] == COUNTS["gene"]
     assert not (tmp_path / "out.work").exists()
 
-    def load_state_empty(con, full, deltas):  # an empty section no table reads is fine
-        return load_sections(con, {**section_rows(), "mystery": []})
 
-    monkeypatch.setattr(build_mod.replay, "load_state", load_state_empty)
-    build(inputs, tmp_path / "out", spec=spec, tables=["kv"])
+def test_build_refuses_sections_out_of_order(passthrough, tmp_path):
+    s = fixture_sections()
+    path = write_gz(tmp_path / "b.json.gz", bundle_bytes({"gene": s["gene"], "location": s["location"]}))
+    with pytest.raises(BundleFormatError, match="section location comes after gene"):
+        build(_fixture_inputs(full=local_input(path)), tmp_path / "out", spec=passthrough)
 
 
-def test_build_source_release_without_deltas(stubbed, tmp_path):
-    spec, inputs, _ = stubbed
-    full_only = BuildInputs(full=inputs.full, full_source_release="2026-09-28")
-    res = build(full_only, tmp_path / "out", spec=spec, tables=["kv"])
-    assert res.source_release == "2026-09-28"
-    con = duckdb.connect()
-    assert _kv(con, tmp_path / "out" / "kv.parquet")[KV_PREFIX + "source_deltas"] == "[]"
+def test_build_source_release_without_deltas(passthrough, tmp_path):
+    res = build(_fixture_inputs(), tmp_path / "out", spec=passthrough, tables=["gene"])
+    assert res.source_release == SOURCE_RELEASE
+    assert _kv(duckdb.connect(), tmp_path / "out" / "gene.parquet")[KV_PREFIX + "source_deltas"] == "[]"
 
 
 # --- CLI mapping -----------------------------------------------------------------------------------------------
@@ -510,76 +615,36 @@ def test_resolve_build_inputs_release(monkeypatch):
     assert got["base_url"] == "https://mirror.example" and got["release"] == "2026-10-18"
 
 
-def test_run_build_command(monkeypatch, capsys, stubbed, tmp_path):
-    spec, inputs, _ = stubbed
-    monkeypatch.setattr(build_mod, "resolve_build_inputs", lambda args: inputs)
-    monkeypatch.setattr(build_mod, "load_spec", lambda v: spec)
-    rc = run_build_command(_args(full="x", out=tmp_path / "o", tables="kv, evA,evB"))
+def test_run_build_command(monkeypatch, capsys, tmp_path):
+    """No --spec: the baseline spec (ADR 0003)."""
+    monkeypatch.setattr(build_mod, "resolve_build_inputs", lambda args: _fixture_inputs())
+    rc = run_build_command(_args(full="x", out=tmp_path / "o", tables="gene, scv,rcv"))
     assert rc == 0
     out = capsys.readouterr().out
-    assert "built 3 table(s), 19 rows, source release 2026-10-11" in out
+    n = COUNTS["gene"] + COUNTS["scv"] + COUNTS["rcv"]
+    assert f"built 3 table(s) of spec baseline 1.0, {n} rows, source release {SOURCE_RELEASE}" in out
+    kv = _kv(duckdb.connect(), tmp_path / "o" / "gene.parquet")
+    assert kv[KV_PREFIX + "table_spec"] == "baseline" and KV_PREFIX + "selection" not in kv
+
+
+def test_build_api_defaults_to_baseline(tmp_path):
+    """build() with no spec writes the baseline, as the CLI does with no --spec."""
+    res = build(_fixture_inputs(), tmp_path / "o", tables=["gene"])
+    assert [t.table for t in res.tables] == ["gene"]
+    kv = _kv(duckdb.connect(), tmp_path / "o" / "gene.parquet")
+    assert (kv[KV_PREFIX + "table_spec"], kv[KV_PREFIX + "table_spec_version"]) == ("baseline", "1.0")
+    assert KV_PREFIX + "table_spec_builtin" not in kv
 
 
 # --- end to end on the real fixture ----------------------------------------------------------------------------
 
 
-def _passthrough_spec():
-    """One table per bundle section: id = key, data = record. Exercises the real stage and replay, the build
-    and verify on a real bundle without depending on the table SQL."""
-    from clinvar_gkm_parquet.bundle import SECTIONS
+def test_build_and_verify_real_fixture(passthrough, tmp_path):
+    """The pass-through build on the fixture is deterministic across threads; verify and the streaming bundle
+    recompute pass, with deltas too."""
+    from clinvar_gkm_parquet.verify import bundle_recompute, recompute_failed, verify_dir
 
-    col = lambda n, k: {  # noqa: E731
-        "name": n,
-        "type": "VARCHAR",
-        "nulls": "never",
-        "derivation": {"kind": k, "path": None, "transform": None},
-        "description": "",
-    }
-    raw = {
-        "spec_version": "9.9",
-        "status": "draft",
-        "bundle_schema_versions": ["1.1.0"],
-        "sources": [],
-        "writer": {"compression": "snappy", "row_group_size": 122880},
-        "tables": [
-            {
-                "name": s,
-                "sections": [s],
-                "row_filter": None,
-                "sort_key": "id",
-                "description": "",
-                "columns": [col("id", "key"), col("data", "record")],
-            }
-            for s in SECTIONS
-        ],
-    }
-    from clinvar_gkm_parquet.spec import parse_spec
-
-    return parse_spec(raw)
-
-
-def _fixture_inputs() -> BuildInputs:
-    sha = (FIXTURE.parent / (FIXTURE.name + ".sha256")).read_text().split()[0]
-    inp = InputFile(
-        source=str(FIXTURE),
-        name=FIXTURE.name,
-        release="2026-10-18",
-        expected_sha256=sha,
-        sha256_source="sidecar",
-        size=FIXTURE.stat().st_size,
-    )
-    return BuildInputs(full=inp, full_source_release="2026-10-18")
-
-
-def test_build_and_verify_real_fixture(tmp_path, monkeypatch):
-    """Real stage + replay on the examples-1.1.0 fixture, a pass-through spec, then verify and recompute."""
-    from clinvar_gkm_parquet.verify import recompute, recompute_failed, verify_dir
-
-    spec = _passthrough_spec()
-    monkeypatch.setattr(build_mod.sqltemplate, "macros_sql", lambda: "SELECT 1")
-    monkeypatch.setattr(
-        build_mod.sqltemplate, "render", lambda t: f'SELECT key AS id, record AS data FROM "bundle_{t.name}"'
-    )
+    spec = passthrough
     a = build(_fixture_inputs(), tmp_path / "a", spec=spec, threads=1)
     b = build(_fixture_inputs(), tmp_path / "b", spec=spec, threads=4, work_dir=tmp_path / "w")
     assert [(t.table, t.sha256) for t in a.tables] == [(t.table, t.sha256) for t in b.tables]
@@ -588,12 +653,19 @@ def test_build_and_verify_real_fixture(tmp_path, monkeypatch):
     assert verify_dir(tmp_path / "a", spec) == []
     m = json.loads((tmp_path / "a" / "manifest.json").read_text())
     assert m["source_bundle_sha256"] == _fixture_inputs().full.expected_sha256
-    assert m["source_release"] == "2026-10-18" and m["source_deltas"] == []
-    state = build_mod.load_inputs(_fixture_inputs(), tmp_path / "rc", spec)
-    try:
-        assert not any(recompute_failed(g) for g in recompute(state.con, spec, tmp_path / "a"))
-    finally:
-        state.con.close()
+    assert m["source_release"] == SOURCE_RELEASE and m["source_deltas"] == []
+    groups = bundle_recompute(tmp_path / "a", _fixture_inputs(), spec=spec, work_dir=tmp_path / "rc")
+    assert len(groups) == len(SECTIONS) and not any(recompute_failed(g) for g in groups)
+    deltas = _two_deltas(tmp_path)
+    build(_fixture_inputs(deltas), tmp_path / "d", spec=spec)
+    groups = bundle_recompute(tmp_path / "d", _fixture_inputs(deltas), spec=spec, work_dir=tmp_path / "rc")
+    assert not any(recompute_failed(g) for g in groups)
+    # the full alone is not the replayed state: recompute finds the differences
+    groups = bundle_recompute(tmp_path / "d", _fixture_inputs(), spec=spec, work_dir=tmp_path / "rc")
+    by = {g["tables"][0]: g for g in groups}
+    assert by["gene"]["data_differs"]["count"] == 1 and by["scv"]["missing"]["count"] == 1
+    assert by["rcv"]["data_differs"]["count"] == 1
+    assert not (tmp_path / "rc").exists() or not list((tmp_path / "rc").iterdir())
 
 
 @pytest.mark.xfail(
@@ -613,11 +685,11 @@ def test_build_fixture_end_to_end(tmp_path):
     if not set(SECTIONS) <= spec.sections:
         pytest.skip("needs spec/1.0 to cover every bundle section (table-spec work package)")
     try:
-        res = build(_fixture_inputs(), tmp_path / "out")
+        res = build(_fixture_inputs(), tmp_path / "out", spec=spec)
     except NotImplementedError as e:
         pytest.skip(f"needs the table-spec work package: {e!r}")
     from clinvar_gkm_parquet.verify import verify_dir
 
     assert verify_dir(tmp_path / "out") == []
-    res2 = build(_fixture_inputs(), tmp_path / "out2", threads=4)
+    res2 = build(_fixture_inputs(), tmp_path / "out2", spec=spec, threads=4)
     assert [t.sha256 for t in res.tables] == [t.sha256 for t in res2.tables]

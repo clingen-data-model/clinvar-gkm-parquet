@@ -28,15 +28,15 @@ filling which slot) and the empty-versus-NULL rules, which need a scan of the da
 
 Rules that hold for every table (design plan §3.4, §3.5):
 - `data` (therapy/therapyGroup: `value`) is the bundle record, byte for byte as on its bundle line.
-- Pointers: every bare-id / pointer-section column, and every pointer position a typed copy strips, must hold a
-  '#/<section>/<id>' string; anything else stops the build.
+- Pointers: every bare-id / pointer-section column, and every pointer position a typed copy strips (its
+  derivation's `pointers`), must hold a '#/<section>/<id>' string; anything else stops the build.
 - Typed copies: an object may hold only the fields of its spec struct (else the build stops); inside a typed
   value an absent struct or scalar is NULL and an absent list is [] (BigQuery stores no NULL arrays). A struct
   with `name` and `value_*` fields is an extension: the bundle's {name, value} goes into the slot that
   `extension_slots` names; an unlisted name stops the build. Slots other than the named one are NULL ([] for a
   list slot). The []-for-nested-lists rule follows BigQuery's REPEATED semantics and is confirmed by the oracle.
-- Tables whose columns copy the whole record (BigQuery `SELECT t.*`) stop on a top-level record field that no
-  column covers.
+- Tables whose columns copy the whole record (BigQuery `SELECT t.*`; `known_fields: true`) stop on a top-level
+  record field that no column covers.
 ```
 
 ## Sources
@@ -174,17 +174,17 @@ Genes referenced by variants' gene lists and by propositions' gene context, keye
 
 ClinVar variants as Cat-VRS CategoricalVariant records, one per ClinVar Variation id.
 
-`variation.parquet` · sections: variation · sort key: `id`
+`variation.parquet` · sections: variation · sort key: `id` · known fields: a top-level record field no column reads stops the build
 
 | # | Column | Type | Nulls | Derivation | Path | Transform | Description |
 | ---: | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `id` | `VARCHAR` | never | key |  |  | The bundle key, clinvar:&lt;variation id&gt;. |
 | 2 | `type` | `VARCHAR` | when-absent | scalar-path | `$.type` |  | Always CategoricalVariant. |
 | 3 | `name` | `VARCHAR` | when-absent | scalar-path | `$.name` |  | ClinVar's preferred name. |
-| 4 | `extensions` | `STRUCT(name, value_string, value_boolean, value_coding, value_hgvs_array, value_gene_array)[]` | empty-list | extension-slot | `$.extensions` | {name, value} -&gt; {name, value_&lt;slot&gt;} by extension_slots, at every depth; value_gene_array[].gene pointer stripped | Named ClinVar attributes; each element sets only the value_* slot its name maps to. |
+| 4 | `extensions` | `STRUCT(name, value_string, value_boolean, value_coding, value_hgvs_array, value_gene_array)[]` | empty-list | extension-slot | `$.extensions` | {name, value} -&gt; {name, value_&lt;slot&gt;} by extension_slots, at every depth; value_gene_array[].gene pointer stripped; pointers: `[*].value_gene_array[*].gene` | Named ClinVar attributes; each element sets only the value_* slot its name maps to. |
 | 5 | `mappings` | `STRUCT(coding, relation)[]` | empty-list | typed-copy | `$.mappings` |  | Identifiers for this variant in other systems. |
 | 6 | `members` | `VARCHAR[]` | empty-list | bare-id | `$.members` | strip ^#/[^/]+/ from each pointer | VRS ids of the member variants (allele, copyNumberCount or copyNumberChange ids). |
-| 7 | `constraints` | `STRUCT(type, allele, location, copies, copyChange, matchCharacteristic, relations)[]` | empty-list | typed-copy | `$.constraints` | [].allele and [].location pointers stripped | Cat-VRS constraints that define the category. |
+| 7 | `constraints` | `STRUCT(type, allele, location, copies, copyChange, matchCharacteristic, relations)[]` | empty-list | typed-copy | `$.constraints` | [].allele and [].location pointers stripped; pointers: `[*].allele`, `[*].location` | Cat-VRS constraints that define the category. |
 | 8 | `data` | `VARCHAR` | never | record |  |  | The bundle record, byte for byte. |
 
 Full nested types:
@@ -217,7 +217,7 @@ Extension slots of `extensions`:
 
 ClinVar conditions (traits), one per ClinVar trait. camelCase column names, as published.
 
-`condition.parquet` · sections: condition · sort key: `id`
+`condition.parquet` · sections: condition · sort key: `id` · known fields: a top-level record field no column reads stops the build
 
 | # | Column | Type | Nulls | Derivation | Path | Transform | Description |
 | ---: | --- | --- | --- | --- | --- | --- | --- |
@@ -241,7 +241,7 @@ mappings  STRUCT(coding STRUCT("name" VARCHAR, code VARCHAR, "system" VARCHAR, i
 
 Sets of conditions a proposition is about (accessioned TraitSets and minted VCV sets).
 
-`conditionSet.parquet` · sections: conditionSet · sort key: `id`
+`conditionSet.parquet` · sections: conditionSet · sort key: `id` · known fields: a top-level record field no column reads stops the build
 
 | # | Column | Type | Nulls | Derivation | Path | Transform | Description |
 | ---: | --- | --- | --- | --- | --- | --- | --- |
@@ -387,7 +387,7 @@ ClinVar's non-pathogenicity germline propositions (the Clinvar* types).
 
 SCV-level evidence lines (somatic clinical impact submissions); the id is the SCV's id.
 
-`evidenceLine.parquet` · sections: evidenceLine · sort key: `id` · row filter: keys of shape clinvar.submission:SCV<n>.<v>; a key of no known evidence-line shape stops the build
+`evidenceLine.parquet` · sections: evidenceLine · sort key: `id` · row filter: keys of shape clinvar.submission:SCV<n>.<v>; a key of no known evidence-line shape stops the build · known fields: a top-level record field no column reads stops the build
 
 | # | Column | Type | Nulls | Derivation | Path | Transform | Description |
 | ---: | --- | --- | --- | --- | --- | --- | --- |
@@ -417,7 +417,7 @@ Extension slots of `extensions`:
 
 SCV statements, each submitter's classification of a variant, one per ClinVar submission.
 
-`scv.parquet` · sections: scv · sort key: `id`
+`scv.parquet` · sections: scv · sort key: `id` · known fields: a top-level record field no column reads stops the build
 
 | # | Column | Type | Nulls | Derivation | Path | Transform | Description |
 | ---: | --- | --- | --- | --- | --- | --- | --- |
@@ -433,7 +433,7 @@ SCV statements, each submitter's classification of a variant, one per ClinVar su
 | 10 | `extensions` | `STRUCT(name, value_string, value_submitted_condition_set, value_submitted_condition)[]` | empty-list | extension-slot | `$.extensions` | {name, value} -&gt; {name, value_&lt;slot&gt;} by extension_slots | Named ClinVar attributes and the submitter's original condition. |
 | 11 | `proposition_id` | `VARCHAR` | when-absent | bare-id | `$.proposition` | strip ^#/[^/]+/ | The proposition this statement classifies. |
 | 12 | `proposition_section` | `VARCHAR` | when-absent | pointer-section | `$.proposition` | &lt;section&gt; of ^#/&lt;section&gt;/ | The proposition table that holds it. |
-| 13 | `contributions` | `STRUCT(type, contributor, date, activityType)[]` | empty-list | typed-copy | `$.contributions` | [].contributor pointer stripped; [].date YYYY-MM-DD cast to DATE | Submitted, created and evaluated contributions; contributor joins submitter.id. |
+| 13 | `contributions` | `STRUCT(type, contributor, date, activityType)[]` | empty-list | typed-copy | `$.contributions` | [].contributor pointer stripped; [].date YYYY-MM-DD cast to DATE; pointers: `[*].contributor` | Submitted, created and evaluated contributions; contributor joins submitter.id. |
 | 14 | `has_evidence_lines` | `VARCHAR[]` | empty-list | bare-id | `$.hasEvidenceLines` | strip ^#/[^/]+/ from each pointer | Ids of this statement's evidence lines in evidenceLine. |
 | 15 | `data` | `VARCHAR` | never | record |  |  | The bundle record, byte for byte. |
 
@@ -497,7 +497,7 @@ Extension slots of `extensions`:
 
 RCV aggregate statements, ClinVar's rollup for one variant and one condition.
 
-`rcv.parquet` · sections: rcv · sort key: `id`
+`rcv.parquet` · sections: rcv · sort key: `id` · known fields: a top-level record field no column reads stops the build
 
 | # | Column | Type | Nulls | Derivation | Path | Transform | Description |
 | ---: | --- | --- | --- | --- | --- | --- | --- |
@@ -526,7 +526,7 @@ extensions  STRUCT("name" VARCHAR, "value" VARCHAR)[]
 
 Evidence lines of RCV statements, which statements each cites and whether they contribute.
 
-`rcv_evidenceLine.parquet` · sections: evidenceLine · sort key: `id` · row filter: keys of shape RCV<n>.<v>-...; a key of no known evidence-line shape stops the build
+`rcv_evidenceLine.parquet` · sections: evidenceLine · sort key: `id` · row filter: keys of shape RCV<n>.<v>-...; a key of no known evidence-line shape stops the build · known fields: a top-level record field no column reads stops the build
 
 | # | Column | Type | Nulls | Derivation | Path | Transform | Description |
 | ---: | --- | --- | --- | --- | --- | --- | --- |
@@ -547,7 +547,7 @@ strengthOfEvidenceProvided  STRUCT("type" VARCHAR, conceptType VARCHAR, "name" V
 
 VCV aggregate statements, ClinVar's rollup for one variant across its conditions.
 
-`vcv.parquet` · sections: vcv · sort key: `id`
+`vcv.parquet` · sections: vcv · sort key: `id` · known fields: a top-level record field no column reads stops the build
 
 | # | Column | Type | Nulls | Derivation | Path | Transform | Description |
 | ---: | --- | --- | --- | --- | --- | --- | --- |
@@ -576,7 +576,7 @@ extensions  STRUCT("name" VARCHAR, "value" VARCHAR)[]
 
 Evidence lines of VCV statements, which statements each cites and whether they contribute.
 
-`vcv_evidenceLine.parquet` · sections: evidenceLine · sort key: `id` · row filter: keys of shape VCV<n>.<v>-...; a key of no known evidence-line shape stops the build
+`vcv_evidenceLine.parquet` · sections: evidenceLine · sort key: `id` · row filter: keys of shape VCV<n>.<v>-...; a key of no known evidence-line shape stops the build · known fields: a top-level record field no column reads stops the build
 
 | # | Column | Type | Nulls | Derivation | Path | Transform | Description |
 | ---: | --- | --- | --- | --- | --- | --- | --- |

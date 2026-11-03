@@ -4,4 +4,4 @@ SELECT
   record AS "value",
   {{scalar name}} AS "name",
   {{scalar concept_type}} AS "concept_type"
-FROM bundle_therapy
+FROM {{source}}

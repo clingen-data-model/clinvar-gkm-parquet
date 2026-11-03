@@ -7,4 +7,4 @@ SELECT
   {{scalar molecule_type}} AS "molecule_type",
   {{scalar residue_alphabet}} AS "residue_alphabet",
   record AS "data"
-FROM bundle_sequenceReference
+FROM {{source}}

@@ -8,5 +8,5 @@ SELECT
   {{scalar membershipOperator}} AS "membershipOperator",
   {{bare_id concepts}} AS "concepts",
   record AS "data"
-FROM bundle_conditionSet
+FROM {{source}}
 WHERE {{known_keys}}

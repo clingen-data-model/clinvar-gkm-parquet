@@ -11,5 +11,5 @@ SELECT
   {{pointer_section proposition_section}} AS "proposition_section",
   {{bare_id has_evidence_lines}} AS "has_evidence_lines",
   record AS "data"
-FROM bundle_vcv
+FROM {{source}}
 WHERE {{known_keys}}

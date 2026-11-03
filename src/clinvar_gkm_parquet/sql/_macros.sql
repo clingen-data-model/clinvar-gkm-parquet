@@ -51,12 +51,13 @@ CREATE OR REPLACE MACRO cgp_known_keys(rec, allowed, ctx, k) AS
 
 -- The evidence-line table a bundle evidenceLine key belongs to, by id shape (design plan §3.3):
 -- clinvar.submission:SCV<n>.<v> -> evidenceLine; VCV<n>.<v>-... -> vcv_evidenceLine; RCV<n>.<v>-... ->
--- rcv_evidenceLine. Any other shape fails.
+-- rcv_evidenceLine. Any other shape fails. (Each regex runs only on the keys with its literal prefix.)
 CREATE OR REPLACE MACRO cgp_evidence_line_table(k, ctx) AS
   CASE
-    WHEN regexp_matches(k, '^clinvar\.submission:SCV[0-9]+\.[0-9]+$') THEN 'evidenceLine'
-    WHEN regexp_matches(k, '^VCV[0-9]+\.[0-9]+-') THEN 'vcv_evidenceLine'
-    WHEN regexp_matches(k, '^RCV[0-9]+\.[0-9]+-') THEN 'rcv_evidenceLine'
+    WHEN starts_with(k, 'clinvar.submission:SCV') AND regexp_matches(k, '^clinvar\.submission:SCV[0-9]+\.[0-9]+$')
+      THEN 'evidenceLine'
+    WHEN starts_with(k, 'VCV') AND regexp_matches(k, '^VCV[0-9]+\.[0-9]+-') THEN 'vcv_evidenceLine'
+    WHEN starts_with(k, 'RCV') AND regexp_matches(k, '^RCV[0-9]+\.[0-9]+-') THEN 'rcv_evidenceLine'
     ELSE cgp_fail(ctx, k, 'evidence-line id of no known shape (clinvar.submission:SCV<n>.<v>, VCV<n>.<v>-..., RCV<n>.<v>-...)')
   END;
 

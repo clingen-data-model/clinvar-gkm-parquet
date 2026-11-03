@@ -8,5 +8,5 @@ SELECT
   {{typed primaryCoding}} AS "primaryCoding",
   {{typed mappings}} AS "mappings",
   record AS "data"
-FROM bundle_condition
+FROM {{source}}
 WHERE {{known_keys}}

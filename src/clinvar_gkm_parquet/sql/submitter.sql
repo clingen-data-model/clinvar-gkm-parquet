@@ -4,4 +4,4 @@ SELECT
   {{scalar type}} AS "type",
   {{scalar name}} AS "name",
   record AS "data"
-FROM bundle_submitter
+FROM {{source}}

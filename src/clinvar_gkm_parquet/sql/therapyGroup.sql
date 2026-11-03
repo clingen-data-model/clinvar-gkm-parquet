@@ -4,4 +4,4 @@ SELECT
   record AS "value",
   {{scalar membership_operator}} AS "membership_operator",
   {{bare_id members}} AS "members"
-FROM bundle_therapyGroup
+FROM {{source}}

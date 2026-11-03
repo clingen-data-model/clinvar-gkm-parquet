@@ -9,6 +9,6 @@ SELECT
   {{typed extensions}} AS "extensions",
   {{bare_id target_proposition_id}} AS "target_proposition_id",
   record AS "data"
-FROM bundle_evidenceLine
+FROM {{source}}
 -- CASE, not AND: the field check must see only this table's rows (AND may evaluate both sides).
 WHERE CASE WHEN cgp_evidence_line_table(key, 'table evidenceLine: row filter') = 'evidenceLine' THEN {{known_keys}} ELSE FALSE END
