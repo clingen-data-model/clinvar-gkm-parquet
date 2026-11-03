@@ -32,6 +32,10 @@ This repo builds a downloadable, versioned **bundle → Parquet** tool for
   table needs a fact the bundle doesn't carry, it goes into the ClinVar-GKM bundle first (a schema change
   there), never into this tool. See [ADR 0001](docs/decisions/0001-parquet-derived-from-bundles.md).
 
+The compile-and-build path is generic: any bundle plus its schema and column-set file, with no ClinVar-GKM logic in
+it, because it is meant to move to the GKM Toolkit (`ga4gh/gkm-starter-kit`;
+[ADR 0006](docs/decisions/0006-sections-spec-compiled-from-schemas.md)).
+
 Until the tool ships, ClinVar-GKM still builds its latest Parquet set with BigQuery SQL
 (`src/scripts/parquet-schemas/*.sql` on its `1.0` branch). This tool replaces that path once it matches it
 (ClinVar-GKM ADR 0007, Workstream 1). The plan is in [the design plan](docs/plans/2026-10-20-design.md).
@@ -43,11 +47,13 @@ See [ADR 0002](docs/decisions/0002-independent-tool-versioning.md). In short:
 - **Tool version:** semver, independent of the bundle schema version (they release on different cadences).
 - **Table-spec version:** `MAJOR.MINOR`, versioned separately from the tool. It defines the tables, columns,
   types and derivations. MINOR = additive (new table, new trailing column); MAJOR = anything else.
-- **Compatibility matrix:** every tool release declares the bundle `schema_version`s it accepts and the
-  table-spec version it writes. The tool reads each bundle's self-declared `schema_version` and **refuses**
-  any version not in its list. The matrix lives in `README.md` and in `version --json`; keep both in sync.
+- **Compatibility matrix:** every tool release declares the table-spec versions it writes and the bundle
+  `schema_version`s they read. `sections` is compiled from a bundle schema and its column set; with neither given it
+  reads the bundle's self-declared `schema_version` and **refuses** a version whose pairing doesn't load and compile
+  (ADR 0006). `baseline`, `clinvar-gkm` and a custom spec **refuse** any version not in their list. The matrix lives in
+  `README.md` and in `version --json`; keep both in sync.
 - Each Parquet file records the tool version, the table-spec version and the source bundle sha256(s) in its
-  key-value metadata.
+  key-value metadata; a compiled `sections` file also the sha256 of its schema set, column set and compiled spec.
 
 ## Testing and verification
 
@@ -57,8 +63,8 @@ See [ADR 0002](docs/decisions/0002-independent-tool-versioning.md). In short:
   BigQuery-exported latest Parquet table by table (schema, row counts, id sets, every typed column, `data`).
   Every difference is either fixed or listed, explained and accepted by the maintainer before rollout.
 - **Bundle recompute:** id sets equal the bundle sections, and `data` equals the bundle record.
-- Unknown `schema_version`, unknown bundle section, or unknown extension name: fail loudly. Never drop rows
-  or values silently.
+- A `schema_version` the spec can't read, unknown bundle section, or unknown extension name: fail loudly. Never
+  drop rows or values silently.
 
 ## Published data access
 

@@ -22,11 +22,12 @@ from _tables_helpers import SPEC as CLINVAR_GKM
 from _tables_helpers import connect, read_fixture, rows
 
 from clinvar_gkm_parquet import baseline, build, compat, sqltemplate
+from clinvar_gkm_parquet.default_pairing import sections_of
 from clinvar_gkm_parquet.errors import SpecError
 from clinvar_gkm_parquet.spec import RANGE_KINDS, parse_spec, resolve_spec
 from clinvar_gkm_parquet.sqltemplate import canonical_type, render_generic
 
-SPEC, SOURCE = resolve_spec("sections")
+SPEC, SOURCE = resolve_spec("sections", "1.1.0")
 BASE = read_fixture()
 POINTER = re.compile(r"^#/[^/]+/.")
 
@@ -52,14 +53,14 @@ def test_sections_is_the_default():
         "1.0",
         True,
     )
-    assert resolve_spec(None)[0] is SPEC
+    assert resolve_spec(None, "1.1.0")[0] == SPEC
 
 
 def test_spec_shape():
     """One table per section, named as it; `id` (the key) first; no record column; known_fields; every other column
     reads one top-level property; the generic renderer builds every table, though clinvar-gkm ships a SQL file of
     the same name for most of them."""
-    assert [t.name for t in SPEC.tables] == list(compat.SCHEMA_SECTIONS["1.1.0"])
+    assert [t.name for t in SPEC.tables] == list(sections_of("1.1.0"))
     for t in SPEC.tables:
         assert t.sections == (t.name,) and t.row_filter is None and t.sort_key == "id" and t.known_fields
         assert (t.columns[0].name, t.columns[0].type, t.columns[0].derivation.kind) == ("id", "VARCHAR", "key")
@@ -120,7 +121,7 @@ def test_build_tables_self_checks_pass(tmp_path):
         table_spec={"table_spec": "sections", "table_spec_version": "1.0"},
     )
     results = build.build_tables(con, SPEC, [t.name for t in SPEC.tables], tmp_path, kv)
-    assert {r.table: r.rows for r in results} == {s: len(BASE[s]) for s in compat.SCHEMA_SECTIONS["1.1.0"]}
+    assert {r.table: r.rows for r in results} == {s: len(BASE[s]) for s in sections_of("1.1.0")}
     for t in SPEC.tables:
         cols = [c for c, _ in build.describe_file(con, tmp_path / t.file_name)]
         assert cols[0] == "id" and "data" not in cols

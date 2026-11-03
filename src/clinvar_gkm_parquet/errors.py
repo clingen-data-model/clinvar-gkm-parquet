@@ -15,7 +15,8 @@ class BundleFormatError(ToolError):
 
 
 class SchemaVersionError(ToolError):
-    """A bundle's schema_version is missing or not in the accepted list (design plan §4.4)."""
+    """A bundle's schema_version is missing, or the tool can't read it: its schema set doesn't load, its sections
+    spec doesn't compile, or the spec asked for doesn't list it (design plan §4.4, ADR 0006 §6)."""
 
 
 class ChainError(ToolError):
@@ -25,6 +26,17 @@ class ChainError(ToolError):
 class SpecError(ToolError):
     """The table spec is malformed, or a built table or record doesn't match it (an unknown extension name,
     a non-pointer where a pointer is required, a DESCRIBE that differs from the spec)."""
+
+
+class SchemaSetError(ToolError):
+    """A bundle schema set can't be loaded: a missing or unfetchable file, a file whose `$id` differs from the
+    ref that reached it, a `$ref` that names nothing, a snapshot that differs from its manifest (ADR 0006)."""
+
+
+class CompileError(ToolError):
+    """The schema set (and its overlay) doesn't determine a table of the `sections` spec: a pattern the rules don't
+    cover, or an overlay entry that contradicts the schema or has no use. The message names the section and
+    position, and what the schema must state (ADR 0006)."""
 
 
 class RoundTripError(ToolError):

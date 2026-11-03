@@ -1,0 +1,575 @@
+{
+  "bundle_id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarGkmBundle",
+  "files": [
+    {
+      "id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarAffectsProposition",
+      "url": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarAffectsProposition",
+      "file": "clingen/schema/clinvar-gkm/1.1.0/json/ClinvarAffectsProposition",
+      "sha256": "690093385651d0c63fc43e7f1e36ddd2b39f2b122d099aad5928a8e6fd1b6362"
+    },
+    {
+      "id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarAggregateStatement",
+      "url": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarAggregateStatement",
+      "file": "clingen/schema/clinvar-gkm/1.1.0/json/ClinvarAggregateStatement",
+      "sha256": "e09abf4cd88fc1cb783203c4e021aebe6b0dce8e4f6d015fe0d8e093653273a4"
+    },
+    {
+      "id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarAssociationProposition",
+      "url": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarAssociationProposition",
+      "file": "clingen/schema/clinvar-gkm/1.1.0/json/ClinvarAssociationProposition",
+      "sha256": "2c0532520e6ca5c2303bca6bbfd0e0c20b034bc571f73bb65e378f7dac3ba270"
+    },
+    {
+      "id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarCanonicalAllele",
+      "url": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarCanonicalAllele",
+      "file": "clingen/schema/clinvar-gkm/1.1.0/json/ClinvarCanonicalAllele",
+      "sha256": "e05837fa61090c997d9b7de08739d7ba11e1ae7908d6d26183041baa86fe81db"
+    },
+    {
+      "id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarCategoricalCnvChange",
+      "url": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarCategoricalCnvChange",
+      "file": "clingen/schema/clinvar-gkm/1.1.0/json/ClinvarCategoricalCnvChange",
+      "sha256": "751095214893983a70bf67affa2157016ff6cb722c7a2b8950cb682bb609590f"
+    },
+    {
+      "id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarCategoricalCnvCount",
+      "url": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarCategoricalCnvCount",
+      "file": "clingen/schema/clinvar-gkm/1.1.0/json/ClinvarCategoricalCnvCount",
+      "sha256": "db533f4a24369b5516a9b414d8ece55dc4786fdd2920e6cd70db2f46069fdf75"
+    },
+    {
+      "id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarCategoricalVariant",
+      "url": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarCategoricalVariant",
+      "file": "clingen/schema/clinvar-gkm/1.1.0/json/ClinvarCategoricalVariant",
+      "sha256": "41032ce1dfde693948523b285a7b1d4252febc61235de7c03b27f7a2cc560abb"
+    },
+    {
+      "id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarConfersSensitivityProposition",
+      "url": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarConfersSensitivityProposition",
+      "file": "clingen/schema/clinvar-gkm/1.1.0/json/ClinvarConfersSensitivityProposition",
+      "sha256": "56ed2df95db2e219c28845f66d8bf8daca7909e9729a8a6535316cab9d83b91c"
+    },
+    {
+      "id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarConflictingDataFromSubmitterProposition",
+      "url": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarConflictingDataFromSubmitterProposition",
+      "file": "clingen/schema/clinvar-gkm/1.1.0/json/ClinvarConflictingDataFromSubmitterProposition",
+      "sha256": "b41f261a527e5e3935e4546e35eca780e6445425b3bc8d7979770bd0f58b750b"
+    },
+    {
+      "id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarDrugResponseProposition",
+      "url": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarDrugResponseProposition",
+      "file": "clingen/schema/clinvar-gkm/1.1.0/json/ClinvarDrugResponseProposition",
+      "sha256": "333c0a6026a6f25b8e4a6b90b4e81587878e5bc22d32cae943e4e24f967a641f"
+    },
+    {
+      "id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarGeneContextQualifier",
+      "url": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarGeneContextQualifier",
+      "file": "clingen/schema/clinvar-gkm/1.1.0/json/ClinvarGeneContextQualifier",
+      "sha256": "bbc23a8dd9b6684797d657251794cb9c2303c19b25eb242d53dca6094ea45b33"
+    },
+    {
+      "id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarGermlineCustomProposition",
+      "url": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarGermlineCustomProposition",
+      "file": "clingen/schema/clinvar-gkm/1.1.0/json/ClinvarGermlineCustomProposition",
+      "sha256": "4608390d79955c47e2d0f3ccc86e05369c9de4287224e15b02dac655cc8a91b3"
+    },
+    {
+      "id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarGkmBundle",
+      "url": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/clinvar-gkm-bundle.schema.json",
+      "file": "clingen/schema/clinvar-gkm/1.1.0/clinvar-gkm-bundle.schema.json",
+      "sha256": "48369c69648459b1e138a1f59c1a349742f5e0b93a93c68ccc9df77b8b73ede2"
+    },
+    {
+      "id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarNonConstrainedVariant",
+      "url": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarNonConstrainedVariant",
+      "file": "clingen/schema/clinvar-gkm/1.1.0/json/ClinvarNonConstrainedVariant",
+      "sha256": "b98ea412de41f343656e6ec3fddc9fb3cb9a5ffe225a0b5b98da1554d2d5cf80"
+    },
+    {
+      "id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarNotProvidedProposition",
+      "url": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarNotProvidedProposition",
+      "file": "clingen/schema/clinvar-gkm/1.1.0/json/ClinvarNotProvidedProposition",
+      "sha256": "082788cec71ff6b42efebf108af6c941c97e0501cc29cb620693efd4c2518c9b"
+    },
+    {
+      "id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarOtherProposition",
+      "url": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarOtherProposition",
+      "file": "clingen/schema/clinvar-gkm/1.1.0/json/ClinvarOtherProposition",
+      "sha256": "a07438cfde8c65625067f496bdcde5959f52615732c6fc82e2440a4b8dd05b90"
+    },
+    {
+      "id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarProposition",
+      "url": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarProposition",
+      "file": "clingen/schema/clinvar-gkm/1.1.0/json/ClinvarProposition",
+      "sha256": "36c6126bd1f4af9240d1f61b37724a4a9a5a7965f5fc8ca0836984385a3ce5e0"
+    },
+    {
+      "id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarProtectiveProposition",
+      "url": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarProtectiveProposition",
+      "file": "clingen/schema/clinvar-gkm/1.1.0/json/ClinvarProtectiveProposition",
+      "sha256": "70b077dc34afd8c07b77c6986e8115cd438aaa08a9e668731a897819f40e6c14"
+    },
+    {
+      "id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarRcvStatement",
+      "url": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarRcvStatement",
+      "file": "clingen/schema/clinvar-gkm/1.1.0/json/ClinvarRcvStatement",
+      "sha256": "e6cd158dce1fc847a71699dbb661a8a06b666d575e3beec497fd59940fdd2c98"
+    },
+    {
+      "id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarRiskFactorProposition",
+      "url": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarRiskFactorProposition",
+      "file": "clingen/schema/clinvar-gkm/1.1.0/json/ClinvarRiskFactorProposition",
+      "sha256": "3f0d325bbe93b1d102788655142230e49927d9c720690721eeddaaf6fab4797e"
+    },
+    {
+      "id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarScvStatement",
+      "url": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarScvStatement",
+      "file": "clingen/schema/clinvar-gkm/1.1.0/json/ClinvarScvStatement",
+      "sha256": "dde0436f6e96c53ca7679ca1ce8c8fc31d4d0640ea3903af50b3f733a017d00a"
+    },
+    {
+      "id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarSomaticEvidenceLine",
+      "url": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarSomaticEvidenceLine",
+      "file": "clingen/schema/clinvar-gkm/1.1.0/json/ClinvarSomaticEvidenceLine",
+      "sha256": "83cac3f064fd14219c40b5d8f3aa8228cd36535731614076548b6f8ee1e2b288"
+    },
+    {
+      "id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarUndefinedProposition",
+      "url": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarUndefinedProposition",
+      "file": "clingen/schema/clinvar-gkm/1.1.0/json/ClinvarUndefinedProposition",
+      "sha256": "c9adca6b9d5b25fec940e617f0095d685d2be1adadb4dfb3eaaf21ac235ee8de"
+    },
+    {
+      "id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarVcvStatement",
+      "url": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarVcvStatement",
+      "file": "clingen/schema/clinvar-gkm/1.1.0/json/ClinvarVcvStatement",
+      "sha256": "4c667468562d7efcd18e7a8b2d93d0dc9d47f61edcb58477dd0f3787bc749e15"
+    },
+    {
+      "id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/GeneListItem",
+      "url": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/GeneListItem",
+      "file": "clingen/schema/clinvar-gkm/1.1.0/json/GeneListItem",
+      "sha256": "50c7ebf8cd5a9e02c7fd37e82cd88af2aa4a143df775a8d00b84b72ad4f6fed8"
+    },
+    {
+      "id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/HgvsListItem",
+      "url": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/HgvsListItem",
+      "file": "clingen/schema/clinvar-gkm/1.1.0/json/HgvsListItem",
+      "sha256": "786e466f0d70cb27a066a6e56901dfef36c436cd34c26531981613ddaecd7ce6"
+    },
+    {
+      "id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/SubmittedConditionMapping",
+      "url": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/SubmittedConditionMapping",
+      "file": "clingen/schema/clinvar-gkm/1.1.0/json/SubmittedConditionMapping",
+      "sha256": "5acb7f8fbf5412a0cfa30f41ce0152682528ab69817809713c94bc66644b76fe"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/cat-vrs/1.1.1/json/AdjacencyConstraint",
+      "url": "https://w3id.org/ga4gh/schema/cat-vrs/1.1.1/json/AdjacencyConstraint",
+      "file": "ga4gh/schema/cat-vrs/1.1.1/json/AdjacencyConstraint",
+      "sha256": "1b2b8e68fce7af180142fe4391c696491f7f67a62beed40003dbcadfdd69b488"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/cat-vrs/1.1.1/json/CanonicalAllele",
+      "url": "https://w3id.org/ga4gh/schema/cat-vrs/1.1.1/json/CanonicalAllele",
+      "file": "ga4gh/schema/cat-vrs/1.1.1/json/CanonicalAllele",
+      "sha256": "0a766978d9e25b521d8d74a1b86b6656bb03fa7cf70ce6cb5c4f1560f242c590"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/cat-vrs/1.1.1/json/CategoricalCnv",
+      "url": "https://w3id.org/ga4gh/schema/cat-vrs/1.1.1/json/CategoricalCnv",
+      "file": "ga4gh/schema/cat-vrs/1.1.1/json/CategoricalCnv",
+      "sha256": "23fd34cf8c57dbe0aaaf1027d368c836badf9346a05c138d5d47427728688f43"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/cat-vrs/1.1.1/json/CategoricalVariant",
+      "url": "https://w3id.org/ga4gh/schema/cat-vrs/1.1.1/json/CategoricalVariant",
+      "file": "ga4gh/schema/cat-vrs/1.1.1/json/CategoricalVariant",
+      "sha256": "97e4ba94bf4023e921f5521e4dc63f9a992469f7815b8b87ac7d9059652c8aff"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/cat-vrs/1.1.1/json/Constraint",
+      "url": "https://w3id.org/ga4gh/schema/cat-vrs/1.1.1/json/Constraint",
+      "file": "ga4gh/schema/cat-vrs/1.1.1/json/Constraint",
+      "sha256": "71f12f4ea5e88022b21fa24136bd8ea9dd3f7e3ece75b0a54046676f9d85822c"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/cat-vrs/1.1.1/json/CopyChangeConstraint",
+      "url": "https://w3id.org/ga4gh/schema/cat-vrs/1.1.1/json/CopyChangeConstraint",
+      "file": "ga4gh/schema/cat-vrs/1.1.1/json/CopyChangeConstraint",
+      "sha256": "c9a60c01b165c50db60fb815f3f87737322e5188d64d947a9129f1b41ac45ed4"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/cat-vrs/1.1.1/json/CopyCountConstraint",
+      "url": "https://w3id.org/ga4gh/schema/cat-vrs/1.1.1/json/CopyCountConstraint",
+      "file": "ga4gh/schema/cat-vrs/1.1.1/json/CopyCountConstraint",
+      "sha256": "3fed6304dec408358478eeefce70bff2c896bdba947b50ce48a8ea5ada7823fc"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/cat-vrs/1.1.1/json/DefiningAlleleConstraint",
+      "url": "https://w3id.org/ga4gh/schema/cat-vrs/1.1.1/json/DefiningAlleleConstraint",
+      "file": "ga4gh/schema/cat-vrs/1.1.1/json/DefiningAlleleConstraint",
+      "sha256": "92d4d1dca1fe025ac69eba57b6e720073140077df0c32afca31c1713b2b20468"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/cat-vrs/1.1.1/json/DefiningLocationConstraint",
+      "url": "https://w3id.org/ga4gh/schema/cat-vrs/1.1.1/json/DefiningLocationConstraint",
+      "file": "ga4gh/schema/cat-vrs/1.1.1/json/DefiningLocationConstraint",
+      "sha256": "8aa5bd3c8049a57e9b7e5ee92867dbc9edca7c785dc28e2efd3f1ad8dd7488e5"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/cat-vrs/1.1.1/json/FeatureContextConstraint",
+      "url": "https://w3id.org/ga4gh/schema/cat-vrs/1.1.1/json/FeatureContextConstraint",
+      "file": "ga4gh/schema/cat-vrs/1.1.1/json/FeatureContextConstraint",
+      "sha256": "af17b47c3adcfc9da61ddf1bbbb87dacdd59a3599a940f4e319a11b2d6dbbd06"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/cat-vrs/1.1.1/json/FunctionConstraint",
+      "url": "https://w3id.org/ga4gh/schema/cat-vrs/1.1.1/json/FunctionConstraint",
+      "file": "ga4gh/schema/cat-vrs/1.1.1/json/FunctionConstraint",
+      "sha256": "69c3c7bf66ef0e16879a0a05e7a57837faaa0f1f08d8ccedfbc3b7e9b33eefc4"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/cat-vrs/1.1.1/json/FunctionalDomain",
+      "url": "https://w3id.org/ga4gh/schema/cat-vrs/1.1.1/json/FunctionalDomain",
+      "file": "ga4gh/schema/cat-vrs/1.1.1/json/FunctionalDomain",
+      "sha256": "0161f4a77fabf04603bedd54f04c51f5c674738aa61503e0742d920a7449fd07"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/cat-vrs/1.1.1/json/UnspecifiedElement",
+      "url": "https://w3id.org/ga4gh/schema/cat-vrs/1.1.1/json/UnspecifiedElement",
+      "file": "ga4gh/schema/cat-vrs/1.1.1/json/UnspecifiedElement",
+      "sha256": "875f43d078ac2d61f61002f81ef62bb54d8b6c3c8a56aadeea42d2860083154b"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/gkm-core/1.3.0/json/Coding",
+      "url": "https://w3id.org/ga4gh/schema/gkm-core/1.3.0/json/Coding",
+      "file": "ga4gh/schema/gkm-core/1.3.0/json/Coding",
+      "sha256": "4194913fcd57b7620fd5db755ac57ed32dca7020037fa9b3922f79dc725505b5"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/gkm-core/1.3.0/json/ConceptMapping",
+      "url": "https://w3id.org/ga4gh/schema/gkm-core/1.3.0/json/ConceptMapping",
+      "file": "ga4gh/schema/gkm-core/1.3.0/json/ConceptMapping",
+      "sha256": "fcd877b83b4820a15f9b52b96ec24d3f3a500b2fb778b50922de80af88876dd7"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/gkm-core/1.3.0/json/ConceptSet",
+      "url": "https://w3id.org/ga4gh/schema/gkm-core/1.3.0/json/ConceptSet",
+      "file": "ga4gh/schema/gkm-core/1.3.0/json/ConceptSet",
+      "sha256": "1fe2b560a42817ed199e562038bd7d89fd8baddf8272ce3da5e77d8859ecd376"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/gkm-core/1.3.0/json/Entity",
+      "url": "https://w3id.org/ga4gh/schema/gkm-core/1.3.0/json/Entity",
+      "file": "ga4gh/schema/gkm-core/1.3.0/json/Entity",
+      "sha256": "86f150a8b9d4d161ef906cbfff1ae451f5b40b1a20b629f9ad184a768d2e457f"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/gkm-core/1.3.0/json/Extension",
+      "url": "https://w3id.org/ga4gh/schema/gkm-core/1.3.0/json/Extension",
+      "file": "ga4gh/schema/gkm-core/1.3.0/json/Extension",
+      "sha256": "1a29ed9222f19468370f7761d419c5106f781ee51934d3de76253c0312c525ce"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/gkm-core/1.3.0/json/MappableConcept",
+      "url": "https://w3id.org/ga4gh/schema/gkm-core/1.3.0/json/MappableConcept",
+      "file": "ga4gh/schema/gkm-core/1.3.0/json/MappableConcept",
+      "sha256": "b14fab146151d55f8004768e1c240967b078c5ae73f2fb5ca141ef4f06997404"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/gkm-core/1.3.0/json/code",
+      "url": "https://w3id.org/ga4gh/schema/gkm-core/1.3.0/json/code",
+      "file": "ga4gh/schema/gkm-core/1.3.0/json/code",
+      "sha256": "3086455c3718afa3c48dc72cd6d666505dbca6e77fc375bc577477333afdea40"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/gkm-core/1.3.0/json/date",
+      "url": "https://w3id.org/ga4gh/schema/gkm-core/1.3.0/json/date",
+      "file": "ga4gh/schema/gkm-core/1.3.0/json/date",
+      "sha256": "8bc03f4003fadbc861a128b508fe99343ea8eddafc6c0e005cc009ca1d0897b1"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/gkm-core/1.3.0/json/datetime",
+      "url": "https://w3id.org/ga4gh/schema/gkm-core/1.3.0/json/datetime",
+      "file": "ga4gh/schema/gkm-core/1.3.0/json/datetime",
+      "sha256": "000abb71addbf7da64bc701d408b59e47c4d40dccd34c96088e6079a12714da1"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/gkm-core/1.3.0/json/iriReference",
+      "url": "https://w3id.org/ga4gh/schema/gkm-core/1.3.0/json/iriReference",
+      "file": "ga4gh/schema/gkm-core/1.3.0/json/iriReference",
+      "sha256": "b6b172b6f3f0df5189437840e92226bae1ddf672c75ec700125b3bb8b41ebdf2"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/Agent",
+      "url": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/Agent",
+      "file": "ga4gh/schema/va-spec/1.1.0/json/Agent",
+      "sha256": "c7997677ead4e37803397849132238b2d4a4edf55d4ed1ca3e79ae809d980b7c"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/Condition",
+      "url": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/Condition",
+      "file": "ga4gh/schema/va-spec/1.1.0/json/Condition",
+      "sha256": "a2b852b492904d3ec5e621c915104392adf6bb625190a96baef17a05b015fde2"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/ConditionSet",
+      "url": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/ConditionSet",
+      "file": "ga4gh/schema/va-spec/1.1.0/json/ConditionSet",
+      "sha256": "c3e12d1dda4bcf4ec5aa974df8547d90be36136849334a1238d1949bc71ea50d"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/Contribution",
+      "url": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/Contribution",
+      "file": "ga4gh/schema/va-spec/1.1.0/json/Contribution",
+      "sha256": "91a64dfe8359219a086bd283ad3f9be14a315272d419119a64ede77c3c9c9a76"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/DataItem",
+      "url": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/DataItem",
+      "file": "ga4gh/schema/va-spec/1.1.0/json/DataItem",
+      "sha256": "7e186f730e39823122bc138314cb002eab2592dbddc1909be06ba98606d072fa"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/DataSet",
+      "url": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/DataSet",
+      "file": "ga4gh/schema/va-spec/1.1.0/json/DataSet",
+      "sha256": "b13a9a4d47f18b0930c5eccee68aacfa20ed48be169b1723fa146e950471577c"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/Document",
+      "url": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/Document",
+      "file": "ga4gh/schema/va-spec/1.1.0/json/Document",
+      "sha256": "b3386f6664db157d9506719289cee300605c2cfe93390d90446540da1ed1cb52"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/EvidenceLine",
+      "url": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/EvidenceLine",
+      "file": "ga4gh/schema/va-spec/1.1.0/json/EvidenceLine",
+      "sha256": "9040e9d99a560a23da4d7eac92ec78dccc81f8590d791bd420bef717328f20ab"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/InformationEntity",
+      "url": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/InformationEntity",
+      "file": "ga4gh/schema/va-spec/1.1.0/json/InformationEntity",
+      "sha256": "8f10fee7544ecc00cf4f8154198f470dd9cc24ff8b2be8d3ea7892d5114b2452"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/Method",
+      "url": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/Method",
+      "file": "ga4gh/schema/va-spec/1.1.0/json/Method",
+      "sha256": "077cd2f0be0366a5b1c3f60b5f956890e3c9d74932e8f65b69ba03b3dcae42da"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/Proposition",
+      "url": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/Proposition",
+      "file": "ga4gh/schema/va-spec/1.1.0/json/Proposition",
+      "sha256": "ce5c55549b23bc7051a45b80472d41c78f05cfd32873f9259793a5de5bfc00d5"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/Statement",
+      "url": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/Statement",
+      "file": "ga4gh/schema/va-spec/1.1.0/json/Statement",
+      "sha256": "84cbe61b9142e16a070ee6f31441a4bce758ec6f11847463e3fcf77b7ab526ea"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/StudyResult",
+      "url": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/StudyResult",
+      "file": "ga4gh/schema/va-spec/1.1.0/json/StudyResult",
+      "sha256": "dab723cd054362e1b67034d604555a1ffeeb7cf0ced3362b10178ebf6fe47cb4"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/SubjectVariantProposition",
+      "url": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/SubjectVariantProposition",
+      "file": "ga4gh/schema/va-spec/1.1.0/json/SubjectVariantProposition",
+      "sha256": "4a568431cdf3cadd208edac02f635aa4a4cd1918a3986c8f0114caff3cc76316"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/Therapy",
+      "url": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/Therapy",
+      "file": "ga4gh/schema/va-spec/1.1.0/json/Therapy",
+      "sha256": "6f5a7549b308f2e95634fa947505de864a9da587bb731feb481ec96cab97bd76"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/TherapyGroup",
+      "url": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/TherapyGroup",
+      "file": "ga4gh/schema/va-spec/1.1.0/json/TherapyGroup",
+      "sha256": "d7f695692c288387e407be92df294c2800359d3e8f2289c68c2a3f9f3451e556"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/VariantClinicalSignificanceProposition",
+      "url": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/VariantClinicalSignificanceProposition",
+      "file": "ga4gh/schema/va-spec/1.1.0/json/VariantClinicalSignificanceProposition",
+      "sha256": "ee743f17c9eeb757d796a9dfb9ea1bb9158bc393e1e9a226cdcc5aa87154771f"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/VariantDiagnosticProposition",
+      "url": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/VariantDiagnosticProposition",
+      "file": "ga4gh/schema/va-spec/1.1.0/json/VariantDiagnosticProposition",
+      "sha256": "a82062bf67d55a77aff11fdba8f6d6903dcdab208a75faf0ed63ad63bfc46bc4"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/VariantOncogenicityProposition",
+      "url": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/VariantOncogenicityProposition",
+      "file": "ga4gh/schema/va-spec/1.1.0/json/VariantOncogenicityProposition",
+      "sha256": "ebee8bebd39726e8e56bea554f2f8540957212cce0a7af1222469e14651724ef"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/VariantPathogenicityProposition",
+      "url": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/VariantPathogenicityProposition",
+      "file": "ga4gh/schema/va-spec/1.1.0/json/VariantPathogenicityProposition",
+      "sha256": "81fb4fb1c1824e0ec3f544b5d9579dec14ed0f55c0a11e654f55dee33dab55af"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/VariantPrognosticProposition",
+      "url": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/VariantPrognosticProposition",
+      "file": "ga4gh/schema/va-spec/1.1.0/json/VariantPrognosticProposition",
+      "sha256": "717ea71bcdacff04921839dea2c08668305ed35c468bdd528983cacc3efc2949"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/VariantTherapeuticResponseProposition",
+      "url": "https://w3id.org/ga4gh/schema/va-spec/1.1.0/json/VariantTherapeuticResponseProposition",
+      "file": "ga4gh/schema/va-spec/1.1.0/json/VariantTherapeuticResponseProposition",
+      "sha256": "7f7c9ff5d43acd3bbc8c95b75b2dfb20125d32dc3ac3e9b4a9fe08dece621b9e"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/Adjacency",
+      "url": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/Adjacency",
+      "file": "ga4gh/schema/vrs/2.1.1/json/Adjacency",
+      "sha256": "1ea1900725e31e02b3c51235a3224473305f433be456fb538b02c55846d6df88"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/Allele",
+      "url": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/Allele",
+      "file": "ga4gh/schema/vrs/2.1.1/json/Allele",
+      "sha256": "7100bb1583843e083b92914e19f284a7ff017a08139837b39c82878cc90935c8"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/CisPhasedBlock",
+      "url": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/CisPhasedBlock",
+      "file": "ga4gh/schema/vrs/2.1.1/json/CisPhasedBlock",
+      "sha256": "2f5e4d239349cee4c692acca3d98c7c22e9453c0fce72148e6c84c9b8f46a54c"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/CopyNumberChange",
+      "url": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/CopyNumberChange",
+      "file": "ga4gh/schema/vrs/2.1.1/json/CopyNumberChange",
+      "sha256": "6bb1ee09374ed8ddc74910a411abedb18844f2c5fa8efa562b5244921818f1c8"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/CopyNumberCount",
+      "url": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/CopyNumberCount",
+      "file": "ga4gh/schema/vrs/2.1.1/json/CopyNumberCount",
+      "sha256": "b854902ddc46a06699439e3ae1745d26defdf00fd0028fe149d09f24bf0ece2c"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/DerivativeMolecule",
+      "url": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/DerivativeMolecule",
+      "file": "ga4gh/schema/vrs/2.1.1/json/DerivativeMolecule",
+      "sha256": "2f61aea0b85f4ee3be8c0a833d3ef8c66fc36fa09bdd420f49d0539d77952456"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/Expression",
+      "url": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/Expression",
+      "file": "ga4gh/schema/vrs/2.1.1/json/Expression",
+      "sha256": "0e45cdb83796fd8596c429d0913e3cbdb37326a96b0a3d35736fae7d4750f0bd"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/LengthExpression",
+      "url": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/LengthExpression",
+      "file": "ga4gh/schema/vrs/2.1.1/json/LengthExpression",
+      "sha256": "1ba95ef3dc99205b957e42ef8b93bcbba3ed1ff86684f266ad197c41a6070daa"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/LiteralSequenceExpression",
+      "url": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/LiteralSequenceExpression",
+      "file": "ga4gh/schema/vrs/2.1.1/json/LiteralSequenceExpression",
+      "sha256": "94b552562c58a392a382245b40e83dabb9fa7de36df11530051ea95f55da89ba"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/Location",
+      "url": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/Location",
+      "file": "ga4gh/schema/vrs/2.1.1/json/Location",
+      "sha256": "94c488ab63da08cc4b029f55a5851b9bf46a28f7fbe6b314992b7f1c98c5bbb7"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/MolecularVariation",
+      "url": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/MolecularVariation",
+      "file": "ga4gh/schema/vrs/2.1.1/json/MolecularVariation",
+      "sha256": "3c3c4b23bca1df7b6ec0054fb3e0a61b6c9b2c18c56670a9b439809d6afb6c57"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/Range",
+      "url": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/Range",
+      "file": "ga4gh/schema/vrs/2.1.1/json/Range",
+      "sha256": "59bede9f3d85825fea251a46cedd7d0f5f3f99e1db5dc163b5d6d60da929f421"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/ReferenceLengthExpression",
+      "url": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/ReferenceLengthExpression",
+      "file": "ga4gh/schema/vrs/2.1.1/json/ReferenceLengthExpression",
+      "sha256": "d38b8747aac5a6219c30f308fa275603c30fafa7c8cb1514c1cfb06d3cfdba92"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/RelativeAllele",
+      "url": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/RelativeAllele",
+      "file": "ga4gh/schema/vrs/2.1.1/json/RelativeAllele",
+      "sha256": "b6ffd0d497b5547035de9b03dae5dd8fe984e79dfb04df132fdebe7699157706"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/RelativeSequenceLocation",
+      "url": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/RelativeSequenceLocation",
+      "file": "ga4gh/schema/vrs/2.1.1/json/RelativeSequenceLocation",
+      "sha256": "3b3641d1284bf42cbd93f967002e8a6b4f8cc01a730f3c3d5c63b19210f6e255"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/SequenceExpression",
+      "url": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/SequenceExpression",
+      "file": "ga4gh/schema/vrs/2.1.1/json/SequenceExpression",
+      "sha256": "3e3457c357016c72491fe195f8f30331845c8e56e6c9981cadf7a334f7c2f724"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/SequenceLocation",
+      "url": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/SequenceLocation",
+      "file": "ga4gh/schema/vrs/2.1.1/json/SequenceLocation",
+      "sha256": "07de4e1f0e3cfa3c85960f4fae6642012f3808c4c82a0a4ee72d0c8130f909d2"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/SequenceOffsetLocation",
+      "url": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/SequenceOffsetLocation",
+      "file": "ga4gh/schema/vrs/2.1.1/json/SequenceOffsetLocation",
+      "sha256": "156d0aabfeb54501cb844798a812f02c7e959464b893fc058a9f41c20058d515"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/SequenceReference",
+      "url": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/SequenceReference",
+      "file": "ga4gh/schema/vrs/2.1.1/json/SequenceReference",
+      "sha256": "09d4a210c5bad7dcd5a9dc823f373d6e4f5b4226445139e97bedd52945028b7e"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/Terminus",
+      "url": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/Terminus",
+      "file": "ga4gh/schema/vrs/2.1.1/json/Terminus",
+      "sha256": "ea1ea2eba7e969fa29b1ddfd1fe918b652188ecc3f9a25e9069ae74f80f6e689"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/TraversalBlock",
+      "url": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/TraversalBlock",
+      "file": "ga4gh/schema/vrs/2.1.1/json/TraversalBlock",
+      "sha256": "67d7ec61934bdd3c96478fa08c612a3d6c388ea582b1c3965612ef966b0a211f"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/Variation",
+      "url": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/Variation",
+      "file": "ga4gh/schema/vrs/2.1.1/json/Variation",
+      "sha256": "f2ef6b89bd258c6c8a2c3d666bc07e60b163b23dfb369fb38ba8e2b84fd593cc"
+    },
+    {
+      "id": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/sequenceString",
+      "url": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/sequenceString",
+      "file": "ga4gh/schema/vrs/2.1.1/json/sequenceString",
+      "sha256": "743e82e8370376ea71121901ed3e9d474267f820f93c49a87670fbc1c7f87749"
+    }
+  ]
+}

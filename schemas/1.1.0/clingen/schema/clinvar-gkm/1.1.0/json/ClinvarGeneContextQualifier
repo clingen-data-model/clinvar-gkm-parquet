@@ -1,0 +1,63 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarGeneContextQualifier",
+   "title": "ClinvarGeneContextQualifier",
+   "description": "The gene context qualifier on a ClinVar SCV proposition: a gene MappableConcept. When it carries a 'geneContextSource' extension, that extension's value MUST be one of the four values defined by ExtensionGeneContextSource. Other extensions (e.g. 'submittedGeneSymbols') are not constrained here.",
+   "$defs": {
+      "ExtensionGeneContextSource": {
+         "type": "object",
+         "maturity": "trial use",
+         "description": "Where the gene on a SCV proposition's geneContextQualifier came from, compared with the gene symbols the submitter gave.",
+         "protectedClassOf": "ClinvarGeneContextQualifier",
+         "properties": {
+            "name": {
+               "type": "string",
+               "const": "geneContextSource",
+               "description": "Must be 'geneContextSource'."
+            },
+            "value": {
+               "type": "string",
+               "enum": [
+                  "submittedSymbolMatches",
+                  "submittedSymbolDiffers",
+                  "inferredFromVariant",
+                  "submittedNotNormalized"
+               ],
+               "description": "submittedSymbolMatches: the submitter's symbols include the qualifier's symbol. submittedSymbolDiffers: the submitter gave symbols, but none equals the qualifier's symbol (most are previous symbols of the same gene). inferredFromVariant: the submitter gave no symbols. submittedNotNormalized: the variant has no single representative gene, so the qualifier is a placeholder named with the submitter's symbol(s). Symbols are compared trimmed and case-insensitively."
+            }
+         },
+         "additionalProperties": false
+      }
+   },
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/ga4gh/schema/gkm-core/1.3.0/json/MappableConcept"
+      }
+   ],
+   "properties": {
+      "extensions": {
+         "type": "array",
+         "ordered": false,
+         "items": {
+            "if": {
+               "properties": {
+                  "name": {
+                     "const": "geneContextSource"
+                  }
+               },
+               "required": [
+                  "name"
+               ]
+            },
+            "then": {
+               "$ref": "#/$defs/ExtensionGeneContextSource"
+            },
+            "$ref": "/ga4gh/schema/gkm-core/1.3.0/json/Extension"
+         },
+         "description": "Extensions on the qualifier. An item named 'geneContextSource' must match ExtensionGeneContextSource."
+      }
+   },
+   "type": "object",
+   "unevaluatedProperties": false
+}

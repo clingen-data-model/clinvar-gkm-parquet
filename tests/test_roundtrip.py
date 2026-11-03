@@ -17,20 +17,20 @@ from pathlib import Path
 
 import duckdb
 import pytest
-from _fixture import FIXTURE, SOURCE_RELEASE
+from _fixture import FIXTURE, GOLDEN_SECTIONS_SPEC, SOURCE_RELEASE
 from _input_helpers import local_input, synthetic_delta
 from _tables_helpers import connect, read_fixture
 
 from clinvar_gkm_parquet import bundle
 from clinvar_gkm_parquet.build import EMPTY_SHA256, KV_PREFIX
 from clinvar_gkm_parquet.cli import main
-from clinvar_gkm_parquet.compat import SCHEMA_SECTIONS
+from clinvar_gkm_parquet.default_pairing import reader_rules, sections_of
 from clinvar_gkm_parquet.errors import RoundTripError, SpecError
 from clinvar_gkm_parquet.roundtrip import RoundTripMismatch, lossless_problems, rebuild, record_sql
 from clinvar_gkm_parquet.spec import parse_spec, resolve_spec
 from clinvar_gkm_parquet.sqltemplate import render_generic
 
-SPEC, _ = resolve_spec("sections")
+SPEC, _ = resolve_spec("sections", "1.1.0")
 TEXT = gzip.decompress(FIXTURE.read_bytes())
 FULL = ["--full", FIXTURE, "--full-source-release", SOURCE_RELEASE]
 
@@ -105,9 +105,7 @@ def test_sections_spec_is_lossless():
 def _raw_sections() -> dict:
     import yaml
 
-    from clinvar_gkm_parquet.spec import SPEC_FILE, builtin_dir
-
-    return yaml.safe_load((builtin_dir("sections", "1.0") / SPEC_FILE).read_text())
+    return yaml.safe_load(GOLDEN_SECTIONS_SPEC.read_text())
 
 
 @pytest.mark.parametrize(
@@ -127,19 +125,19 @@ def _raw_sections() -> dict:
     ],
 )
 def test_lossless_spec_rules(change, message):
-    from clinvar_gkm_parquet.spec import check_rules
+    from clinvar_gkm_parquet.spec import check_compiled
 
     raw = _raw_sections()
     change(raw)
     spec = parse_spec(raw, require_name=True)
     with pytest.raises(SpecError, match=re.escape(message)):
-        check_rules(spec, builtin=True)
+        check_compiled(spec, "the test's spec")
 
 
-def test_record_sql_refuses_a_float_column():
+def test_record_sql_refuses_a_type_with_no_exact_text():
     raw = _raw_sections()
-    raw["tables"][3]["columns"][3]["type"] = "DOUBLE"  # copyNumberCount.copies
-    with pytest.raises(SpecError, match="no exact JSON text for type DOUBLE"):
+    raw["tables"][3]["columns"][3]["type"] = "DATE"  # copyNumberCount.copies
+    with pytest.raises(SpecError, match="no exact JSON text for type DATE"):
         record_sql(parse_spec(raw).table("copyNumberCount"))
 
 
@@ -191,10 +189,10 @@ def test_stream_bundle_text_digests():
             pass
 
     sink = Sink()
-    got = bundle.stream_bundle(local_input(FIXTURE), sink, text_digests=True)
+    got = bundle.stream_bundle(local_input(FIXTURE), sink, reader_rules(), text_digests=True)
     assert (got.text_sha256, got.text_size) == (hashlib.sha256(TEXT).hexdigest(), len(TEXT))
     assert sink.texts == {s: hashlib.sha256(b).hexdigest() for s, b in section_texts(TEXT).items()}
-    assert bundle.stream_bundle(local_input(FIXTURE), Sink()).text_sha256 is None
+    assert bundle.stream_bundle(local_input(FIXTURE), Sink(), reader_rules()).text_sha256 is None
 
 
 def test_verify_roundtrip(built, capsys):
@@ -365,4 +363,4 @@ def test_empty_list_and_control_character_round_trip():
 
 
 def test_every_section_has_one_table():
-    assert sorted(t.sections[0] for t in SPEC.tables) == sorted(SCHEMA_SECTIONS["1.1.0"])
+    assert sorted(t.sections[0] for t in SPEC.tables) == sorted(sections_of("1.1.0"))

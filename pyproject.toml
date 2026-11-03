@@ -39,14 +39,15 @@ packages = ["src/clinvar_gkm_parquet"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "spec" = "clinvar_gkm_parquet/_spec"
+"schemas" = "clinvar_gkm_parquet/_schemas"
 
 [tool.hatch.build.targets.sdist]
-include = ["src", "spec", "tests", "scripts", "README.md", "CHANGELOG.md", "LICENSE"]
+include = ["src", "spec", "schemas", "tests", "scripts", "README.md", "CHANGELOG.md", "LICENSE"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-    "network: reads from data.clinvar-gkm.org (opt-in: pytest -m network)",
+    "network: reads from data.clinvar-gkm.org or w3id.org (opt-in: pytest -m network)",
 ]
 addopts = "-m 'not network'"
 

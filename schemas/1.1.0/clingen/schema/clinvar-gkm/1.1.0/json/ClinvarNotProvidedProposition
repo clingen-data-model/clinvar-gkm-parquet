@@ -1,0 +1,28 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarNotProvidedProposition",
+   "title": "ClinvarNotProvidedProposition",
+   "description": "A proposition for ClinVar submissions where the submitter did not provide a clinical classification. These submissions still carry variant-condition associations but lack a formal pathogenicity or clinical significance assessment.",
+   "type": "object",
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarGermlineCustomProposition"
+      }
+   ],
+   "properties": {
+      "type": {
+         "type": "string",
+         "const": "ClinvarNotProvidedProposition",
+         "default": "ClinvarNotProvidedProposition",
+         "description": "MUST be \"ClinvarNotProvidedProposition\"."
+      },
+      "predicate": {
+         "type": "string",
+         "const": "hasNoProvidedClassificationFor",
+         "default": "hasNoProvidedClassificationFor",
+         "description": "The relationship the Proposition describes between the subject variant and object condition. MUST be \"hasNoProvidedClassificationFor\"."
+      }
+   },
+   "unevaluatedProperties": false
+}

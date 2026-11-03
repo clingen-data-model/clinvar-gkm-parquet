@@ -1,0 +1,62 @@
+# The column set for the CIViC GKM bundle schema v0.1.0-a0, written for this fixture from docs/column-set-format.md and
+# the two real bundles here. CIViC doesn't publish it. phenotype, conditionSet, therapy, therapyGroup and organization
+# are empty in both bundles, so their columns state what the schema's classes would hold, narrowed by judgement; a record
+# with another property stops the build. A proposition's object may be any of the condition or therapy collections.
+schema: urn:civic:gkm-bundle:schema:0.1.0-a0
+sections:
+  sequenceReference: {type, refgetAccession}
+  location: {id, type, digest, sequence, sequenceReference: ->sequenceReference, start, end}
+  # protein, coding and genomic are maps from a VRS id to an object: their keys are data.
+  variant:
+    protein: json
+    coding: json
+    genomic: json
+    other: json
+    unsupported: {id, name, system, code, extensions: [string]}
+  feature:
+    {id, type, conceptType, name, extensions: [string, [string]], mappings: {coding: {id, code, system}, relation}}
+  molecularProfile:
+    {id, type, name, description, aliases, members: ->variant,
+     constraints: {type, allele: ->variant, relations: {type, primaryCoding: {system, code}}},
+     extensions:
+       [string, number, [string],
+        {chromosome: string, start: integer, stop: integer, reference_bases: string, variant_bases: string,
+         ensembl_version: integer, representative_transcript: string, reference_build: string, type: string}],
+     mappings:
+       {relation,
+        coding:
+          {id, code, system, name,
+           extensions: [string, [{relation: string, coding: {id: string, code: string, system: string, name: string}}]]}}}
+  disease: &condition {id, type, conceptType, name, mappings: {coding: {code, system}, relation}}
+  phenotype: *condition
+  conditionSet: {id, type, conceptSetType, concepts: ->disease|phenotype|conditionSet, membershipOperator}
+  therapy: {id, type, conceptType, name, mappings: {coding: {code, system}, relation}}
+  therapyGroup: {id, type, concepts: ->therapy, membershipOperator}
+  variantOrigin: {id, type, name, mappings: {coding: {code, system, iris}, relation}}
+  source: {id, type, name, title, doi, pmid, aliases, urls}
+  method: {id, type, name, methodType, reportedIn: ->source}
+  organization: {id, type, name}
+  proposition:
+    {id, type, subject: ->molecularProfile, predicate, object: ->disease|phenotype|conditionSet|therapy|therapyGroup,
+     geneContextQualifier: ->feature, alleleOriginQualifier: ->variantOrigin, conditionQualifier: ->disease|conditionSet}
+  evidence:
+    {id, type, description, specifiedBy: ->method, reportedIn: ->source, proposition: ->proposition, direction,
+     strength:
+       {type, name, primaryCoding: {system, code}, mappings: {relation, coding: {system, code, name}}}}
+  assertion:
+    # specifiedBy is a pointer in one assertion and an inline Method in another. reportedIn and hasEvidence are URLs.
+    id:
+    type:
+    description:
+    specifiedBy: json
+    reportedIn: string
+    proposition: ->proposition
+    direction:
+    strength: {type, primaryCoding: {system, code}}
+    classification: {type, name, primaryCoding: {system, code}}
+    hasEvidence: string
+    hasEvidenceLines:
+      {type, targetProposition: ->proposition, hasEvidenceItems: ->evidence, directionOfEvidenceProvided,
+       strengthOfEvidenceProvided: {type, primaryCoding: {system, code}}, scoreOfEvidenceProvided: integer,
+       evidenceOutcome: {type, primaryCoding: {system, code}},
+       specifiedBy: {type, methodType, name, reportedIn: ->source}}

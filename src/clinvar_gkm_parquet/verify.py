@@ -40,10 +40,12 @@ from .build import (
     sql_str,
     table_groups,
 )
+from .bundle import ROOT_VALUES_TABLE
 from .compat import PUBLISHED_SPEC, TABLE_SPEC_VERSION
+from .compiled import is_recorded, recorded_spec
 from .errors import InputError, SpecError, ToolError
 from .model import BuildInputs
-from .spec import SPEC_KV_KEYS, Spec, Table, load_spec, resolve_spec, spec_from_kv
+from .spec import SPEC_KV_KEYS, Spec, Table, is_compiled, load_spec, resolve_spec, spec_from_kv
 
 SAMPLES = 5
 _TRUNCATE = 300
@@ -82,11 +84,12 @@ def spec_for_dir(con: duckdb.DuckDBPyConnection, out_dir: Path, spec_arg: str | 
     """The spec that wrote the files, from their key-value metadata (spec.spec_from_kv); every file must name the
     same one. A file with no table_spec key predates named specs and was written by clinvar-gkm. A custom spec
     needs `spec_arg` (--spec, its tables.yaml, whose sha256 must equal the recorded one); for a built-in one,
-    `spec_arg` is optional and must name that spec. A directory with no files: `spec_arg`, else clinvar-gkm."""
+    `spec_arg` is optional and must name that spec. A compiled spec comes from the file a build wrote beside its
+    manifest, checked against the hash the files record (compiled.recorded_spec). A directory with no files:
+    `spec_arg`, else clinvar-gkm."""
+    kvs = dir_kv(con, out_dir)
     named = {
-        tuple(kv.get(k) for k in SPEC_KV_KEYS)
-        for kv in dir_kv(con, out_dir).values()
-        if kv.get("table_spec_version") is not None
+        tuple(kv.get(k) for k in SPEC_KV_KEYS) for kv in kvs.values() if kv.get("table_spec_version") is not None
     }
     if not named:
         return resolve_spec(spec_arg)[0] if spec_arg else load_spec(TABLE_SPEC_VERSION)
@@ -94,6 +97,14 @@ def spec_for_dir(con: duckdb.DuckDBPyConnection, out_dir: Path, spec_arg: str | 
         labels = ", ".join(sorted(f"{n or PUBLISHED_SPEC} {v}" for n, v, *_ in named))
         raise SpecError(f"the files were written by different table specs: {labels}")
     kv = {k: v for k, v in zip(SPEC_KV_KEYS, named.pop(), strict=True) if v is not None}
+    if is_recorded(kv):
+        tools = {f.get("tool_version") for f in kvs.values()} - {None}
+        kv["tool_version"] = ", ".join(sorted(tools)) or "?"
+        spec = recorded_spec(out_dir, kv)
+        if spec_arg is not None and not is_compiled(spec_arg):
+            _, given = resolve_spec(spec_arg)
+            raise SpecError(f"--spec {spec_arg} is {given.label}, but the files were written by {spec.label}")
+        return spec
     if "table_spec" not in kv:
         name, spec = PUBLISHED_SPEC, load_spec(kv["table_spec_version"])
     else:
@@ -139,7 +150,7 @@ def verify_dir(out_dir: Path, spec: Spec | None = None) -> list[str]:
     for name in spec_names:
         if name not in files:
             problems.append(f"{name}: {name}.parquet is missing")
-    for name in sorted(set(files) - set(spec_names)):
+    for name in sorted(set(files) - set(spec_names) - {ROOT_VALUES_TABLE}):
         problems.append(f"{name}: {name}.parquet is not a table of spec {spec.label}")
 
     kvs: dict[str, dict[str, str]] = {}
@@ -162,7 +173,8 @@ def verify_dir(out_dir: Path, spec: Spec | None = None) -> list[str]:
             problems.append(f"{name}: table_spec_version {kv['table_spec_version']} != spec {spec.spec_version}")
         if spec.name and kv.get("table_spec", spec.name) != spec.name:
             problems.append(f"{name}: table_spec {kv['table_spec']} != spec {spec.name}")
-        if "bundle_schema_version" in kv and kv["bundle_schema_version"] not in spec.bundle_schema_versions:
+        versions = spec.bundle_schema_versions
+        if versions and "bundle_schema_version" in kv and kv["bundle_schema_version"] not in versions:
             problems.append(
                 f"{name}: bundle_schema_version {kv['bundle_schema_version']} is not one spec "
                 f"{spec.spec_version} reads"
@@ -202,6 +214,17 @@ def _check_manifest(con, path: Path, files: dict[str, Path], selection: str | No
     want = json.loads(selection) if selection is not None else None
     if manifest.get("selection") != want:
         problems.append(f"{path.name}: selection {manifest.get('selection')} != the files' {want}")
+    recorded = manifest.get("table_spec") if isinstance(manifest.get("table_spec"), dict) else {}
+    for key, kv_key in (
+        ("sha256", "table_spec_sha256"),
+        ("schema_set_sha256", "schema_set_sha256"),
+        ("column_set_sha256", "column_set_sha256"),
+    ):
+        have = {read_kv(con, p).get(kv_key) for p in files.values()} - {None}
+        if len(have) == 1 and recorded.get(key) not in have:
+            problems.append(
+                f"{path.name}: table_spec.{key} {recorded.get(key)} != the files' {kv_key} {have.pop()}"
+            )
     for name, entry in sorted(tables.items()):
         if name not in files:
             problems.append(f"{path.name}: lists {name}, but {name}.parquet is missing")
@@ -928,7 +951,8 @@ def _summary(r: VerifyReport) -> str:
     if r.recompute is not None:
         parts.append(f"bundle recompute: {sum(recompute_failed(g) for g in r.recompute)} group(s) differ")
     if r.roundtrip is not None:
-        parts.append(f"round trip: {'identical' if r.roundtrip['passed'] else 'DIFFERS'}")
+        word = "JSON-equal" if r.roundtrip.get("promise") == "json-equal" else "identical"
+        parts.append(f"round trip: {word if r.roundtrip['passed'] else 'DIFFERS'}")
     if r.oracle is not None:
         parts.append(f"oracle: {sum(bool(t['differences']) for t in r.oracle['tables'].values())} table(s) differ")
     lines = [f"verify {'pass' if r.passed else 'DIFFERENCES'}: " + "; ".join(parts)]

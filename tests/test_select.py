@@ -15,10 +15,11 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 import pytest
-from _fixture import FIXTURE
+from _fixture import FIXTURE, SECTIONS
 
 from clinvar_gkm_parquet import select as sel
-from clinvar_gkm_parquet.bundle import SECTIONS, stage_bundle
+from clinvar_gkm_parquet.bundle import stage_bundle
+from clinvar_gkm_parquet.default_pairing import reader_rules
 from clinvar_gkm_parquet.errors import BundleFormatError, InputError, SchemaVersionError
 from clinvar_gkm_parquet.model import InputFile
 
@@ -112,6 +113,7 @@ class Graph:
         return depth, dangling
 
 
+INDEX = sel.section_index(SECTIONS)
 GRAPH = Graph(FIXTURE)
 SOURCE_ORDER, SOURCE_LINES = parse_lines(FIXTURE)
 FIXTURE_SHA = hashlib.sha256(FIXTURE.read_bytes()).hexdigest()
@@ -261,7 +263,7 @@ def test_output_passes_stage_bundle(tmp_path):
     assert hashlib.sha256(result.path.read_bytes()).hexdigest() == result.sha256
     assert result.path.stat().st_size == result.size
     inp = InputFile(str(result.path), result.path.name, None, result.sha256, "explicit", result.size)
-    staged = stage_bundle(inp, tmp_path / "work")
+    staged = stage_bundle(inp, tmp_path / "work", reader_rules())
     assert {s: x.records for s, x in staged.sections.items()} == result.section_counts
     assert staged.schema_version == result.schema_version == "1.1.0"
     assert not [p for p in tmp_path.iterdir() if p.name.startswith(".")]  # no work or partial files left
@@ -291,7 +293,7 @@ def test_unsupported_schema_version_fails(tmp_path):
     )
     path = tmp_path / "v9.json.gz"
     path.write_bytes(gzip.compress(text, mtime=0))
-    with pytest.raises(SchemaVersionError, match="'9.9.9' is not supported"):
+    with pytest.raises(SchemaVersionError, match="'9.9.9' can't be read.*HTTP 404"):
         run(tmp_path, {"vcv": [seed_of("vcv")]}, src=fixture_input(path, None))
 
 
@@ -443,7 +445,7 @@ def test_pointer_scan_matches_the_parsed_records():
     for section, recs in SOURCE_LINES.items():
         for key, rec in recs:
             want = [tuple(p[2:].split("/", 1)) for p in walk_pointers(json.loads(rec), [])]
-            got = [(SECTIONS[si], json.loads(b'"' + k + b'"')) for si, k in sel.parse_pointers(rec)]
+            got = [(SECTIONS[si], json.loads(b'"' + k + b'"')) for si, k in sel.parse_pointers(rec, INDEX)]
             assert got == want, (section, key)
 
 
@@ -453,8 +455,8 @@ def test_pointer_text_inside_a_string_is_not_a_pointer():
     obj = json.loads(rec)
     obj = {"note": 'see "#/vcv/VCV0.1-G-x" and #/gene/ncbigene:0', **obj}
     text = json.dumps(obj, separators=(",", ":"), ensure_ascii=False).encode()
-    got = [SECTIONS[si] for si, _ in sel.parse_pointers(text)]
+    got = [SECTIONS[si] for si, _ in sel.parse_pointers(text, INDEX)]
     assert "vcv" not in got and "gene" not in got and "submitter" in got
     assert got == [p[2:].split("/", 1)[0] for p in walk_pointers(json.loads(rec), [])]
     with pytest.raises(BundleFormatError, match='unknown section: "#/nosuch/x"'):
-        sel.parse_pointers(json.dumps({**obj, "x": "#/nosuch/x"}, separators=(",", ":")).encode())
+        sel.parse_pointers(json.dumps({**obj, "x": "#/nosuch/x"}, separators=(",", ":")).encode(), INDEX)

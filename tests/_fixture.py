@@ -11,6 +11,8 @@ import json
 import os
 from pathlib import Path
 
+from clinvar_gkm_parquet.default_pairing import sections_of
+
 FIXTURES = Path(__file__).parent / "fixtures"
 REAL = FIXTURES / "real-1.1.0" / "clinvar-gkm_excerpt.json.gz"
 _ENV = "CLINVAR_GKM_FIXTURE"
@@ -32,4 +34,7 @@ PROVENANCE = json.loads(PROVENANCE_PATH.read_text(encoding="utf-8"))
 COUNTS: dict[str, int] = PROVENANCE["counts"]
 # The release the fixture's records come from, as the extractor recorded it.
 SOURCE_RELEASE: str = PROVENANCE["source"]["release"]
+SCHEMA_VERSION: str = PROVENANCE["schema_version"]
+SECTIONS = sections_of(SCHEMA_VERSION)  # the sections of the fixture's bundle schema, in schema order
+GOLDEN_SECTIONS_SPEC = FIXTURES / "sections-golden" / "tables.yaml"  # what the compiler must reproduce on 1.1.0
 STAGING_NAME = FIXTURE.name.removesuffix(".json.gz")

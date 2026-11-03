@@ -1,0 +1,442 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarCategoricalVariant",
+   "title": "ClinvarCategoricalVariant",
+   "description": "The Clinvar specific representations of categorical variants.",
+   "$defs": {
+      "ClinvarSequenceLocationProperties": {
+         "abstract": true,
+         "type": "object",
+         "maturity": "trial use",
+         "description": "The GA4GH Sequence Location Representation(SL) profile specific to Clinvar.",
+         "protectedClassOf": "ClinvarCategoricalVariant",
+         "properties": {
+            "sequenceReference": {
+               "oneOf": [
+                  {
+                     "$ref": "/ga4gh/schema/gkm-core/1.3.0/json/iriReference"
+                  },
+                  {
+                     "$ref": "#/$defs/ClinvarSequenceReference"
+                  }
+               ],
+               "description": "The reference sequence for the location."
+            },
+            "extensions": {
+               "type": "array",
+               "ordered": false,
+               "maxItems": 0,
+               "items": {
+                  "$ref": "/ga4gh/schema/gkm-core/1.3.0/json/Extension"
+               }
+            }
+         }
+      },
+      "ExtensionAssembly": {
+         "description": "An extension item for the assembly associated with a Clinvar variant.",
+         "protectedClassOf": "ClinvarCategoricalVariant",
+         "type": "object",
+         "maturity": "trial use",
+         "properties": {
+            "name": {
+               "type": "string",
+               "const": "assembly",
+               "description": "Must be 'assembly'."
+            },
+            "value": {
+               "type": "string",
+               "enum": [
+                  "GRCh37",
+                  "GRCh38",
+                  "NCBI36"
+               ],
+               "description": "The assembly of the variant as provided by Clinvar. It must be one of the following: 'GRCh37', 'GRCh38', or 'NCBI36'."
+            }
+         },
+         "additionalProperties": false
+      },
+      "ExtensionsVrsProcessingException": {
+         "type": "object",
+         "maturity": "trial use",
+         "description": "Errors returned by the external VRS Python processing service. Present only when  errors occurred during VRS resolution.",
+         "protectedClassOf": "ClinvarCategoricalVariant",
+         "properties": {
+            "name": {
+               "type": "string",
+               "const": "vrsProcessingException",
+               "description": "Must be 'vrsProcessingException'."
+            },
+            "value": {
+               "type": "string",
+               "description": "The VRS processing errors associated with the Clinvar variant."
+            }
+         },
+         "additionalProperties": false
+      },
+      "ExtensionClinvarVariationType": {
+         "description": "The variation type as reported by ClinVar (e.g., Deletion, single nucleotide variant,  Duplication, Indel). Present when ClinVar provides a variation type.",
+         "protectedClassOf": "ClinvarCategoricalVariant",
+         "type": "object",
+         "maturity": "trial use",
+         "properties": {
+            "name": {
+               "type": "string",
+               "const": "clinvarVariationType",
+               "description": "Must be 'clinvarVariationType'."
+            },
+            "value": {
+               "type": "string",
+               "enum": [
+                  "Complex",
+                  "CompoundHeterozygote",
+                  "copy number gain",
+                  "copy number loss",
+                  "Deletion",
+                  "Diplotype",
+                  "Distinct chromosomes",
+                  "Duplication",
+                  "fusion",
+                  "Haplotype, single variant",
+                  "Haplotype",
+                  "Indel",
+                  "Insertion",
+                  "Inversion",
+                  "Microsatellite",
+                  "Phase unknown",
+                  "protein only",
+                  "single nucleotide variant",
+                  "Tandem duplication",
+                  "Translocation",
+                  "Variation"
+               ],
+               "description": "The type of variant as provided by Clinvar. It must be one of the following: 'Complex', 'CompoundHeterozygote', 'copy number gain', 'copy number loss', 'Deletion', 'Diplotype', 'Distinct chromosomes', 'Duplication', 'fusion', 'Haplotype, single variant', 'Haplotype', 'Indel', 'Insertion', 'Inversion', 'Microsatellite', 'Phase unknown', 'protein only', 'single nucleotide variant', 'Tandem duplication', 'Translocation', or 'Variation'."
+            }
+         },
+         "additionalProperties": false
+      },
+      "ClinvarSequenceLocation": {
+         "maturity": "trial use",
+         "description": "The GA4GH Sequence Location Representation(SL) profile specific to Clinvar.\n",
+         "protectedClassOf": "ClinvarCategoricalVariant",
+         "allOf": [
+            {
+               "$ref": "/ga4gh/schema/vrs/2.1.1/json/SequenceLocation"
+            },
+            {
+               "$ref": "#/$defs/ClinvarSequenceLocationProperties"
+            }
+         ],
+         "type": "object",
+         "unevaluatedProperties": false
+      },
+      "ExtensionDefiningVrsVariationType": {
+         "description": "The VRS class assigned during variation identity processing (e.g., `Allele`, `CopyNumberChange`,  `CopyNumberCount`, `Not Available`). Reflects the upstream classification used to route the  variant through VRS processing.",
+         "protectedClassOf": "ClinvarCategoricalVariant",
+         "type": "object",
+         "maturity": "trial use",
+         "properties": {
+            "name": {
+               "type": "string",
+               "const": "definingVrsVariationType",
+               "description": "Must be 'definingVrsVariationType'."
+            },
+            "value": {
+               "type": "string",
+               "enum": [
+                  "Allele",
+                  "CopyNumberChange",
+                  "CopyNumberCount",
+                  "Haplotype",
+                  "Unknown",
+                  "Not Available"
+               ],
+               "description": "The type of categorical variant. It must be one of the following: `Allele`,  `CopyNumberChange`, `CopyNumberCount`, `Haplotype`, `Unknown`, or `Not Available`."
+            }
+         },
+         "additionalProperties": false
+      },
+      "ExtensionClinvarCytogeneticLocation": {
+         "description": "The cytogenetic band location of the variation (e.g., 1p36.22, 17q21.31). Present when  ClinVar provides a cytogenetic location.",
+         "protectedClassOf": "ClinvarCategoricalVariant",
+         "type": "object",
+         "maturity": "trial use",
+         "properties": {
+            "name": {
+               "type": "string",
+               "const": "clinvarCytogeneticLocation",
+               "description": "Must be 'clinvarCytogeneticLocation'."
+            },
+            "value": {
+               "type": "string",
+               "description": "The cytogenetic location of the variant as provided by Clinvar."
+            }
+         },
+         "additionalProperties": false
+      },
+      "ClinvarSequenceReference": {
+         "maturity": "trial use",
+         "description": "The GA4GH Sequence Reference Representation(SR) profile specific to Clinvar.\n",
+         "protectedClassOf": "ClinvarCategoricalVariant",
+         "allOf": [
+            {
+               "$ref": "/ga4gh/schema/vrs/2.1.1/json/SequenceReference"
+            },
+            {
+               "$ref": "#/$defs/ClinvarSequenceReferenceProperties"
+            }
+         ],
+         "type": "object",
+         "unevaluatedProperties": false
+      },
+      "ExtensionClinvarHgvsList": {
+         "description": "Complete list of HGVS expressions from ClinVar for a variant, including nucleotide  and protein expressions, molecular consequences (SO terms), and MANE transcript  designations.",
+         "protectedClassOf": "ClinvarCategoricalVariant",
+         "type": "object",
+         "maturity": "trial use",
+         "properties": {
+            "name": {
+               "type": "string",
+               "const": "clinvarHgvsList",
+               "description": "Must be 'clinvarHgvsList'."
+            },
+            "value": {
+               "type": "array",
+               "items": {
+                  "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/HgvsListItem"
+               },
+               "ordered": false,
+               "description": "Clinvar's data structure for representing the HGVS expressions, mane select/plus settings and  molecular consequence for dervied genomic/transcript sequence alignmnents and protein sequence projections originating from the definining allele or location for CNVs."
+            }
+         },
+         "additionalProperties": false
+      },
+      "ClinvarAlleleProperties": {
+         "abstract": true,
+         "description": "The GA4GH Allele Representation(AR) profile specific to Clinvar.",
+         "protectedClassOf": "ClinvarCategoricalVariant",
+         "type": "object",
+         "maturity": "trial use",
+         "properties": {
+            "location": {
+               "oneOf": [
+                  {
+                     "$ref": "/ga4gh/schema/gkm-core/1.3.0/json/iriReference"
+                  },
+                  {
+                     "$ref": "#/$defs/ClinvarSequenceLocation"
+                  }
+               ],
+               "description": "The location of the variant."
+            }
+         }
+      },
+      "ExtensionClinvarGeneList": {
+         "description": "Gene associations for this variation from ClinVar, including Entrez gene IDs, HGNC IDs,  gene symbols, relationship types, and identifier IRIs.",
+         "protectedClassOf": "ClinvarCategoricalVariant",
+         "type": "object",
+         "maturity": "trial use",
+         "properties": {
+            "name": {
+               "type": "string",
+               "const": "clinvarGeneList",
+               "description": "Must be 'clinvarGeneList'."
+            },
+            "value": {
+               "type": "array",
+               "items": {
+                  "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/GeneListItem"
+               },
+               "ordered": false,
+               "description": "Clinvar's data structure for representing genes associated with a clinvar variant.          "
+            }
+         },
+         "additionalProperties": false
+      },
+      "ExtensionClinvarSubclassType": {
+         "description": "The variation subclass as reported by ClinVar (e.g., SimpleAllele, Haplotype,  CompoundHeterozygote). Present when ClinVar provides a subclass type.",
+         "protectedClassOf": "ClinvarCategoricalVariant",
+         "type": "object",
+         "maturity": "trial use",
+         "properties": {
+            "name": {
+               "type": "string",
+               "const": "clinvarSubclassType",
+               "description": "Must be 'clinvarSubclassType'."
+            },
+            "value": {
+               "type": "string",
+               "enum": [
+                  "Genotype",
+                  "Haplotype",
+                  "SimpleAllele"
+               ],
+               "description": "The subclass type of the variant as provided by Clinvar. It must be one of the following: 'Genotype', 'Haplotype', or 'SimpleAllele'."
+            }
+         },
+         "additionalProperties": false
+      },
+      "ClinvarCanonicalAlleleProperties": {
+         "abstract": true,
+         "type": "object",
+         "maturity": "trial use",
+         "description": "The GA4GH Canonical Allele Representation profile specific to Clinvar.",
+         "protectedClassOf": "ClinvarCategoricalVariant",
+         "properties": {
+            "members": {
+               "type": "array",
+               "ordered": false,
+               "description": "A non-exhaustive list of VRS variation contexts that satisfy the constraints of this categorical variant.",
+               "items": {
+                  "oneOf": [
+                     {
+                        "$ref": "/ga4gh/schema/gkm-core/1.3.0/json/iriReference"
+                     },
+                     {
+                        "$ref": "#/$defs/ClinvarAllele"
+                     }
+                  ]
+               }
+            }
+         }
+      },
+      "ExtensionVrsPreProcessingIssue": {
+         "type": "object",
+         "maturity": "trial use",
+         "description": "Issues detected during VRS pre-processing of the variation's input expressions. Present only  when issues exist. May contain multiple issues separated by newlines",
+         "protectedClassOf": "ClinvarCategoricalVariant",
+         "properties": {
+            "name": {
+               "type": "string",
+               "const": "vrsPreProcessingIssue",
+               "description": "Must be 'vrsPreProcessingIssue'."
+            },
+            "value": {
+               "type": "string",
+               "description": "The VRS processing errors associated with the Clinvar variant."
+            }
+         },
+         "additionalProperties": false
+      },
+      "ClinvarSequenceReferenceProperties": {
+         "abstract": true,
+         "type": "object",
+         "maturity": "trial use",
+         "description": "The GA4GH Sequence Reference Representation(SR) profile specific to Clinvar.\n",
+         "protectedClassOf": "ClinvarCategoricalVariant",
+         "properties": {
+            "extensions": {
+               "type": "array",
+               "ordered": false,
+               "items": {
+                  "oneOf": [
+                     {
+                        "$ref": "#/$defs/ExtensionAssembly"
+                     }
+                  ]
+               }
+            }
+         }
+      },
+      "ClinvarCategoricalVariantProperties": {
+         "abstract": true,
+         "description": "A variant in Clinvar, which may be associated with multiple statements.",
+         "protectedClassOf": "ClinvarCategoricalVariant",
+         "type": "object",
+         "maturity": "trial use",
+         "properties": {
+            "extensions": {
+               "type": "array",
+               "ordered": false,
+               "items": {
+                  "oneOf": [
+                     {
+                        "$ref": "#/$defs/ExtensionClinvarHgvsList"
+                     },
+                     {
+                        "$ref": "#/$defs/ExtensionClinvarGeneList"
+                     },
+                     {
+                        "$ref": "#/$defs/ExtensionCategoricalVariationType"
+                     },
+                     {
+                        "$ref": "#/$defs/ExtensionDefiningVrsVariationType"
+                     },
+                     {
+                        "$ref": "#/$defs/ExtensionClinvarVariationType"
+                     },
+                     {
+                        "$ref": "#/$defs/ExtensionClinvarSubclassType"
+                     },
+                     {
+                        "$ref": "#/$defs/ExtensionClinvarCytogeneticLocation"
+                     },
+                     {
+                        "$ref": "#/$defs/ExtensionVrsPreProcessingIssue"
+                     },
+                     {
+                        "$ref": "#/$defs/ExtensionsVrsProcessingException"
+                     }
+                  ]
+               },
+               "description": "A list of extensions to the entity. Extensions are not expected to be natively understood, but may be used for pre-negotiated exchange of message attributes between systems."
+            }
+         }
+      },
+      "ExtensionCategoricalVariationType": {
+         "description": "The Cat-VRS category assigned to this variation: `CanonicalAllele`, `CategoricalCnvChange`,  `CategoricalCnvCount`, or `Undefined`. Determines which constraint types are generated.",
+         "protectedClassOf": "ClinvarCategoricalVariant",
+         "type": "object",
+         "maturity": "trial use",
+         "properties": {
+            "name": {
+               "type": "string",
+               "const": "categoricalVariationType",
+               "description": "Must be 'categoricalVariationType'."
+            },
+            "value": {
+               "type": "string",
+               "enum": [
+                  "CanonicalAllele",
+                  "CategoricalCnvChange",
+                  "CategoricalCnvCount",
+                  "Undefined"
+               ],
+               "description": "The type of categorical variant. It must be one of the following: `CanonicalAllele`, `CategoricalCnvChange`, `CategoricalCnvCount`, or `Undefined`."
+            }
+         },
+         "additionalProperties": false
+      },
+      "ClinvarAllele": {
+         "maturity": "trial use",
+         "description": "The GA4GH Allele Representation(AR) profile specific to Clinvar.",
+         "protectedClassOf": "ClinvarCategoricalVariant",
+         "allOf": [
+            {
+               "$ref": "/ga4gh/schema/vrs/2.1.1/json/Allele"
+            },
+            {
+               "$ref": "#/$defs/ClinvarAlleleProperties"
+            }
+         ],
+         "type": "object",
+         "unevaluatedProperties": false
+      }
+   },
+   "maturity": "trial use",
+   "oneOf": [
+      {
+         "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarCanonicalAllele"
+      },
+      {
+         "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarCategoricalCnvChange"
+      },
+      {
+         "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarCategoricalCnvCount"
+      },
+      {
+         "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarNonConstrainedVariant"
+      }
+   ],
+   "type": "object",
+   "unevaluatedProperties": false
+}

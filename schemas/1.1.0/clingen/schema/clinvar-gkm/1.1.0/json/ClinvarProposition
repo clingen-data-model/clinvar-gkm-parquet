@@ -1,0 +1,50 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarProposition",
+   "title": "ClinvarProposition",
+   "description": "Any proposition type valid in ClinVar-GKM statements. Includes the GA4GH standard proposition types (pathogenicity, oncogenicity, clinical significance) and ClinVar-specific proposition types for submission categories not covered by the GA4GH specifications.",
+   "maturity": "trial use",
+   "oneOf": [
+      {
+         "$ref": "/ga4gh/schema/va-spec/1.1.0/json/VariantPathogenicityProposition"
+      },
+      {
+         "$ref": "/ga4gh/schema/va-spec/1.1.0/json/VariantOncogenicityProposition"
+      },
+      {
+         "$ref": "/ga4gh/schema/va-spec/1.1.0/json/VariantClinicalSignificanceProposition"
+      },
+      {
+         "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarRiskFactorProposition"
+      },
+      {
+         "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarProtectiveProposition"
+      },
+      {
+         "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarDrugResponseProposition"
+      },
+      {
+         "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarAffectsProposition"
+      },
+      {
+         "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarAssociationProposition"
+      },
+      {
+         "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarConfersSensitivityProposition"
+      },
+      {
+         "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarOtherProposition"
+      },
+      {
+         "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarNotProvidedProposition"
+      },
+      {
+         "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarConflictingDataFromSubmitterProposition"
+      },
+      {
+         "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarUndefinedProposition"
+      }
+   ],
+   "type": "object",
+   "unevaluatedProperties": false
+}

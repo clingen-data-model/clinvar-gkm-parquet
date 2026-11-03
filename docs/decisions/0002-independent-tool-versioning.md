@@ -4,6 +4,11 @@
 - **Date:** 2026-10-20
 - **Plan:** [`docs/plans/2026-10-20-design.md`](../plans/2026-10-20-design.md) §3 and §9
 
+**Amended by [ADR 0006](0006-sections-spec-compiled-from-schemas.md) (2026-11-02):** for the `sections` spec the fixed
+list of decisions 3 and 4 is replaced: a bundle's version is accepted when its schema and column set load and compile, and
+is refused with the reason otherwise, so a schema bump with a published column set needs no tool release. `baseline`,
+`clinvar-gkm` and a custom spec keep the explicit list. Planned; unreleased.
+
 ## Context
 
 The ClinVar-GKM bundle schema has its own semver (ClinVar-GKM

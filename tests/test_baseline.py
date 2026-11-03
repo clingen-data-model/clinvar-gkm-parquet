@@ -17,11 +17,11 @@ import duckdb
 import pytest
 
 from clinvar_gkm_parquet import baseline, build, sqltemplate
-from clinvar_gkm_parquet.compat import SCHEMA_SECTIONS
+from clinvar_gkm_parquet.default_pairing import sections_of
 from clinvar_gkm_parquet.spec import resolve_spec
 
 FIXTURE = Path(__file__).parent / "fixtures" / "real-1.1.0" / "clinvar-gkm_excerpt.json.gz"
-SECTIONS = SCHEMA_SECTIONS["1.1.0"]
+SECTIONS = sections_of("1.1.0")
 SPEC, SOURCE = resolve_spec("baseline")
 _SECTION = re.compile(r'^  "(\w+)": \{$')
 _RECORD = re.compile(r'^    ("(?:[^"\\]|\\.)*"): (.*?),?$')

@@ -19,7 +19,7 @@ from _build_helpers import (
 )
 from _build_helpers import passthrough_spec as _passthrough_spec
 from _build_helpers import passthrough_sql as _passthrough_sql
-from _fixture import COUNTS, FIXTURE, SOURCE_RELEASE
+from _fixture import COUNTS, FIXTURE, SECTIONS, SOURCE_RELEASE
 from _input_helpers import D1, D2, bundle_bytes, fixture_sections, local_input, two_synthetic_deltas, write_gz
 
 from clinvar_gkm_parquet import build as build_mod
@@ -34,7 +34,6 @@ from clinvar_gkm_parquet.build import (
     resolve_build_inputs,
     run_build_command,
 )
-from clinvar_gkm_parquet.bundle import SECTIONS
 from clinvar_gkm_parquet.errors import BundleFormatError, InputError, SpecError
 from clinvar_gkm_parquet.model import BuildInputs, InputFile
 
@@ -670,7 +669,6 @@ def test_build_and_verify_real_fixture(passthrough, tmp_path):
 
 def test_build_fixture_end_to_end(tmp_path):
     """The real spec and table SQL on the raw fixture."""
-    from clinvar_gkm_parquet.bundle import SECTIONS
     from clinvar_gkm_parquet.spec import load_spec
 
     spec = load_spec("1.0")

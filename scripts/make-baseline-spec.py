@@ -6,7 +6,7 @@ Usage:
     scripts/make-baseline-spec.py --check   # exit 1 if the file differs from what this script writes
 
 The YAML file is what the tool loads; this script only keeps its 20 near-identical tables consistent. The sections
-come from compat.SCHEMA_SECTIONS for the schema_versions below. A released spec version is never edited: a
+come from the schema set of each schema_version below. A released spec version is never edited: a
 change here that alters the output needs a new version (.claude/rules/table-spec.md).
 """
 
@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 from clinvar_gkm_parquet.baseline import REFS_TYPE
-from clinvar_gkm_parquet.compat import SCHEMA_SECTIONS
+from clinvar_gkm_parquet.default_pairing import sections_of
 
 VERSION = "1.0"
 SCHEMA_VERSIONS = ["1.1.0"]
@@ -53,9 +53,9 @@ def q(s: str) -> str:
 
 
 def render() -> str:
-    sections = SCHEMA_SECTIONS[SCHEMA_VERSIONS[0]]
+    sections = sections_of(SCHEMA_VERSIONS[0])
     for v in SCHEMA_VERSIONS[1:]:
-        if SCHEMA_SECTIONS[v] != sections:
+        if sections_of(v) != sections:
             raise SystemExit(f"schema {v} has other sections than {SCHEMA_VERSIONS[0]}")
     lines = [
         HEADER.rstrip("\n"),

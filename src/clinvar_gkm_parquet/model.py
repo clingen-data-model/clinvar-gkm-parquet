@@ -5,8 +5,8 @@ Stage interfaces (each module owns its half):
 - sources.py  resolves a path or URL (or `--release`) into InputFile / BuildInputs, finds the expected sha256
               (explicit, `.sha256` sidecar, line index, frozen-line MANIFEST.json), opens byte streams, and
               reads the line index and delta manifests.
-- bundle.py   streams one bundle once: hashes the compressed bytes, checks schema_version, classifies every
-              line (design plan §4.2) and hands each record to a sink -> StreamedBundle.
+- bundle.py   streams one bundle once: hashes the compressed bytes, reads the version, classifies every line
+              (design plan §4.2) and hands each record to a sink -> StreamedBundle.
 - replay.py   checks a delta chain, reads the (small) deltas into memory and folds them into one net change map
               per section (design plan §4.3), which the build applies while the full streams past.
 - build.py    the section pipeline (design plan §6.2): streams the full once, applies the change map, stages
@@ -37,7 +37,7 @@ class InputFile:
     """One input bundle (or manifest) as resolved before reading."""
 
     source: str  # local path or URL, as resolved
-    name: str  # the dated file name (an alias like clinvar-gkm_00-latest is resolved to it)
+    name: str  # the file name (an alias is resolved to the dated file it names)
     release: str | None  # YYYY-MM-DD the file represents (a monthly's source_release; a weekly/delta's release)
     expected_sha256: str | None  # hex, or None when no checksum source exists
     sha256_source: str | None  # "explicit" | "sidecar" | "index" | "frozen-manifest" | None
@@ -46,7 +46,7 @@ class InputFile:
 
 @dataclass(frozen=True)
 class DeltaManifest:
-    """A weekly delta's manifest (clinvar-gkm-delta_YYYY-MMDD.manifest.json)."""
+    """A weekly delta's manifest."""
 
     release: str  # YYYY-MM-DD of this delta
     baseline_release: str | None  # the release this delta applies on top of (null only on the first release)
@@ -66,6 +66,8 @@ class StreamedBundle:
     counts: dict[str, int]  # section -> records, for the sections the bundle has
     text_sha256: str | None = None  # of the uncompressed text, when asked for (stream_bundle text_digests)
     text_size: int | None = None  # uncompressed bytes, likewise
+    layout: str = "line"  # the reader the file took: line | json (bundle.py)
+    root: tuple[str, ...] = ()  # the root's members, in the order of the text
 
 
 @dataclass(frozen=True)
