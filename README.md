@@ -8,7 +8,7 @@ the bundle content with current database tools such as DuckDB, Polars, pandas an
 those Parquet tables from any bundle, including archived releases, so the Parquet for a release can always be
 regenerated from the bundle it came from.
 
-> **Status:** 1.0.0 is released, before the oracle. No build has run on a full monthly bundle yet, and the table specs are
+> **Status:** 1.0.1 is the latest release. Releases so far come before the oracle. No build has run on a full monthly bundle yet, and the table specs are
 > drafts, so their tables can still change. The `clinvar-gkm` spec's names and types match ClinVar-GKM's published 1.1.0
 > Parquet export, and it is final once the oracle has run against that export
 > ([design plan](https://github.com/clingen-data-model/clinvar-gkm-parquet/blob/main/docs/plans/2026-10-20-design.md) §3.2, §8.2). The default `sections` spec is compiled from a bundle schema
@@ -41,6 +41,7 @@ different cadences ([ADR 0002](https://github.com/clingen-data-model/clinvar-gkm
 | Tool version | `sections` reads | `baseline`, `clinvar-gkm` read | Built-in table specs |
 | --- | --- | --- | --- |
 | 1.0.0 | any bundle with its pairing; ClinVar-GKM by default (snapshot: 1.1.0) | 1.1.0 | `sections` 1.0 (default; draft), `baseline` 1.0 (draft), `clinvar-gkm` 1.0 (draft) |
+| 1.0.1 | any bundle with its pairing; ClinVar-GKM by default (snapshot: 1.1.0) | 1.1.0 | `sections` 1.0 (default; draft), `baseline` 1.0 (draft), `clinvar-gkm` 1.0 (draft) |
 
 - `sections`: one table per bundle collection (20 in ClinVar-GKM 1.1.0), keyed by `id`, compiled from a bundle schema and
   its column set, with every record property its own typed column
@@ -68,8 +69,8 @@ holds its compiled spec (`table-spec.json`), so `verify` and `rebuild` need neit
 ## Install
 
 ```sh
-uvx clinvar-gkm-parquet@1.0.0 version --json   # run a pinned release with no install
-pipx install clinvar-gkm-parquet==1.0.0        # or install it
+uvx clinvar-gkm-parquet@1.0.1 version --json   # run a pinned release with no install
+pipx install clinvar-gkm-parquet==1.0.1        # or install it
 ```
 
 Python 3.10 or later. DuckDB is pinned exactly, because the output bytes depend on it, so an isolated environment

@@ -5,6 +5,12 @@ All notable changes to this tool. Each release states the table-spec versions it
 
 ## Unreleased
 
+## 1.0.1 (2026-11-03)
+
+Reads and writes the same as 1.0.0: bundle `schema_version` 1.1.0 snapshotted, table specs `sections` 1.0 (the default),
+`baseline` 1.0 and `clinvar-gkm` 1.0, all `draft`, and DuckDB 1.5.4. Like 1.0.0, it comes before the oracle and any build on
+a full monthly bundle.
+
 - **The 1.1.0 column set and schema snapshot use the corrected bundle schema `$id`**,
   `https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/clinvar-gkm-bundle.schema.json`, the one on ClinVar-GKM's `main` and in
   the GKM Toolkit's copy, which now pair with the shipped column set. The original `$id` is no longer accepted with it, so
