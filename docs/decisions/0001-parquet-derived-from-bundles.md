@@ -1,6 +1,6 @@
 # 0001 — Parquet is derived from the bundles; the bundles are the record
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-20
 - **Plan:** [`docs/plans/2026-10-20-design.md`](../plans/2026-10-20-design.md)
 

@@ -12,7 +12,7 @@ regenerated from the bundle it came from.
 > drafts, so their tables can still change. The `clinvar-gkm` spec's names and types match ClinVar-GKM's published 1.1.0
 > Parquet export, and it is final once the oracle has run against that export
 > ([design plan](https://github.com/clingen-data-model/clinvar-gkm-parquet/blob/main/docs/plans/2026-10-20-design.md) §3.2, §8.2). The default `sections` spec is compiled from a bundle schema
-> and its column set, for any producer ([ADR 0006](https://github.com/clingen-data-model/clinvar-gkm-parquet/blob/main/docs/decisions/0006-sections-spec-compiled-from-schemas.md), proposed);
+> and its column set, for any producer ([ADR 0006](https://github.com/clingen-data-model/clinvar-gkm-parquet/blob/main/docs/decisions/0006-sections-spec-compiled-from-schemas.md));
 > that path is planned to move to the GKM Toolkit. Until the oracle passes, ClinVar-GKM builds its published Parquet set
 > with its own BigQuery export.
 >

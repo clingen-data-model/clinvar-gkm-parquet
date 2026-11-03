@@ -1,6 +1,6 @@
 # 0002 — Tool versioning independent of the bundle schema
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-20
 - **Plan:** [`docs/plans/2026-10-20-design.md`](../plans/2026-10-20-design.md) §3 and §9
 

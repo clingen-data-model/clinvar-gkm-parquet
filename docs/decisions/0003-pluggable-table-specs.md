@@ -1,6 +1,6 @@
 # 0003 — Pluggable table specs, with a sections spec as the default
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-26
 - **Plan (if any):** [`docs/plans/2026-10-20-design.md`](../plans/2026-10-20-design.md) §3, §7.2, §9; amends
   [ADR 0002](0002-independent-tool-versioning.md)
