@@ -36,7 +36,7 @@ The compile-and-build path is generic: any bundle plus its schema and column-set
 it, because it is meant to move to the GKM Toolkit (`ga4gh/gkm-starter-kit`;
 [ADR 0006](docs/decisions/0006-sections-spec-compiled-from-schemas.md)).
 
-Until the tool ships, ClinVar-GKM still builds its latest Parquet set with BigQuery SQL
+Until the oracle passes, ClinVar-GKM still builds its latest Parquet set with BigQuery SQL
 (`src/scripts/parquet-schemas/*.sql` on its `1.0` branch). This tool replaces that path once it matches it
 (ClinVar-GKM ADR 0007, Workstream 1). The plan is in [the design plan](docs/plans/2026-10-20-design.md).
 
