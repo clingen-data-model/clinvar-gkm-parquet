@@ -1,6 +1,6 @@
 # 0006 — Tables are compiled from a bundle schema and its column set
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-02
 - **Plan (if any):** [`docs/plans/2026-10-20-design.md`](../plans/2026-10-20-design.md) §3, §4.4, §7, §9, §11; amends
   the version gate of [ADR 0002](0002-independent-tool-versioning.md); builds on

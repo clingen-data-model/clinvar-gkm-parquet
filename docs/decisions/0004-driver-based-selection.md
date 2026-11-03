@@ -1,6 +1,6 @@
 # 0004 — Selective builds: a driver, a pointer walk and a verbatim mini-bundle
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-26
 - **Plan:** [`docs/plans/2026-10-20-design.md`](../plans/2026-10-20-design.md) §4.5
 
