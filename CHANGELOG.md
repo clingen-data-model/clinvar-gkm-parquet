@@ -5,6 +5,17 @@ All notable changes to this tool. Each release states the table-spec versions it
 
 ## Unreleased
 
+## 1.0.0 (2026-11-03)
+
+First release. Snapshots bundle `schema_version` 1.1.0, and `baseline` and `clinvar-gkm` read that version; `sections` reads
+any bundle with its schema and column set. Writes the table specs `sections` 1.0 (the default), `baseline` 1.0 and
+`clinvar-gkm` 1.0. Pins DuckDB 1.5.4.
+
+**Released before the oracle, by the maintainer's decision (2026-11-03).** No build has run on a full monthly bundle, and
+`clinvar-gkm` hasn't been compared with ClinVar-GKM's BigQuery export. All three specs stay `draft`, so their tables can
+still change, and ClinVar-GKM's published Parquet set is still its BigQuery export. The largest real input so far is the
+2026-09-23 weekly delta (4,530,457 records), which rebuilt byte-identical.
+
 - First tool code (design plan §12, step 1): package scaffold, CLI (`build`, `verify`, `version --json`),
   table spec 1.0 (draft), streaming bundle reader, delta replay, DuckDB table build, `verify`.
 - Reads bundle `schema_version` 1.1.0; writes table spec 1.0 (draft until captured from the 1.1.0 export).
