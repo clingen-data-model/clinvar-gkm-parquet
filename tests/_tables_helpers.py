@@ -47,56 +47,6 @@ def read_fixture(path: Path = FIXTURE) -> dict[str, list[tuple[str, str]]]:
     return out
 
 
-_PROPOSITION_SECTIONS = (
-    "propositionPathogenicity",
-    "propositionOncogenicity",
-    "propositionSomaticClinicalImpact",
-    "propositionClinvarCustom",
-)
-
-
-def _condition_pointer(curie: str) -> str:
-    """gkm-vcv-statement-proc.sql @ 1.0 25344ba6, lines 529 and 643: traitset / minted set -> #/conditionSet/,
-    trait -> #/condition/."""
-    if curie.startswith("#/"):
-        return curie
-    if curie.startswith(("clinvar.traitset:", "clinvar.conditionset:")):
-        return f"#/conditionSet/{curie}"
-    if curie.startswith("clinvar.trait:"):
-        return f"#/condition/{curie}"
-    raise AssertionError(f"not a condition CURIE: {curie}")
-
-
-def current_shape(sections: dict[str, list[tuple[str, str]]]) -> dict[str, list[tuple[str, str]]]:
-    """The fixture moved to the current 1.0 code's shape, where the 2026-10-04 examples are older (fixture
-    README): VCV/RCV proposition `object`s and minted condition-set `concepts` written as bare CURIEs become
-    #/condition/ or #/conditionSet/ pointers by the proc's rule. Only those values change; every other record
-    keeps its bytes. Used so the tables whose fail-loud pointer check trips on the old shape still get built."""
-    out = dict(sections)
-
-    def dump(rec: dict) -> str:
-        return json.dumps(rec, separators=(",", ":"), ensure_ascii=False)
-
-    for s in _PROPOSITION_SECTIONS:
-        new = []
-        for key, text in sections[s]:
-            rec = json.loads(text)
-            if isinstance(rec.get("object"), str) and not rec["object"].startswith("#/"):
-                rec["object"] = _condition_pointer(rec["object"])
-                text = dump(rec)
-            new.append((key, text))
-        out[s] = new
-    new = []
-    for key, text in sections["conditionSet"]:
-        rec = json.loads(text)
-        if any(not c.startswith("#/") for c in rec.get("concepts", [])):
-            rec["concepts"] = [_condition_pointer(c) for c in rec["concepts"]]
-            text = dump(rec)
-        new.append((key, text))
-    out["conditionSet"] = new
-    return out
-
-
 def write_bundle(sections: dict[str, list[tuple[str, str]]], path: Path, schema_version: str = "1.1.0") -> Path:
     """Write sections as a gzip bundle in the assembler's line format (design plan §4.2; empty sections are
     omitted), keeping each record's text."""

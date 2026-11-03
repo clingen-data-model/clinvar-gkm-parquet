@@ -22,9 +22,6 @@ from clinvar_gkm_parquet.bundle import SECTIONS, stage_bundle
 from clinvar_gkm_parquet.errors import BundleFormatError, InputError, SchemaVersionError
 from clinvar_gkm_parquet.model import InputFile
 
-REAL = FIXTURE.parent.name == "real-1.1.0"
-pytestmark = pytest.mark.skipif(not REAL, reason="the selection tests read the real 1.1.0 excerpt")
-
 Node = tuple[str, str]
 
 
@@ -115,8 +112,8 @@ class Graph:
         return depth, dangling
 
 
-GRAPH = Graph(FIXTURE) if REAL else None
-SOURCE_ORDER, SOURCE_LINES = parse_lines(FIXTURE) if REAL else ([], {})
+GRAPH = Graph(FIXTURE)
+SOURCE_ORDER, SOURCE_LINES = parse_lines(FIXTURE)
 FIXTURE_SHA = hashlib.sha256(FIXTURE.read_bytes()).hexdigest()
 
 

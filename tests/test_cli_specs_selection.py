@@ -27,11 +27,8 @@ from clinvar_gkm_parquet.model import BuildInputs
 from clinvar_gkm_parquet.replay import ReplayedSource, load_chain
 from clinvar_gkm_parquet.spec import builtin_dir
 
-REAL = FIXTURE.parent.name == "real-1.1.0"
-pytestmark = pytest.mark.skipif(not REAL, reason="reads the real 1.1.0 excerpt")
-
 FULL = ["--full", FIXTURE, "--full-source-release", SOURCE_RELEASE]
-FIXTURE_SHA = (FIXTURE.parent / (FIXTURE.name + ".sha256")).read_text().split()[0] if REAL else None
+FIXTURE_SHA = (FIXTURE.parent / (FIXTURE.name + ".sha256")).read_text().split()[0]
 SOMATIC_VCV = "VCV004530381.1-S-SCI-CP-T1"  # ADR 0004's measured example: `out` reaches 14 records
 
 

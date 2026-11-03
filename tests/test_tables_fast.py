@@ -3,7 +3,7 @@
 render(table) reads each record once (one json_transform) and checks the row by a census before it trusts the
 fast expressions; render(table, fast=False) is the reference: the typed copies alone, as the spec was first
 implemented. The two must write the same bytes, take the same rows, and stop with the same message. Each record
-here is a real fixture record (current_shape(), see test_tables.py) changed minimally, as the test says.
+here is a real fixture record changed minimally, as the test says.
 """
 
 from __future__ import annotations
@@ -14,11 +14,11 @@ import json
 
 import duckdb
 import pytest
-from _tables_helpers import SPEC, build, connect, current_shape, read_fixture, rows
+from _tables_helpers import SPEC, build, connect, read_fixture, rows
 
 from clinvar_gkm_parquet.sqltemplate import render
 
-BASE = current_shape(read_fixture())
+BASE = read_fixture()
 CENSUS = [t.name for t in SPEC.tables if " AS _ok FROM " in render(t)]  # the tables whose source takes a census
 
 

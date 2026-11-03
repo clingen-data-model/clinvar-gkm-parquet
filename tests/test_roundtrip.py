@@ -19,7 +19,7 @@ import duckdb
 import pytest
 from _fixture import FIXTURE, SOURCE_RELEASE
 from _input_helpers import local_input, synthetic_delta
-from _tables_helpers import connect, current_shape, read_fixture
+from _tables_helpers import connect, read_fixture
 
 from clinvar_gkm_parquet import bundle
 from clinvar_gkm_parquet.build import EMPTY_SHA256, KV_PREFIX
@@ -30,8 +30,6 @@ from clinvar_gkm_parquet.roundtrip import RoundTripMismatch, lossless_problems, 
 from clinvar_gkm_parquet.spec import parse_spec, resolve_spec
 from clinvar_gkm_parquet.sqltemplate import render_generic
 
-REAL = FIXTURE.parent.name == "real-1.1.0"
-real_only = pytest.mark.skipif(not REAL, reason="reads the real 1.1.0 excerpt")
 SPEC, _ = resolve_spec("sections")
 TEXT = gzip.decompress(FIXTURE.read_bytes())
 FULL = ["--full", FIXTURE, "--full-source-release", SOURCE_RELEASE]
@@ -70,8 +68,6 @@ def rewrite(path: Path, select: str) -> None:
 
 @pytest.fixture(scope="module")
 def built(tmp_path_factory) -> Path:
-    if not REAL:
-        pytest.skip("reads the real 1.1.0 excerpt")
     out = tmp_path_factory.mktemp("rt") / "sections"
     assert main(["build", *map(str, FULL), "--out", str(out)]) == 0
     return out
@@ -150,7 +146,6 @@ def test_record_sql_refuses_a_float_column():
 # --- the round trip on the excerpt -----------------------------------------------------------------------------
 
 
-@real_only
 def test_rebuild_is_byte_identical(built, tmp_path, capsys):
     for name in ("bundle.json", "bundle.json.gz"):
         rc, out, _ = cli(capsys, "rebuild", built, "-o", tmp_path / name)
@@ -160,7 +155,6 @@ def test_rebuild_is_byte_identical(built, tmp_path, capsys):
     assert sorted(p.name for p in tmp_path.iterdir()) == ["bundle.json", "bundle.json.gz"]  # no partial files
 
 
-@real_only
 def test_build_records_the_text(built):
     manifest = json.loads((built / "manifest.json").read_text())
     assert manifest["source_text_sha256"] == hashlib.sha256(TEXT).hexdigest()
@@ -172,7 +166,6 @@ def test_build_records_the_text(built):
         assert kv["section_text_sha256"] == want, t.name
 
 
-@real_only
 def test_ordinal_is_the_bundle_order(built):
     con = duckdb.connect()
     for section, records in read_fixture().items():
@@ -204,7 +197,6 @@ def test_stream_bundle_text_digests():
     assert bundle.stream_bundle(local_input(FIXTURE), Sink()).text_sha256 is None
 
 
-@real_only
 def test_verify_roundtrip(built, capsys):
     rc, out, _ = cli(capsys, "verify", built, "--roundtrip", "--full", FIXTURE)
     assert rc == 0 and "round trip: identical" in out
@@ -213,7 +205,6 @@ def test_verify_roundtrip(built, capsys):
 # --- rebuild refuses what it can't reproduce -------------------------------------------------------------------
 
 
-@real_only
 @pytest.mark.parametrize("spec", ["baseline", "clinvar-gkm"])
 def test_rebuild_refuses_other_specs(tmp_path, capsys, spec):
     out = tmp_path / spec
@@ -224,7 +215,6 @@ def test_rebuild_refuses_other_specs(tmp_path, capsys, spec):
         rebuild(out, tmp_path / "b.json")
 
 
-@real_only
 def test_rebuild_refuses_a_table_subset(tmp_path, capsys):
     out = tmp_path / "subset"
     assert cli(capsys, "build", *FULL, "--tables", "gene,scv", "--out", out)[0] == 0
@@ -232,7 +222,6 @@ def test_rebuild_refuses_a_table_subset(tmp_path, capsys):
         rebuild(out, tmp_path / "b.json")
 
 
-@real_only
 def test_rebuild_refuses_a_selection(tmp_path, capsys):
     out = tmp_path / "sel"
     assert cli(capsys, "build", *FULL, "--driver", "submitter", "--max-depth", "0", "--out", out)[0] == 0
@@ -241,7 +230,6 @@ def test_rebuild_refuses_a_selection(tmp_path, capsys):
         rebuild(out, tmp_path / "b.json")
 
 
-@real_only
 def test_rebuild_refuses_deltas(tmp_path, capsys):
     scv0 = read_fixture()["scv"][0][0]
     d, _ = synthetic_delta(tmp_path, "2026-10-25", SOURCE_RELEASE, {}, {"scv": [scv0]})
@@ -252,14 +240,12 @@ def test_rebuild_refuses_deltas(tmp_path, capsys):
         rebuild(out, tmp_path / "b.json")
 
 
-@real_only
 def test_rebuild_refuses_a_missing_table(copy, tmp_path):
     (copy / "gene.parquet").unlink()
     with pytest.raises(RoundTripError, match="missing table"):
         rebuild(copy, tmp_path / "b.json")
 
 
-@real_only
 def test_rebuild_refuses_a_missing_ordinal(copy, tmp_path):
     rewrite(
         copy / "gene.parquet",
@@ -270,7 +256,6 @@ def test_rebuild_refuses_a_missing_ordinal(copy, tmp_path):
     assert not (tmp_path / "b.json").exists()
 
 
-@real_only
 def test_rebuild_refuses_a_pointer_outside_its_targets(copy, tmp_path):
     rewrite(copy / "scv.parquet", "SELECT * REPLACE ('evidenceLine' AS proposition_section) FROM t")
     with pytest.raises(RoundTripError, match="names section evidenceLine, not one of"):
@@ -278,7 +263,6 @@ def test_rebuild_refuses_a_pointer_outside_its_targets(copy, tmp_path):
     assert not list(tmp_path.glob("*b.json*"))
 
 
-@real_only
 def test_rebuild_refuses_a_changed_value(copy, tmp_path):
     rewrite(copy / "submitter.parquet", "SELECT * REPLACE (upper(name) AS name) FROM t")
     with pytest.raises(RoundTripMismatch, match="section submitter: the rebuilt record lines have sha256"):
@@ -286,7 +270,6 @@ def test_rebuild_refuses_a_changed_value(copy, tmp_path):
     assert not list(tmp_path.glob("*b.json*"))
 
 
-@real_only
 def test_rebuild_refuses_a_changed_manifest(copy, tmp_path):
     m = json.loads((copy / "manifest.json").read_text())
     m["source_text_sha256"] = "0" * 64
@@ -295,7 +278,6 @@ def test_rebuild_refuses_a_changed_manifest(copy, tmp_path):
         rebuild(copy, tmp_path / "b.json")
 
 
-@real_only
 def test_rebuild_refuses_a_missing_manifest(copy, tmp_path):
     (copy / "manifest.json").unlink()
     with pytest.raises(RoundTripError, match="manifest.json: missing"):
@@ -303,14 +285,12 @@ def test_rebuild_refuses_a_missing_manifest(copy, tmp_path):
     assert not (tmp_path / "b.json").exists()
 
 
-@real_only
 def test_rebuild_refuses_an_existing_output(built, tmp_path):
     (tmp_path / "b.json").write_text("x")
     with pytest.raises(RoundTripError, match="already exists"):
         rebuild(built, tmp_path / "b.json")
 
 
-@real_only
 def test_verify_roundtrip_reports_a_difference(copy, capsys):
     rewrite(copy / "submitter.parquet", "SELECT * REPLACE (upper(name) AS name) FROM t")
     rc, out, _ = cli(capsys, "verify", copy, "--roundtrip")
@@ -319,7 +299,7 @@ def test_verify_roundtrip_reports_a_difference(copy, capsys):
 
 # --- the build's round-trip check ------------------------------------------------------------------------------
 
-BASE = current_shape(read_fixture()) if REAL else {}
+BASE = read_fixture()
 
 
 def _build_one(section: str, edit) -> list[dict]:
@@ -337,7 +317,6 @@ def _obj(edit):
     return lambda r: json.dumps(edit(json.loads(r)), ensure_ascii=False, separators=(",", ":"))
 
 
-@real_only
 @pytest.mark.parametrize(
     "section, edit",
     [
@@ -356,7 +335,6 @@ def test_build_check_refuses_what_it_cannot_write_back(section, edit):
         _build_one(section, edit)
 
 
-@real_only
 def test_build_check_compares_the_key_text():
     con = connect({s: list(r) for s, r in BASE.items()})
     con.execute(
@@ -366,7 +344,6 @@ def test_build_check_compares_the_key_text():
         con.execute(f"SELECT * FROM ({render_generic(SPEC.table('submitter'))})").fetchall()
 
 
-@real_only
 def test_empty_list_and_control_character_round_trip():
     """Absent and empty lists stay apart at every depth (an absent nested list is NULL, an empty one []), and a
     control character is escaped as the producer escapes it (Python's lower-case \\u001f)."""
