@@ -128,11 +128,14 @@ aren't collections (`metadata`, `failedAssertionIds`), and its schema's `$id` is
   change. A table-spec version alone doesn't name a column set: the identity of a compiled table set is `table_spec_sha256`
   (and the two source hashes say what it came from).
 - 1.1.0's bundle schema declares `$id` `.../clinvar-gkm/1.1.0/json/ClinvarGkmBundle`, which returned 404 on 2026-11-02;
-  the file is served at `.../clinvar-gkm/1.1.0/clinvar-gkm-bundle.schema.json`. ClinVar-GKM's `origin/main` has fixed it.
-  The tool needs no exception for either: a root's `$id` can be any form, and the 1.1.0 column set names the tag's.
+  the file is served at `.../clinvar-gkm/1.1.0/clinvar-gkm-bundle.schema.json`. ClinVar-GKM's `origin/main` has fixed it
+  (`4c8ecf3`, that line only). The tool needs no exception for either: a root's `$id` can be any form. **Amended 2026-11-03
+  by the maintainer:** the 1.1.0 column set names only the corrected `$id`, so the snapshot's root is ClinVar-GKM's fixed
+  file. The file w3id serves for 1.1.0 still declares the original, so pairing it with that column set is refused, and
+  re-vendoring the snapshot from w3id would undo the fix.
 - A snapshot can differ from what ClinVar-GKM built against: `$ref`s resolve to each repo's tag, not to ClinVar-GKM's
   submodule pin. For 1.1.0, va-spec's `Statement` at tag 1.1.0 (`d9da20c`) adds `direction` to `required`, one commit
-  after the pin `29573487`. The other 94 of the 95 files are byte-identical to the pins. The compiler doesn't read
+  after the pin `29573487`. The bundle schema differs only in its corrected `$id`, and the other 93 of the 95 files are byte-identical to the pins. The compiler doesn't read
   `required`, so this doesn't change the output.
 - `spec/sections/1.0/tables.yaml` stopped being the source. It moved to `tests/fixtures/sections-golden/tables.yaml` and
   remains as the test that the compiler reproduces it on 1.1.0, apart from listed differences (none so far).

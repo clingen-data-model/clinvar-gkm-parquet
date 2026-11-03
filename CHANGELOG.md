@@ -5,6 +5,13 @@ All notable changes to this tool. Each release states the table-spec versions it
 
 ## Unreleased
 
+- **The 1.1.0 column set and schema snapshot use the corrected bundle schema `$id`**,
+  `https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/clinvar-gkm-bundle.schema.json`, the one on ClinVar-GKM's `main` and in
+  the GKM Toolkit's copy, which now pair with the shipped column set. The original `$id` is no longer accepted with it, so
+  pairing the file w3id serves for 1.1.0 (it still declares the original) with that column set is refused. A default
+  1.1.0 `sections` build has the same tables, rows and `table_spec_sha256`; `schema_set_sha256` and `column_set_sha256`
+  change, and with them the files' bytes. Sets built by 1.0.0 still `verify` and `rebuild`.
+
 ## 1.0.0 (2026-11-03)
 
 First release. Snapshots bundle `schema_version` 1.1.0, and `baseline` and `clinvar-gkm` read that version; `sections` reads
