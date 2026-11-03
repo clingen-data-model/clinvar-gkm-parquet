@@ -65,7 +65,8 @@ KV_KEYS = (
 )
 # Every key, in the order it is written: KV_KEYS, plus the spec's name (build() always writes it; a file without
 # it predates named specs and was written by clinvar-gkm, spec.spec_from_kv), the two keys of a custom spec
-# (spec.kv_metadata) and, in a selective build only, the selection (ADR 0004; select.SELECTION_METADATA_KEY).
+# (spec.kv_metadata), in a lossless build only the sha256 of the table's section text (ADR 0005; bundle.py) and,
+# in a selective build only, the selection (ADR 0004; select.SELECTION_METADATA_KEY).
 KV_ORDER = (
     "tool_version",
     "table_spec",
@@ -78,8 +79,12 @@ KV_ORDER = (
     "source_deltas",
     "source_release",
     "duckdb_version",
+    "section_text_sha256",
     "selection",
 )
+# Keys whose value differs from file to file of one build.
+KV_PER_FILE = ("table", "section_text_sha256")
+EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()  # the text of a section the bundle doesn't have
 DERIVED_LABEL = "derived from the bundle; may be regenerated"
 MANIFEST_NAME = "manifest.json"  # provisional (design plan §7.3)
 
@@ -533,15 +538,16 @@ class StreamState:
 
 
 def _read_chunks(item: SectionChunks) -> str:
-    """SQL reading a section's chunk files as (key, record): the key decoded from its JSON form, the record as
-    is."""
+    """SQL reading a section's chunk files as (key, record, ordinal, key_json): the key decoded from its JSON
+    form, the record as is, the record's position in the section, the key as written (its JSON form)."""
     files = "[" + ", ".join(sql_str(str(p)) for p in item.paths) + "]"
     max_line = item.max_line_bytes + 1024
     buffer = max(_MIN_CSV_BUFFER, 2 * max_line)
     return (
-        f"SELECT json_extract_string(k, '$') AS key, record FROM read_csv({files}, delim='\t', quote='', "
-        f"escape='', header=false, auto_detect=false, new_line='\\n', strict_mode=true, compression='gzip', "
-        f"columns={{'k': 'VARCHAR', 'record': 'VARCHAR'}}, max_line_size={max_line}, buffer_size={buffer})"
+        f"SELECT json_extract_string(k, '$') AS key, record, o AS ordinal, k AS key_json FROM read_csv({files}, "
+        f"delim='\t', quote='', escape='', header=false, auto_detect=false, new_line='\\n', strict_mode=true, "
+        f"compression='gzip', columns={{'o': 'BIGINT', 'k': 'VARCHAR', 'record': 'VARCHAR'}}, "
+        f"max_line_size={max_line}, buffer_size={buffer})"
     )
 
 
@@ -557,7 +563,7 @@ def load_section(
     section is done. `materialize` makes a TABLE instead (load_inputs), after which the chunks can go."""
     t = bundle_table(item.section)
     if not item.paths:
-        con.execute(f"CREATE TABLE {t} (key VARCHAR, record VARCHAR)")
+        con.execute(f"CREATE TABLE {t} (key VARCHAR, record VARCHAR, ordinal BIGINT, key_json VARCHAR)")
         return 0
     con.execute(f"CREATE {'TABLE' if materialize else 'VIEW'} {t} AS {_read_chunks(item)}")
     n, distinct = con.execute(f"SELECT count(*), count(DISTINCT key) FROM {t}").fetchone()
@@ -607,8 +613,11 @@ class SectionPipeline:
         queue_size: int | None = None,
         chunk_bytes: int | None = None,
         chain: replay.Chain | None = None,
+        text_digests: bool = False,
     ):
         self.inputs, self.spec, self.work = inputs, spec, Path(work)
+        self.text_digests = text_digests  # hash the full's text, whole and per section (bundle.py)
+        self.section_text_sha256: dict[str, str] = {}  # section -> sha256 of its record lines, with text_digests
         self.chain = chain  # the deltas already read (replay.load_chain), or None to read them here
         self.schema_version: str | None = None
         self.process, self.needed, self.on_begin = process, needed, on_begin
@@ -647,7 +656,7 @@ class SectionPipeline:
             self.log(
                 f"streaming {inputs.full.name}" + (f" with {len(self.deltas)} delta(s)" if self.deltas else "")
             )
-            full = bundle.stream_bundle(inputs.full, self)
+            full = bundle.stream_bundle(inputs.full, self, text_digests=self.text_digests)
             for s in bundle.SECTIONS:  # sections after the full's last one
                 if s not in self.counts:
                     self._absent_section(s)
@@ -752,13 +761,19 @@ class SectionPipeline:
     def close_section(self, section: str) -> None:
         self._close(section)
 
+    def section_text(self, section: str, sha256: str) -> None:
+        """The sha256 of the section's record lines (text_digests), before close_section hands it over."""
+        self.section_text_sha256[section] = sha256
+
     # --- sections ----------------------------------------------------------------------------------------------
 
     def _open(self, section: str):
         if section in self.needed and section in self.spec.sections:
             d = self._stage / section
             d.mkdir()
-            w = bundle.SectionWriter(d / section, chunk_bytes=self.chunk_bytes, check=self._check_stop)
+            w = bundle.SectionWriter(
+                d / section, chunk_bytes=self.chunk_bytes, check=self._check_stop, ordinal=True
+            )
         else:
             w = _Counter()
         self._writer = w
@@ -903,6 +918,10 @@ def write_manifest(
     }
     if "selection" in kv:
         manifest["selection"] = json.loads(kv["selection"])
+    if full.text_sha256 is not None:
+        # A lossless build (ADR 0005): the full's uncompressed text, which `rebuild` writes back.
+        manifest["source_text_sha256"] = full.text_sha256
+        manifest["source_text_size"] = full.text_size
     path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     return manifest
 
@@ -1049,6 +1068,9 @@ def build(
         else:
             read = inputs
             full_sha = read_sha = (inputs.full.expected_sha256 or _prehash(inputs.full, log)).lower()
+        # A lossless spec built in full from one bundle, with no deltas: the files record the bundle's text, which
+        # `rebuild` writes back (ADR 0005). A selection or a replayed state is not one bundle's text.
+        lossless = spec.lossless and driver is None and not inputs.deltas
 
         def on_begin(pipe: SectionPipeline, schema_version: str) -> None:
             chain = selected.chain if selected else pipe
@@ -1066,8 +1088,11 @@ def build(
 
         def process(con: duckdb.DuckDBPyConnection, section: str, rows: int) -> None:
             con.execute(sqltemplate.macros_sql())
+            kv_s = kv
+            if lossless:
+                kv_s = {**kv, "section_text_sha256": pipe.section_text_sha256.get(section, EMPTY_SHA256)}
             done = build_tables(
-                con, spec, by_section[section], out_dir, kv, render=render, counts={section: rows}, log=log
+                con, spec, by_section[section], out_dir, kv_s, render=render, counts={section: rows}, log=log
             )
             results.update((r.table, r) for r in done)
 
@@ -1082,6 +1107,7 @@ def build(
             threads=threads,
             keep_work=keep_work,
             log=log,
+            text_digests=lossless,
         )
         state = pipe.run()
         if state.full.sha256 != read_sha:

@@ -618,10 +618,10 @@ def test_resolve_build_inputs_release(monkeypatch):
 def test_run_build_command(monkeypatch, capsys, tmp_path):
     """No --spec: the sections spec (ADR 0003)."""
     monkeypatch.setattr(build_mod, "resolve_build_inputs", lambda args: _fixture_inputs())
-    rc = run_build_command(_args(full="x", out=tmp_path / "o", tables="gene, scv,rcv"))
+    rc = run_build_command(_args(full="x", out=tmp_path / "o", tables="gene, submitter,allele"))
     assert rc == 0
     out = capsys.readouterr().out
-    n = COUNTS["gene"] + COUNTS["scv"] + COUNTS["rcv"]
+    n = COUNTS["gene"] + COUNTS["submitter"] + COUNTS["allele"]
     assert f"built 3 table(s) of spec sections 1.0, {n} rows, source release {SOURCE_RELEASE}" in out
     kv = _kv(duckdb.connect(), tmp_path / "o" / "gene.parquet")
     assert kv[KV_PREFIX + "table_spec"] == "sections" and KV_PREFIX + "selection" not in kv

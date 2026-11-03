@@ -29,6 +29,10 @@ from clinvar_gkm_parquet.sqltemplate import canonical_type, render_generic
 
 REAL = FIXTURE.parent.name == "real-1.1.0"
 real_only = pytest.mark.skipif(not REAL, reason="reads the real 1.1.0 excerpt")
+# The provisional fixture's records are key-sorted (BigQuery JSON order), not in the producer's order (its README),
+# so a table of a STRUCT-order section stops at the round-trip check (ADR 0005).
+PRODUCER_ORDER = "the provisional fixture's records are not in the producer's key order (fixture README)"
+producer_order = pytest.mark.skipif(not REAL, reason=PRODUCER_ORDER)
 SPEC, SOURCE = resolve_spec("sections")
 BASE = current_shape(read_fixture())
 POINTER = re.compile(r"^#/[^/]+/.")
@@ -67,10 +71,19 @@ def test_spec_shape():
         assert t.sections == (t.name,) and t.row_filter is None and t.sort_key == "id" and t.known_fields
         assert (t.columns[0].name, t.columns[0].type, t.columns[0].derivation.kind) == ("id", "VARCHAR", "key")
         assert not t.columns_of("record") and not t.columns_of("refs")
-        for c in t.columns[1:]:
+        last = t.columns[-1]  # the ordinal (ADR 0005), after the property columns
+        assert (last.name, last.type, last.nulls, last.derivation.kind) == (
+            "ordinal",
+            "BIGINT",
+            "never",
+            "ordinal",
+        )
+        for c in t.columns[1:-1]:
             assert re.fullmatch(r"\$\.\w+", c.derivation.path), (t.name, c.name)
             assert c.type == canonical_type(c.type), (t.name, c.name)  # as DESCRIBE prints it
-            if c.derivation.kind in RANGE_KINDS:
+            if c.derivation.kind == "pointer-section":  # a multi-target pointer's section, named after it
+                assert c.name == c.derivation.path[2:] + "_section", (t.name, c.name)
+            elif c.derivation.kind in RANGE_KINDS:
                 prop = c.derivation.path[2:]
                 base = {"start": "loc_start", "end": "loc_end"}.get(prop, prop) if t.name == "location" else prop
                 suffix = {"range-exact": "", "range-min": "_min", "range-max": "_max"}[c.derivation.kind]
@@ -88,6 +101,8 @@ def test_fast_writes_the_same_parquet_bytes(name, tmp_path):
     """render_generic(fast=True) against the slow reference: the same bytes (json-type columns take the slow
     expression on the record's one parse)."""
     t = SPEC.table(name)
+    if not REAL and t.json.key_order == "columns":
+        pytest.skip(PRODUCER_ORDER)
     con = connect(BASE)
     digests = []
     for fast in (True, False):
@@ -101,6 +116,7 @@ def test_fast_writes_the_same_parquet_bytes(name, tmp_path):
     assert digests[0] == digests[1]
 
 
+@producer_order
 def test_build_tables_self_checks_pass(tmp_path):
     """build.build_tables writes every table and its self-checks pass (DESCRIBE equals the spec, the keys equal the
     section's keys: with no record column, the keys alone)."""
@@ -150,7 +166,7 @@ class _Checker:
     def check(self, v, got, t, where: str, depth: int = 0) -> None:
         if t.id == "list":
             if v is None:
-                assert got == [], where  # an absent list inside a value is []
+                assert got is None, where  # an absent list inside a value is NULL (ADR 0005)
                 return
             assert isinstance(v, list) and len(got) == len(v), where
             for i, (e, g) in enumerate(zip(v, got, strict=True)):
@@ -171,7 +187,7 @@ class _Checker:
                     if f == f"value_{kind}":
                         self.check(v["value"], got[f], ft, f"{where}.{f}", depth + 1)
                     elif f in slots:
-                        assert got[f] == ([] if ft.id == "list" else None), f"{where}.{f}"
+                        assert got[f] is None, f"{where}.{f}"  # every other slot, list slots too
                     else:
                         self.check(v.get(f), got[f], ft, f"{where}.{f}", depth + 1)
             else:
@@ -190,6 +206,7 @@ class _Checker:
             assert type(got) is type(v) and got == v, where
 
 
+@producer_order
 def test_every_column_holds_the_bundle_value():
     """Each row is a record: `id` is its key, each property column holds the property as its kind says, every
     pointer is stripped, and each extension fills only the slot of its value's JSON type, at every depth."""
@@ -199,17 +216,20 @@ def test_every_column_holds_the_bundle_value():
         records = _records(t.name)
         got = _table(con, t)
         assert [r["id"] for r in got] == sorted(records)
-        covered = {"id"} | {c.derivation.path[2:] for c in t.columns[1:]}
+        covered = {"id"} | {c.derivation.path[2:] for c in t.columns[1:-1]}
         for row in got:
             rec = records[row["id"]]
             assert set(rec) <= covered and rec.get("id", row["id"]) == row["id"]
-            for c in t.columns[1:]:
+            for c in t.columns[1:-1]:
                 kind, prop, where = c.derivation.kind, c.derivation.path[2:], f"{t.name} {row['id']} {c.name}"
                 v, value = rec.get(prop), row[c.name]
                 if kind in RANGE_KINDS:
                     continue  # test_range_columns_equal_clinvar_gkm
                 if v is None:
                     assert value == ([] if c.nulls == "empty-list" else None), where
+                elif kind == "pointer-section":
+                    want = [p.split("/")[1] for p in v] if isinstance(v, list) else v.split("/")[1]
+                    assert value == want, where
                 elif kind == "bare-id":
                     want = [p.split("/", 2)[2] for p in v] if isinstance(v, list) else v.split("/", 2)[2]
                     assert value == want, where
@@ -238,7 +258,7 @@ def test_json_type_slots_on_known_records():
             if isinstance(e["value"], list):
                 assert (g["value_string"], g["value_string_array"]) == (None, e["value"])
             else:
-                assert (g["value_string"], g["value_string_array"]) == (e["value"], [])
+                assert (g["value_string"], g["value_string_array"]) == (e["value"], None)
     variation = {r["id"]: r for r in _table(con, SPEC.table("variation"))}
     nested = 0
     for k, rec in _records("variation").items():
@@ -247,7 +267,7 @@ def test_json_type_slots_on_known_records():
                 continue
             for item, gi in zip(e["value"], g["value_object_array"], strict=True):
                 want = item.get("nucleotideExpression", {}).get("extensions", [])
-                for x, gx in zip(want, (gi["nucleotideExpression"] or {}).get("extensions", []), strict=True):
+                for x, gx in zip(want, (gi["nucleotideExpression"] or {}).get("extensions") or [], strict=True):
                     slot = "value_boolean" if isinstance(x["value"], bool) else "value_string"
                     other = "value_string" if slot == "value_boolean" else "value_boolean"
                     assert (gx["name"], gx[slot], gx[other]) == (x["name"], x["value"], None)
@@ -359,7 +379,8 @@ def test_json_type_absent_value_stops_the_build():
 
 
 def test_json_type_empty_array_fills_no_slot():
-    """An empty array has no element type: where the struct has an array slot it fills none (all NULL / [])."""
+    """An empty array has no element type: where the struct has an array slot it fills none (all NULL), and the
+    round trip writes it back as []."""
     sections, key = _mutated("sequenceReference", lambda k, r: r.get("extensions"), _set_first_extension_value([]))
     t = _with_type(
         "sequenceReference",
@@ -367,7 +388,7 @@ def test_json_type_empty_array_fills_no_slot():
         'STRUCT("name" VARCHAR, value_string VARCHAR, value_string_array VARCHAR[])[]',
     )
     got = {r["id"]: r for r in _table(connect(sections), t)}[key]["extensions"][0]
-    assert (got["value_string"], got["value_string_array"]) == (None, [])
+    assert (got["value_string"], got["value_string_array"]) == (None, None)
     sections, key = _mutated(
         "sequenceReference", lambda k, r: r.get("extensions"), _set_first_extension_value(["x"])
     )
@@ -422,9 +443,21 @@ def test_record_id_not_the_key_stops_the_build():
     _fails(sections, CLINVAR_GKM.table("variation"), needle, render=sqltemplate.render)
 
 
-def test_record_id_absent_is_fine():
+def test_record_id_absent():
+    """known_fields alone accepts a record with no id (clinvar-gkm); a sections table states that its records carry
+    their id (json.record_id), so one without it can't be written back, and the round-trip check stops it."""
     sections, key = _mutated("variation", lambda k, r: "id" in r, lambda rec: rec.pop("id"))
-    assert key in {r["id"] for r in _table(connect(sections), SPEC.table("variation"))}
+    con = connect(sections)
+    assert key in {
+        r[0]
+        for r in con.execute(f"SELECT id FROM ({sqltemplate.render(CLINVAR_GKM.table('variation'))})").fetchall()
+    }
+    _fails(
+        sections,
+        SPEC.table("variation"),
+        f"table variation: round trip: key {key}",
+        "differs from the bundle line",
+    )
 
 
 def test_unknown_top_level_property_stops_the_build():
@@ -444,13 +477,26 @@ def test_range_of_another_shape_stops_the_build(value):
 
 
 def test_range_null_ends_and_absent():
-    """[null, null] is a Range of two open ends (all NULL); an absent coordinate is NULL."""
-    sections, key = _mutated(
-        "location", lambda k, r: "start" in r, lambda rec: rec.__setitem__("start", [None, None])
-    )
+    """An absent coordinate is NULL in all three columns. [null, null], a Range of two open ends, reads the same
+    (all NULL), so it can't be written back: the round-trip check stops the build (the producer writes none)."""
+    sections, key = _mutated("location", lambda k, r: "start" in r, lambda rec: rec.pop("start"))
     got = {r["id"]: r for r in _table(connect(sections), SPEC.table("location"))}[key]
     assert (got["loc_start"], got["loc_start_min"], got["loc_start_max"]) == (None, None, None)
     assert got["loc_end"] is not None or got["loc_end_min"] is not None
+    sections, key = _mutated(
+        "location", lambda k, r: "start" in r, lambda rec: rec.__setitem__("start", [None, None])
+    )
+    clinvar_gkm = {
+        r["id"]: r for r in _rows_of(connect(sections), sqltemplate.render(CLINVAR_GKM.table("location")))
+    }
+    assert [clinvar_gkm[key][c] for c in RANGE_COLUMNS[:3]] == [None] * 3
+    _fails(sections, SPEC.table("location"), f"table location: round trip: key {key}")
+
+
+def _rows_of(con, sql) -> list[dict]:
+    cur = con.execute(f"SELECT * FROM ({sql})")
+    cols = [d[0] for d in cur.description]
+    return [dict(zip(cols, r, strict=True)) for r in cur.fetchall()]
 
 
 # --- fail loud: when the spec loads ----------------------------------------------------------------------------

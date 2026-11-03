@@ -117,15 +117,17 @@ def write_bundle(sections: dict[str, list[tuple[str, str]]], path: Path, schema_
 
 
 def connect(sections: dict[str, list[tuple[str, str]]] | None = None) -> duckdb.DuckDBPyConnection:
-    """A connection with the macros loaded and one bundle_<section>(key, record) table per section."""
+    """A connection with the macros loaded and one bundle_<section>(key, record, ordinal, key_json) table per
+    section, as the build stages it (build.load_section): ordinal is the record's position, key_json the key as
+    write_bundle writes it."""
     sections = read_fixture() if sections is None else sections
     con = duckdb.connect()
     con.execute(macros_sql())
     for s in SECTIONS:
-        con.execute(f'CREATE TABLE "bundle_{s}" (key VARCHAR, record VARCHAR)')
-        rows = sections.get(s, [])
+        con.execute(f'CREATE TABLE "bundle_{s}" (key VARCHAR, record VARCHAR, ordinal BIGINT, key_json VARCHAR)')
+        rows = [(k, r, i, json.dumps(k)) for i, (k, r) in enumerate(sections.get(s, []))]
         if rows:
-            con.executemany(f'INSERT INTO "bundle_{s}" VALUES (?, ?)', rows)
+            con.executemany(f'INSERT INTO "bundle_{s}" VALUES (?, ?, ?, ?)', rows)
     return con
 
 

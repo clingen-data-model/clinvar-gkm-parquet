@@ -53,7 +53,11 @@ when the column's entry is `json-type`, in the slot of the value's JSON type (cg
 the struct has no slot for stops the build.
 Empty versus NULL inside typed values (design plan §3.5): an absent struct or scalar is NULL; an absent list is
 `[]` (BigQuery stores no NULL arrays) when its parent is present, and at the top level follows the column's
-`nulls` rule.
+`nulls` rule. In a table with a `json` block (ADR 0005) an absent list is NULL at every depth (and an extension's
+unused list slot NULL), so `[]` is always an empty list: the round trip needs the two apart.
+
+A table with a `json` block is also checked row by row (roundtrip.checked_sql): the generic SQL carries the
+bundle line (`record`, `key_json`) and each row's columns are written back as JSON and compared with it.
 
 That walk (the slow expression) parses each JSON value again at every level. With `{{source}}` the record is
 parsed once instead, by one json_transform into the spec types (`_t`), and each typed copy gets a fast expression
@@ -120,6 +124,7 @@ class _Gen:
         self.ctx = _lit(f"table {table.name}: column {column.name}")
         self.slots = table.extension_slots.get(column.name, {})
         self.json_type = self.slots == JSON_TYPE_SLOTS  # slots by the value's JSON type, not by name
+        self.null_lists = table.json is not None  # an absent nested list is NULL, not [] (module docstring)
         self.pointers = pointers
         self.used_pointers: set[str] = set()
         self.used_slots: set[str] = set()
@@ -159,7 +164,7 @@ class _Gen:
     def list(self, x: str, t, rel: str, top: bool) -> str:
         child = t.children[0][1]
         crel = f"{rel}[]"
-        absent = "NULL" if (top and self.column.nulls == "when-absent") else f"CAST([] AS {t})"
+        absent = "NULL" if (top and self.column.nulls == "when-absent") or self.null_lists else f"CAST([] AS {t})"
 
         e = self.var("e")
         not_list = self.fail(_lit(f"expected a list at {rel or '(column)'}, got ") + f" || {x}")
@@ -242,7 +247,7 @@ class _Gen:
         parts = []
         for f, ft in fields:
             if f.startswith("value_"):
-                absent = f"CAST([] AS {ft})" if ft.id == "list" else "NULL"
+                absent = f"CAST([] AS {ft})" if ft.id == "list" and not self.null_lists else "NULL"
                 value = self.expr(f'{s}."value"', ft, f"{rel}.{f}")
                 val = f"CASE WHEN {kv} = {_lit(f.removeprefix('value_'))} THEN {value} ELSE {absent} END"
             else:
@@ -341,7 +346,9 @@ class _Fast:
         gen = self.gen
         if t.id == "list":
             child = t.children[0][1]
-            absent = "NULL" if (top and gen.column.nulls == "when-absent") else f"CAST([] AS {t})"
+            absent = (
+                "NULL" if (top and gen.column.nulls == "when-absent") or gen.null_lists else f"CAST([] AS {t})"
+            )
             e = gen.var("e")
             if top and self.name_dependent(child):
                 # The column's own list of name-dependent extensions: read through _Source.parsed.
@@ -562,7 +569,7 @@ class _Source:
         the parse and the census see only the table's rows."""
         bundle = _ident(f"bundle_{self.table.sections[0]}")
         if row_filter:
-            bundle = f"(SELECT key, record FROM {bundle} WHERE {row_filter})"
+            bundle = f"(SELECT * FROM {bundle} WHERE {row_filter})"
         if not self.structure:
             return bundle
         if self.has_census and self.known_keys:
@@ -570,7 +577,7 @@ class _Source:
             for k in _known_key_set(self.table):
                 if k not in self.structure:
                     self._put(k, "JSON", _scalar_census(f"_t.{_ident(k)}"))
-        sql = f"SELECT key, record, json_transform(record, {_lit(json.dumps(self.structure))}) AS _t FROM {bundle}"
+        sql = f"SELECT *, json_transform(record, {_lit(json.dumps(self.structure))}) AS _t FROM {bundle}"
         if not self.has_census:
             return f"({sql}) AS _src"
         parsed = [self.parsed(f) for f in self.fast if f.slots]
@@ -765,6 +772,7 @@ def _render_text(table: Table, text: str, fast: bool) -> str:
 # ---------------------------------------------------------------- the generic renderer (no sql/<table>.sql)
 
 GENERIC_KINDS = (
+    "ordinal",
     "key",
     "record",
     "refs",
@@ -832,6 +840,7 @@ def _walk_expr(table: Table, c: Column) -> str:
         path += "[*]"
     kind = c.derivation.kind
     ctx = _lit(f"table {table.name}: column {c.name}")
+    null_lists = table.json is not None  # an absent nested list is NULL (module docstring)
     i = path.index("[*]")
     prefix, steps = path[:i], re.findall(r"\[\*\]|\.\w+", path[i:])
     n = [0]
@@ -858,7 +867,7 @@ def _walk_expr(table: Table, c: Column) -> str:
             return leaf(x, vt, pos)
         step, rest = rest[0], rest[1:]
         if step == "[*]":
-            absent = "NULL" if top and c.nulls == "when-absent" else f"CAST([] AS {vt})"
+            absent = "NULL" if (top and c.nulls == "when-absent") or null_lists else f"CAST([] AS {vt})"
             e = var("e")
             body = go(e, rest, vt.children[0][1], pos + "[]", False)
             return (
@@ -867,7 +876,7 @@ def _walk_expr(table: Table, c: Column) -> str:
                 f"ELSE {fail(f'expected a list at {pos}, got ', x)} END"
             )
         # A field step: only below a [*] (the prefix is the json_extract), so never at the column's top.
-        absent = f"CAST([] AS {vt})" if vt.id == "list" else "NULL"
+        absent = f"CAST([] AS {vt})" if vt.id == "list" and not null_lists else "NULL"
         v = var("v")
         inner = go(v, rest, vt, pos + step, top)
         field = f"json_extract({x}, {_lit('$' + step)})"
@@ -890,6 +899,8 @@ def _generic_columns(table: Table) -> tuple[Table, list[str]]:
         kind, alias = c.derivation.kind, _ident(c.name)
         if kind == "key":
             lines.append(f"key AS {alias}")
+        elif kind == "ordinal":
+            lines.append(f"ordinal AS {alias}")
         elif kind == "record":
             lines.append(f"record AS {alias}" if c.type == "VARCHAR" else f"CAST(record AS {c.type}) AS {alias}")
         elif kind in _LEAF_PLACEHOLDER:
@@ -905,6 +916,10 @@ def _generic_columns(table: Table) -> tuple[Table, list[str]]:
         elif kind != "refs":
             raise SpecError(f"table {table.name}: column {c.name}: the generic renderer has no kind {kind!r}")
         cols.append(c)
+    if table.json is not None:  # the bundle line, for the round-trip check (roundtrip.checked_sql)
+        from .roundtrip import KEY_JSON_COLUMN, RECORD_COLUMN
+
+        lines += [f"record AS {_ident(RECORD_COLUMN)}", f"key_json AS {_ident(KEY_JSON_COLUMN)}"]
     return replace(table, columns=tuple(cols)), lines
 
 
@@ -938,6 +953,8 @@ def generic_problems(table: Table) -> list[str]:
         kind = c.derivation.kind
         if kind == "key" and c.type != "VARCHAR":
             out.append(f"column {c.name} (key) must be VARCHAR, not {c.type}")
+        elif kind == "ordinal" and (c.type != "BIGINT" or c.nulls != "never"):
+            out.append(f"column {c.name} (ordinal) must be BIGINT with nulls: never")
         elif kind == "record" and c.type not in _RECORD_TYPES:
             out.append(f"column {c.name} (record) must be one of {_RECORD_TYPES}, not {c.type}")
         elif kind == "refs":
@@ -952,7 +969,7 @@ def generic_problems(table: Table) -> list[str]:
                 out.append(f"column {c.name} ({kind}) must have nulls: when-absent")
         if not _GENERIC_NAME.fullmatch(c.name):
             out.append(f"column name {c.name!r} holds a space, '{{', '}}' or '='")
-        if table.known_fields and kind not in ("key", "record", "refs"):
+        if table.known_fields and kind not in ("key", "record", "refs", "ordinal"):
             if not _TOP_FIELD_PATH.fullmatch(c.derivation.path or ""):
                 out.append(
                     f"known_fields needs every column to read a top-level field ($.<field>); column {c.name} "
@@ -974,6 +991,10 @@ def render_generic(table: Table, fast: bool = True) -> str:
 
     plain, text = generic_template(table)
     sql = _render_text(plain, text, fast)
+    if table.json is not None:
+        from .roundtrip import checked_sql
+
+        sql = checked_sql(table, sql)
     if not table.columns_of("refs"):
         return sql
     key = _ident(table.columns_of("key")[0].name)

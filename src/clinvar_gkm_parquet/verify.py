@@ -1,4 +1,5 @@
-"""verify: spec check of a built directory, bundle recompute, and the oracle comparison (design plan §8.2).
+"""verify: spec check of a built directory, bundle recompute, the round trip (ADR 0005) and the oracle comparison
+(design plan §8.2).
 
 Owned by the build/verify work package. Exit codes (CLI): 0 = pass, 1 = differences, 2 = usage or input error.
 
@@ -24,6 +25,7 @@ from . import sources
 from .build import (
     KV_KEYS,
     KV_ORDER,
+    KV_PER_FILE,
     KV_PREFIX,
     MANIFEST_NAME,
     SectionPipeline,
@@ -172,7 +174,7 @@ def verify_dir(out_dir: Path, spec: Spec | None = None) -> list[str]:
             except ValueError:
                 problems.append(f"{name}: source_deltas is not a JSON array: {_trunc(kv['source_deltas'])}")
     for k in KV_ORDER:
-        if k == "table":
+        if k in KV_PER_FILE:
             continue
         # A required key missing from a file is reported above; an optional one (the spec's name, a custom
         # spec's keys, the selection) must be on every file or on none.
@@ -668,10 +670,13 @@ class VerifyReport:
     oracle: dict | None = None
     spec_name: str | None = None
     selection: dict | None = None  # the files' selection entry (a subset), or None for a full build
+    roundtrip: dict | None = None  # roundtrip.verify_roundtrip
 
     @property
     def passed(self) -> bool:
         if self.spec_problems:
+            return False
+        if self.roundtrip and not self.roundtrip["passed"]:
             return False
         if self.recompute and any(recompute_failed(g) for g in self.recompute):
             return False
@@ -688,6 +693,7 @@ class VerifyReport:
             "passed": self.passed,
             "spec_check": {"problems": self.spec_problems},
             "bundle_recompute": self.recompute,
+            "roundtrip": self.roundtrip,
             "oracle": self.oracle,
         }
 
@@ -733,6 +739,15 @@ class VerifyReport:
                     if e and e["count"]:
                         lines.append(f"- {k}: {e['count']}; e.g. {', '.join(json.dumps(s) for s in e['samples'])}")
                 lines.append("")
+        if self.roundtrip is not None:
+            rt = self.roundtrip
+            lines += ["## Round trip", ""]
+            lines += [f"- {p}" for p in rt["problems"]] or [
+                f"The rebuilt text ({rt['text_size']} bytes, sha256 `{rt['text_sha256']}`) matches "
+                + ", ".join(rt["checked"])
+                + "."
+            ]
+            lines.append("")
         if self.oracle is not None:
             lines += [
                 "## Oracle",
@@ -812,8 +827,11 @@ def run_verify_command(args) -> int:
         return _usage(f"{out_dir}: not a directory")
     if args.bundle_recompute and not args.full:
         return _usage("--bundle-recompute needs --full")
-    if (args.full or args.delta or args.manifest) and not args.bundle_recompute:
-        return _usage("--full/--delta/--manifest are only read with --bundle-recompute")
+    if (args.delta or args.manifest) and not args.bundle_recompute:
+        return _usage("--delta/--manifest are only read with --bundle-recompute")
+    roundtrip = getattr(args, "roundtrip", False)
+    if args.full and not (args.bundle_recompute or roundtrip):
+        return _usage("--full is only read with --bundle-recompute or --roundtrip")
     if args.against is not None and not Path(args.against).is_dir():
         return _usage(f"--against {args.against}: not a directory")
 
@@ -874,6 +892,18 @@ def run_verify_command(args) -> int:
                     f"{params['selected_sha256']}): {e}"
                 ) from e
             raise
+    if roundtrip:
+        from .roundtrip import verify_roundtrip
+
+        report.roundtrip = verify_roundtrip(
+            out_dir,
+            full=args.full,
+            sha256=args.sha256,
+            spec_arg=getattr(args, "spec", None),
+            memory_limit=args.memory_limit,
+            threads=args.threads,
+            work_dir=args.work_dir,
+        )
     if args.against is not None:
         root = Path(args.work_dir) if args.work_dir else None
         tmp = Path(tempfile.mkdtemp(prefix="clinvar-gkm-parquet-oracle-", dir=root))
@@ -897,8 +927,12 @@ def _summary(r: VerifyReport) -> str:
     parts = [f"directory check: {len(r.spec_problems)} problem(s)"]
     if r.recompute is not None:
         parts.append(f"bundle recompute: {sum(recompute_failed(g) for g in r.recompute)} group(s) differ")
+    if r.roundtrip is not None:
+        parts.append(f"round trip: {'identical' if r.roundtrip['passed'] else 'DIFFERS'}")
     if r.oracle is not None:
         parts.append(f"oracle: {sum(bool(t['differences']) for t in r.oracle['tables'].values())} table(s) differ")
     lines = [f"verify {'pass' if r.passed else 'DIFFERENCES'}: " + "; ".join(parts)]
     lines += [f"  {p}" for p in r.spec_problems[:20]]
+    if r.roundtrip is not None:
+        lines += [f"  {p}" for p in r.roundtrip["problems"]]
     return "\n".join(lines)
