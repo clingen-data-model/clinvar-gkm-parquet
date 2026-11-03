@@ -1,6 +1,12 @@
 {
-  "bundle_id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarGkmBundle",
+  "bundle_id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/clinvar-gkm-bundle.schema.json",
   "files": [
+    {
+      "id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/clinvar-gkm-bundle.schema.json",
+      "url": "https://raw.githubusercontent.com/clingen-data-model/clinvar-gkm/4c8ecf3c689195da5af46687ba383597cd30ae0f/schema/clinvar-gkm/clinvar-gkm-bundle.schema.json",
+      "file": "clingen/schema/clinvar-gkm/1.1.0/clinvar-gkm-bundle.schema.json",
+      "sha256": "80ebd72a3e2aa1153572d8e29a8d8eeea4748574cb07d96ab8573378f829a2cd"
+    },
     {
       "id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarAffectsProposition",
       "url": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarAffectsProposition",
@@ -72,12 +78,6 @@
       "url": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarGermlineCustomProposition",
       "file": "clingen/schema/clinvar-gkm/1.1.0/json/ClinvarGermlineCustomProposition",
       "sha256": "4608390d79955c47e2d0f3ccc86e05369c9de4287224e15b02dac655cc8a91b3"
-    },
-    {
-      "id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarGkmBundle",
-      "url": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/clinvar-gkm-bundle.schema.json",
-      "file": "clingen/schema/clinvar-gkm/1.1.0/clinvar-gkm-bundle.schema.json",
-      "sha256": "48369c69648459b1e138a1f59c1a349742f5e0b93a93c68ccc9df77b8b73ede2"
     },
     {
       "id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarNonConstrainedVariant",

@@ -9,8 +9,9 @@
 # In sections, a listed property is one the producer emits; a bare name takes its type from the schema. `id` is listed
 # where the record carries its own: sequenceReference, therapy and therapyGroup records have none, though their classes
 # allow it. Field order counts only in the key_order sections.
-# This tag's $id; ClinVar-GKM's origin/main has since fixed it to the file's URL.
-schema: https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarGkmBundle
+# The corrected $id, from ClinVar-GKM's origin/main (4c8ecf3). Tag 1.1.0 declares .../1.1.0/json/ClinvarGkmBundle, which
+# doesn't resolve. The tool's 1.1.0 snapshot carries the corrected one (ADR 0006).
+schema: https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/clinvar-gkm-bundle.schema.json
 version_property: schema_version
 
 # Built as a STRUCT, so written in the procedure's order; every other section is BigQuery JSON, so key-sorted.

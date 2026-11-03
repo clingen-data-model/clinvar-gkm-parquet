@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarGkmBundle",
+  "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/clinvar-gkm-bundle.schema.json",
   "title": "ClinVar-GKM Bundle",
   "description": "A ClinVar-GKM bundle: a single JSON object whose root properties are named sections, each a non-empty map from a typed record id to a GKM object. Objects cross-reference each other by '#/<section>/<id>' JSON pointers. The same shape covers the monthly full bundle, the weekly delta, and sub-bundle extracts, so no individual section is required (a delta or sub-bundle carries only the sections it touches). Beyond this schema, a producer must also guarantee that every bundle-local '#/...' pointer resolves within the bundle.",
   "type": "object",

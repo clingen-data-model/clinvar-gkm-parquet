@@ -217,7 +217,7 @@ def _no_fetch(url):
 def test_the_snapshot_is_used_without_any_fetch():
     source = schema_source("1.1.0")
     s = load_schema_set(source, fetch=_no_fetch)
-    assert s.sha256 == "03409226627844411de48d31b4fd873e2f2c42baa4256441a86c7b2d8ae55ef6"
+    assert s.sha256 == "741a29fcd86f07003f0d27d6c94ba0b414ec8f69fae479cb76cc67c4de47d798"
     assert s.bundle["properties"]["schema_version"]["const"] == "1.1.0"
     assert all(f.id == f.url for f in s.files.values() if f.id != s.bundle_id)
 
