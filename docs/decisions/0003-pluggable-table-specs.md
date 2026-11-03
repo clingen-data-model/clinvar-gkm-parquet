@@ -1,4 +1,4 @@
-# 0003 — Pluggable table specs, with a baseline spec as the default
+# 0003 — Pluggable table specs, with a sections spec as the default
 
 - **Status:** Proposed
 - **Date:** 2026-10-26
@@ -17,15 +17,21 @@ Users also want tables shaped for their own queries. The maintainer decided on 2
 2. with no spec named, the tool writes a built-in `baseline` spec: one table per bundle section;
 3. the `schema_version` gate stays as it is in every mode.
 
+**Amended 2026-10-29** (at the user's request, while this ADR is still proposed): the default is a new built-in
+`sections` spec, one table per bundle section with every record property its own typed column, instead of
+`baseline`. `baseline` stays available as `--spec baseline`. Items 1, 2, 3a and 7 below say so.
+
 ## Decision
 
 1. **A spec has a name and a version.** Every spec file has a top-level `name` (lower case letters and digits,
-   joined by single hyphens) next to `spec_version`. The tool ships two built-in specs, `baseline` 1.0 and
-   `clinvar-gkm` 1.0. `--spec` takes a built-in name, alone or with its version (`clinvar-gkm`,
-   `clinvar-gkm-1.0`, `clinvar-gkm@1.0`), or else the path of a `tables.yaml`. No `--spec` means `baseline`.
+   joined by single hyphens) next to `spec_version`. The tool ships three built-in specs, `sections` 1.0,
+   `baseline` 1.0 and `clinvar-gkm` 1.0. `--spec` takes a built-in name, alone or with its version
+   (`clinvar-gkm`, `clinvar-gkm-1.0`, `clinvar-gkm@1.0`), or else the path of a `tables.yaml`. No `--spec` means
+   `sections` (it meant `baseline` until 2026-10-29).
 2. **A custom spec goes through the same strict loader and rules** (`src/clinvar_gkm_parquet/spec.py`
    `check_rules`): unknown keys fail; only sections of the accepted bundle `schema_version`s; exactly one `key`
-   and one `record` column per table, which the build's self-checks compare with the bundle's key and record; a
+   column and at most one `record` column per table, which the build's self-checks compare with the bundle's key
+   and record (a table with no `record` column, such as every `sections` table, is checked on its keys); a
    sort key that is the key column, or one whose uniqueness the table documents in `sort_key_unique` (the build
    still checks it); a renderer for every table. A custom spec may not take a built-in's name. Every column still
    cites its bundle path and transform ([ADR 0001](0001-parquet-derived-from-bundles.md)).
@@ -39,6 +45,21 @@ Users also want tables shaped for their own queries. The maintainer decided on 2
 
    `src/clinvar_gkm_parquet/baseline.py` renders it, under the same contract as the template renderer: one
    SELECT over `bundle_<section>(key, record)`.
+
+   3a. **The sections spec** (`spec/sections/1.0/tables.yaml`; added 2026-10-29, the default) also has one table
+   per section, named as the section and sorted by `id`, with the same writer settings, but types the record
+   instead of carrying it: `id` (the bundle key) first, then every top-level property of the record as its own
+   column, named exactly as the property, and **no `data` column**. A scalar is a `scalar-path` column; a
+   `#/<section>/<id>` pointer (or a list of them) a `bare-id` column; an object or array a `typed-copy` with
+   its full nested type, nested pointers stripped to bare ids; a VRS integer-or-Range (`location.start` and
+   `end`, `copyNumberCount.copies`) three BIGINT columns, the integer, the lower and the upper bound (new kinds
+   `range-exact`, `range-min`, `range-max`; on `location` named `loc_start`, `loc_start_min`, ... as in
+   `clinvar-gkm`). Extensions use slots by JSON type (`extension_slots: {<column>: json-type}`): each
+   `{name, value}` fills the one `value_<kind>` slot of its value's JSON type (`value_string`,
+   `value_boolean`, `value_integer`, `value_number`, `value_object`, `value_<kind>_array`), at every depth,
+   whatever its name. Every table is `known_fields`, and the record's own `id`, when present, must equal the
+   key: a property, an extension value type or a record shape the spec doesn't cover stops the build. The
+   generic renderer builds every table (the `clinvar-gkm` SQL files of the same names are not used).
 4. **`refs` rules.** A pointer is any JSON string value whose text starts `#/`; one that doesn't match
    `^#/[^/]+/.` stops the build, naming the table, key and path. `section` is the text between the first two `/`,
    `id` the rest. `path` is the string's position from the record root: keys joined by `.`, each array position
@@ -53,8 +74,9 @@ Users also want tables shaped for their own queries. The maintainer decided on 2
    those of the VARCHAR record, so the build's self-checks pass unchanged.
 6. **The version gate stays.** Every spec lists its bundle `schema_version`s; the tool refuses a bundle whose
    version it doesn't accept, and a bundle section the schema doesn't have, whatever spec is used.
-7. **The default changes.** A build with no `--spec` writes `baseline`. ClinVar-GKM's release build, the oracle
-   and any build meant to match the published set must pass `--spec clinvar-gkm-1.0` explicitly.
+7. **The default changes.** A build with no `--spec` writes `sections` (until 2026-10-29: `baseline`).
+   ClinVar-GKM's release build, the oracle and any build meant to match the published set must pass
+   `--spec clinvar-gkm-1.0` explicitly; a build that wants the records verbatim passes `--spec baseline`.
 8. **Amends ADR 0002 (naming and versioning).** Each spec is versioned on its own (`MAJOR.MINOR`, the bump rules
    of `.claude/rules/table-spec.md`). The compatibility matrix lists, per tool release, each built-in spec with
    its version and marks the default; `version --json` gives the same as `table_specs` (its older
@@ -79,16 +101,23 @@ Users also want tables shaped for their own queries. The maintainer decided on 2
 - **Why the gate stays.** The tool claims only what it has been run on (ADR 0002). A baseline that accepted any
   bundle would silently read a schema it was never tested on; the cost of a tool release per bundle version
   stays deliberate.
-- **Default change.** Anyone who built the published layout without `--spec` gets the baseline after this
-  change. ClinVar-GKM's release script, the oracle and parity builds must name `clinvar-gkm-1.0`. `build --spec`
-  and `verify --spec` are wired (design plan §10); the Python `build.build()` called without a spec writes the
-  baseline too.
+- **Default change.** Anyone who built the published layout without `--spec` gets the `sections` tables after
+  this change. ClinVar-GKM's release script, the oracle and parity builds must name `clinvar-gkm-1.0`.
+  `build --spec` and `verify --spec` are wired (design plan §10); the Python `build.build()` called without a
+  spec writes `sections` too.
+- **Why `sections` as the default (2026-10-29).** Typed columns per property are what most queries want first,
+  and a strict spec (known fields, slots by JSON type, the id check) means a bundle change the spec doesn't
+  cover stops the build instead of silently losing a field. The cost is the one `baseline` avoided: a spec
+  bump when a record's properties change. Extension slots by JSON type, rather than by name, keep that cost
+  to new value types: a new extension name with a known value type needs no spec change.
 - **Custom specs and renderers.** A table is rendered by the baseline renderer when its columns are only `key`,
-  `record` and `refs` (any names, order or subset); else by its `sql/<table>.sql` when the tool ships one; else
-  by the generic renderer (`sqltemplate.render_generic`), which builds the SELECT from the spec's derivation
-  kinds alone: `key`, `record`, `refs`, `scalar-path`, `bare-id`, `pointer-section` (each on a path that may
-  hold `[*]` list steps), `typed-copy` and `extension-slot` (with their `pointers` and `extension_slots`, and
-  the same no-dropped-field checks as the built-in tables), and `known_fields`. So a user's spec can map any
+  `record` and `refs` (any names, order or subset); else by its `sql/<table>.sql` when the tool ships one and
+  the table builds exactly what the `clinvar-gkm` table of that name builds; else by the generic renderer
+  (`sqltemplate.render_generic`), which builds the SELECT from the spec's derivation kinds alone: `key`,
+  `record`, `refs`, `scalar-path`, `bare-id`, `pointer-section` (each on a path that may hold `[*]` list steps),
+  `typed-copy` and `extension-slot` (with their `pointers` and `extension_slots`, by name or `json-type`, and
+  the same no-dropped-field checks as the built-in tables), `range-exact`, `range-min`, `range-max`, and
+  `known_fields`. So a user's spec can map any
   section to typed tables. The path syntax and its rules are in `src/clinvar_gkm_parquet/spec.py`. What the
   generic renderer can't build is a `computed` column or a row filter, which only a shipped SQL file
   implements; a custom table with one (and no shipped file of its name) is refused when the spec loads. For

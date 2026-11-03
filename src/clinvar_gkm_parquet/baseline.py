@@ -81,14 +81,16 @@ def can_render(table: Table) -> bool:
 
 
 def renderer_for(table: Table) -> Callable[[Table], str]:
-    """The renderer build.py should use for `table`: this module's for key/record/refs tables; else the table's
-    shipped `sql/<table>.sql` (sqltemplate.render); else the generic renderer, which builds the SELECT from the
-    spec's derivation kinds alone (sqltemplate.render_generic; spec.check_rules has checked that it can)."""
+    """The renderer build.py should use for `table`: this module's for key/record/refs tables; else the shipped
+    `sql/<table>.sql` (sqltemplate.render) when the table is the clinvar-gkm table of that name
+    (spec.builtin_sql_applies); else the generic renderer, which builds the SELECT from the spec's derivation
+    kinds alone (sqltemplate.render_generic; spec.check_rules has checked that it can)."""
     if can_render(table):
         return render
     from . import sqltemplate
+    from .spec import builtin_sql_applies
 
-    return sqltemplate.render if sqltemplate.has_template(table.name) else sqltemplate.render_generic
+    return sqltemplate.render if builtin_sql_applies(table) else sqltemplate.render_generic
 
 
 def _section_sql(table: Table, section: str) -> str:

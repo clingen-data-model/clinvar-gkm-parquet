@@ -31,8 +31,8 @@ version it writes (ADR 0002). Tags are `vX.Y.Z`.
   the source keys still name the published bundles. `verify --bundle-recompute` checks a selection against its
   mini-bundle (`--full`, whose sha256 must equal `selected_sha256`), and `verify --against` refuses a selection
   or a set not built with `clinvar-gkm`. A build with no driver never runs the selection engine.
-- Python API: `build.build()` called without `spec` now writes the default spec, `baseline`, as the CLI does (it
-  wrote `clinvar-gkm`). Pass the `clinvar-gkm` spec for the published layout.
+- Python API: `build.build()` called without `spec` now writes the default spec, as the CLI does (it wrote
+  `clinvar-gkm`). Pass the `clinvar-gkm` spec for the published layout.
 - Faster table SQL (design plan §6.2): each record is parsed once and each row checked by a node census before
   the parsed values are trusted, with the original expressions as the fallback. The output and every fail-loud
   message are unchanged. Synthetic benchmark (`scripts/bench-tables.py`): all 22 tables 3.8× faster, `variation`
@@ -45,3 +45,15 @@ version it writes (ADR 0002). Tags are `vX.Y.Z`.
   optional keys: a typed copy's `pointers` (pointer positions stripped to bare ids) and a table's
   `known_fields` (every top-level field must be read). `clinvar-gkm` 1.0 (draft) now states both; its output is
   unchanged, and the generic SQL of its 14 generic tables is byte-identical to the shipped files'.
+- **Behaviour change: the default spec is now `sections`** (ADR 0003, amended 2026-10-29): with no `--spec`,
+  `build` (and `build.build()`) writes 20 tables, one per bundle section, keyed by `id`, with every record
+  property its own typed column and no `data` column. `--spec baseline` writes the previous default. The
+  built-in `sections` 1.0 spec is a draft (`spec/sections/1.0/tables.yaml`).
+- Spec format additions: derivation kinds `range-exact`, `range-min` and `range-max` (a VRS integer-or-Range: the
+  integer, else the Range's bounds; any other value stops the build); extension slots by JSON type
+  (`extension_slots: {<column>: json-type}`: each extension fills the `value_<type>` slot of its value's JSON
+  type, at every depth; a type with no slot, a null value or a mixed-type array stops the build); a table may
+  have no `record` column (at most one). A shipped `sql/<table>.sql` now renders only the `clinvar-gkm` table it
+  implements; another spec's table of the same name takes the generic renderer.
+- Every `known_fields` table now also checks that the record's own `id`, when present, equals its bundle key, and
+  stops the build when it doesn't. `clinvar-gkm` output is unchanged (byte-identical on the real excerpt).

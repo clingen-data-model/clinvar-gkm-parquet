@@ -81,3 +81,58 @@ CREATE OR REPLACE MACRO cgp_coordinate_bound(j, i, ctx, k) AS
       END
     ELSE CAST(cgp_scalar(j, ctx, k, '(column)') AS BIGINT)
   END;
+
+-- TRUE, or a failure when the record's own `id` (when present and not null) is not its bundle key. Every
+-- known_fields table checks it: the key column stands for the record's id.
+CREATE OR REPLACE MACRO cgp_record_id(j, ctx, k) AS
+  CASE
+    WHEN j IS NULL OR json_type(j) = 'NULL' THEN TRUE
+    WHEN json_type(j) = 'VARCHAR' AND json_extract_string(j, '$') = k THEN TRUE
+    ELSE cgp_fail(concat(ctx, ': record'), k, concat('the record''s id ', j::VARCHAR, ' is not its bundle key'))
+  END;
+
+-- The JSON kind of a value, as json-type extension slots name it: string, boolean, integer, number, object,
+-- array; null for JSON null or absent.
+CREATE OR REPLACE MACRO cgp_json_kind(j) AS
+  CASE coalesce(json_type(j), 'NULL')
+    WHEN 'VARCHAR' THEN 'string'
+    WHEN 'BOOLEAN' THEN 'boolean'
+    WHEN 'BIGINT' THEN 'integer'
+    WHEN 'UBIGINT' THEN 'integer'
+    WHEN 'DOUBLE' THEN 'number'
+    WHEN 'OBJECT' THEN 'object'
+    WHEN 'ARRAY' THEN 'array'
+    ELSE 'null'
+  END;
+
+-- The slot kind of an extension value (json-type slots, sqltemplate.py): its JSON kind, and for an array
+-- <element kind>_array; 'array' for an empty array, 'mixed_array' for elements of more than one kind.
+CREATE OR REPLACE MACRO cgp_ext_kind(j) AS
+  CASE
+    WHEN cgp_json_kind(j) <> 'array' THEN cgp_json_kind(j)
+    ELSE (list_transform([list_distinct(list_transform(CAST(j AS JSON[]), lambda e: cgp_json_kind(e)))],
+      lambda ks: CASE len(ks) WHEN 0 THEN 'array' WHEN 1 THEN ks[1] || '_array' ELSE 'mixed_array' END))[1]
+  END;
+
+-- An integer-or-Range value (VRS: an integer, or a Range [min, max] whose ends are integers or null), checked;
+-- anything else fails. The JSON value, or NULL when absent or null.
+CREATE OR REPLACE MACRO cgp_range(j, ctx, k) AS
+  CASE
+    WHEN j IS NULL OR json_type(j) = 'NULL' THEN NULL
+    WHEN json_type(j) IN ('BIGINT', 'UBIGINT') THEN j
+    WHEN json_type(j) = 'ARRAY' AND json_array_length(j) = 2
+      AND coalesce(json_type(j, '$[0]'), 'NULL') IN ('NULL', 'BIGINT', 'UBIGINT')
+      AND coalesce(json_type(j, '$[1]'), 'NULL') IN ('NULL', 'BIGINT', 'UBIGINT') THEN j
+    ELSE cgp_fail(ctx, k, concat('expected an integer or a Range [min, max] of integers or nulls, got ', j::VARCHAR))
+  END;
+
+-- range-exact: the integer; NULL when the value is a Range (or absent).
+CREATE OR REPLACE MACRO cgp_range_exact(j, ctx, k) AS
+  (list_transform([cgp_range(j, ctx, k)],
+    lambda r: CASE WHEN json_type(r) = 'ARRAY' THEN NULL ELSE CAST(r AS BIGINT) END))[1];
+
+-- range-min (i = 0) / range-max (i = 1): the integer, else element i of the Range.
+CREATE OR REPLACE MACRO cgp_range_bound(j, i, ctx, k) AS
+  (list_transform([cgp_range(j, ctx, k)],
+    lambda r: CASE WHEN json_type(r) = 'ARRAY' THEN CAST(json_extract(r, concat('$[', i, ']')) AS BIGINT)
+                   ELSE CAST(r AS BIGINT) END))[1];

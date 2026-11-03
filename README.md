@@ -35,8 +35,11 @@ different cadences ([ADR 0002](docs/decisions/0002-independent-tool-versioning.m
 | Tool version | Bundle input (`schema_version`) | Built-in table specs |
 | --- | --- | --- |
 | *(none released yet)* | | |
-| *(unreleased `main`)* | 1.1.0 | `baseline` 1.0 (default; draft), `clinvar-gkm` 1.0 (draft) |
+| *(unreleased `main`)* | 1.1.0 | `sections` 1.0 (default; draft), `baseline` 1.0 (draft), `clinvar-gkm` 1.0 (draft) |
 
+- `sections`: one table per bundle section (20), keyed by `id`, with every record property its own typed column
+  (named as the property; pointers as bare ids; extensions in `value_<type>` slots by the JSON type of their
+  value) and no `data` column. A property, value type or record shape the spec doesn't cover stops the build.
 - `baseline`: one table per bundle section (20), each `id`, `refs` (every `#/<section>/<id>` pointer in the
   record) and `data` (the record, byte for byte).
 - `clinvar-gkm`: the 22 tables of ClinVar-GKM's published Parquet set, with typed columns matching its BigQuery
@@ -52,8 +55,11 @@ custom spec, the sha256 of its file), the source bundles' sha256s and, for a sel
 ## Usage (unreleased)
 
 ```sh
-# The baseline spec (the default): one table per bundle section
+# The sections spec (the default): one table per bundle section, a typed column per record property
 clinvar-gkm-parquet build --full clinvar-gkm_2026-1018.json.gz --out out/
+
+# The baseline spec: one table per bundle section, each id, refs and the record verbatim (data)
+clinvar-gkm-parquet build --spec baseline --full clinvar-gkm_2026-1018.json.gz --out out/
 
 # ClinVar-GKM's published layout (the BigQuery-parity build), from a monthly plus the weeks after it
 clinvar-gkm-parquet build --spec clinvar-gkm-1.0 --full clinvar-gkm_2026-10.json.gz \
@@ -64,10 +70,14 @@ clinvar-gkm-parquet build --spec my-tables.yaml --full clinvar-gkm_2026-1018.jso
 
 # A selection: one submitter and every record that points to it (its SCVs)
 clinvar-gkm-parquet build --full clinvar-gkm_2026-1018.json.gz --out omim/ \
-    --driver submitter --where "data->>'\$.name' = 'OMIM'" --follow in --max-depth 1
+    --driver submitter --where "name = 'OMIM'" --follow in --max-depth 1
 
 # The same selection's mini-bundle only (byte-identical to the one the build used)
 clinvar-gkm-parquet select --full clinvar-gkm_2026-1018.json.gz --out omim.json.gz \
+    --driver submitter --where "name = 'OMIM'" --follow in --max-depth 1
+
+# --where reads the driver table as the chosen spec builds it: with --spec baseline, the record is `data`
+clinvar-gkm-parquet build --spec baseline --full clinvar-gkm_2026-1018.json.gz --out omim/ \
     --driver submitter --where "data->>'\$.name' = 'OMIM'" --follow in --max-depth 1
 
 # Checks: the directory on its own; a full build against its bundle; a selection against its mini-bundle
@@ -83,10 +93,11 @@ boolean expression over that table as the spec builds it), `--ids k1,k2` and `--
 [design plan](docs/plans/2026-10-20-design.md) §4.5 and §10. `verify --spec <file>` is required for a custom
 spec; `verify --against` (the oracle) takes a full `clinvar-gkm` build only.
 
-A spec file uses the format of the built-in ones (`spec/1.0/tables.yaml`; reference in
-`src/clinvar_gkm_parquet/spec.py`). Its tables need no SQL: each column names a derivation kind (`scalar-path`,
-`bare-id`, `pointer-section`, `typed-copy`, `extension-slot`, `refs`, plus the `key` and `record` columns) and
-a path such as `$.name` or `$.contributions[*].contributor`. Example:
+A spec file uses the format of the built-in ones (`spec/sections/1.0/tables.yaml`, `spec/1.0/tables.yaml`;
+reference in `src/clinvar_gkm_parquet/spec.py`). Its tables need no SQL: each column names a derivation kind
+(`scalar-path`, `bare-id`, `pointer-section`, `typed-copy`, `extension-slot`, `range-exact`, `range-min`,
+`range-max`, `refs`, plus the `key` and an optional `record` column) and a path such as `$.name` or
+`$.contributions[*].contributor`; extension slots go by name or, with `json-type`, by the JSON type of the value. Example:
 [`tests/fixtures/custom-spec/tables.yaml`](tests/fixtures/custom-spec/tables.yaml). Only `computed` columns and
 row filters need a SQL file the tool ships.
 

@@ -33,6 +33,19 @@ Format (YAML):
         extension_slots:                  # tables with extension-slot columns (or typed copies holding extensions)
           extensions:                     # column name
             clinvarScvId: value_string    # extension name -> the slot field that holds its value
+          classification: json-type       # or: each extension fills the slot of its value's JSON type (below)
+
+Extension slots: an extension struct is `STRUCT(name VARCHAR, <other fields>, value_<slot> <type>, ...)`; the
+bundle's `{name, value, ...}` fills one slot, all others NULL (`[]` for a list slot). Which slot, per column of
+`extension_slots`, at every depth of the column type:
+
+- a mapping `{<extension name>: value_<slot>}`: the slot the extension's name maps to; a name the mapping doesn't
+  list for that struct stops the build.
+- `json-type`: the slot of the value's JSON type, whatever the name: string -> value_string, boolean ->
+  value_boolean, integer -> value_integer, any other number -> value_number, object -> value_object, array ->
+  value_<k>_array where <k> is the JSON type of its elements (value_string_array, value_object_array, ...). An
+  empty array fills no slot (the struct must have an array slot). A JSON null or absent value, an array whose
+  elements are of more than one JSON type, or a type the struct has no slot for stops the build.
 
 `nulls`: `never` = the value is always present; `when-absent` = NULL when the bundle omits the field;
 `empty-list` = a list column that is `[]`, never NULL, when the bundle omits it (BigQuery's rule, §3.5 item 3).
@@ -46,15 +59,18 @@ Paths (`derivation.path`; checked when the spec loads, `path_problems`). Deliber
 - The column type decides the rest: a list type one level deeper than the path's `[*]`s reads the value at the
   end of the path as a list, so `$.members` and `$.members[*]` mean the same for a `VARCHAR[]` column.
 - Where each kind may use what: `key` and `record` take no path (null); `refs` takes `$` (the whole record);
-  `scalar-path`, `bare-id` and `pointer-section` take any path, `[*]` included; `typed-copy` and
-  `extension-slot` take fields only (`$.a.b`): the column type describes the lists below them; `computed` takes
-  any path, or null (its SQL file says what it reads).
+  `scalar-path`, `bare-id` and `pointer-section` take any path, `[*]` included; `typed-copy`, `extension-slot`
+  and the range kinds take fields only (`$.a.b`): the column type describes the lists below them; `computed`
+  takes any path, or null (its SQL file says what it reads).
 - Reading: the fields before the first `[*]` read like DuckDB's json_extract (a field of an absent, null or
   non-object value is absent). From the first `[*]` on, every step is checked: a `[*]` on a value that is not
   a list, or a field step on a value that is not an object, stops the build (absent and null are absent). An
   absent list is `[]` inside the column value, and follows `nulls` at the column's top level.
 - At the leaf, `scalar-path` needs a scalar (an object or array stops the build) and casts it to the type;
   `bare-id` and `pointer-section` need a `#/<section>/<id>` string (anything else stops the build).
+- `range-exact`, `range-min`, `range-max` (BIGINT) read a VRS integer-or-Range: an integer, or a Range
+  `[min, max]` whose ends are integers or null. range-exact is the integer, NULL for a Range; range-min and
+  range-max are the integer, else element [0] or [1] of the Range. Any other value stops the build.
 
 `pointers` (typed-copy and extension-slot only): the positions inside the column value that hold
 `#/<section>/<id>` pointers, written in the column type's field names, relative to the value: `[*]` each list
@@ -63,10 +79,13 @@ of the type; the copy holds the bare id there, and a non-pointer stops the build
 
 `known_fields: true`: every top-level field of a record must be read by some column at a path `$.<field>`
 (BigQuery's `SELECT t.*` tables, design plan §3.5); a record with another top-level field stops the build. It
-needs every column with a path to read a top-level field (`$.f`, optionally followed by `[*]`).
+needs every column with a path to read a top-level field (`$.f`, optionally followed by `[*]`). The record's own
+`id` field counts as read by the key column: when present (and not null) it must equal the bundle key, or the
+build stops.
 
 Renderers (`baseline.renderer_for`): a table of only key, record and refs columns is rendered by baseline.py; a
-table the tool ships a `sql/<table>.sql` for, by sqltemplate.render; any other table by the generic renderer
+table that builds exactly what the clinvar-gkm table of its name builds, by that table's shipped
+`sql/<table>.sql` (sqltemplate.render; `builtin_sql_applies`); any other table by the generic renderer
 (sqltemplate.render_generic), which builds the SELECT from the derivation kinds alone. The generic renderer
 can't build a `computed` column or a row filter: those need a shipped SQL file, so a custom table with one
 fails when the spec loads.
@@ -76,12 +95,14 @@ Two layers of checks:
 - `parse_spec` checks the format (keys, allowed values, columns that exist). It works on any mapping, so tests
   can build small specs over made-up sections.
 - `check_rules` checks what a spec must hold to be built (`load_spec_file` runs it on every spec file, built-in
-  or custom): a name; only accepted bundle schema_versions and their sections; one key and one record column
-  per table (build.py's self-checks compare them with the bundle's key and record); a sort key that is the key
-  column, or a documented unique one; writer settings build.py can use; a renderer for every table.
+  or custom): a name; only accepted bundle schema_versions and their sections; one key column and at most one
+  record column per table (build.py's self-checks compare them with the bundle's key and record; a table with
+  no record column is checked on its keys); a sort key that is the key column, or a documented unique one;
+  writer settings build.py can use; a renderer for every table.
 
-Built-in specs are named `baseline` (the default) and `clinvar-gkm`, each with the one version compat.py lists;
-`resolve_spec` takes a built-in name (`clinvar-gkm`, `clinvar-gkm-1.0`, `clinvar-gkm@1.0`) or a path.
+Built-in specs are named `sections` (the default), `baseline` and `clinvar-gkm`, each with the one version
+compat.py lists; `resolve_spec` takes a built-in name (`clinvar-gkm`, `clinvar-gkm-1.0`, `clinvar-gkm@1.0`) or a
+path.
 """
 
 from __future__ import annotations
@@ -111,7 +132,12 @@ DERIVATION_KINDS = (
     "extension-slot",  # {name, value} -> {name, value_<slot>: value} via extension_slots
     "computed",  # a documented function of record fields (transform says which)
     "refs",  # every #/<section>/<id> pointer string in the record, with its path, in document order (baseline.py)
+    "range-exact",  # a VRS integer-or-Range: the integer; NULL for a Range [min, max]
+    "range-min",  # the integer, else the Range's [0]
+    "range-max",  # the integer, else the Range's [1]
 )
+RANGE_KINDS = ("range-exact", "range-min", "range-max")
+JSON_TYPE_SLOTS = "json-type"  # extension_slots.<column>: each extension fills the slot of its value's JSON type
 _TABLE_KEYS = {
     "name",
     "sections",
@@ -132,6 +158,7 @@ LIST_PATH_RE = re.compile(r"\$(?:\.\w+(?:\[\*\])*)+")
 FIELD_PATH_RE = re.compile(r"\$(?:\.\w+)+")
 POINTER_POS_RE = re.compile(r"(?:\[\*\]|\.\w+)+")
 _POINTER_KINDS = ("typed-copy", "extension-slot")
+_FIELD_PATH_KINDS = (*_POINTER_KINDS, *RANGE_KINDS)
 _TOP_KEYS = {"name", "spec_version", "status", "bundle_schema_versions", "sources", "writer", "tables"}
 NAME_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*")
 VERSION_RE = re.compile(r"\d+\.\d+")
@@ -140,6 +167,7 @@ VERSION_RE = re.compile(r"\d+\.\d+")
 # clinvar-gkm is still at spec/<version>/; when it moves to spec/clinvar-gkm/<version>/, change its entry to
 # "clinvar-gkm/{version}".
 BUILTIN_DIRS: dict[str, str] = {
+    "sections": "sections/{version}",
     "baseline": "baseline/{version}",
     "clinvar-gkm": "{version}",
 }
@@ -171,7 +199,8 @@ class Table:
     sort_key: str
     description: str
     columns: tuple[Column, ...]
-    extension_slots: dict[str, dict[str, str]] = field(default_factory=dict)
+    # column -> {extension name: slot}, or JSON_TYPE_SLOTS (docstring)
+    extension_slots: dict[str, dict[str, str] | str] = field(default_factory=dict)
     sort_key_unique: str | None = None
     known_fields: bool = False  # every top-level record field must be read by a column (docstring)
 
@@ -292,7 +321,7 @@ _BUILTIN_ARG = re.compile(r"(?P<name>[a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)*)(?:[-@](
 
 
 def resolve_spec(arg: str | None) -> tuple[Spec, SpecSource]:
-    """The spec a `--spec` value names. None: the default (baseline). A built-in name, alone or with its version
+    """The spec a `--spec` value names. None: the default (sections). A built-in name, alone or with its version
     (`clinvar-gkm`, `clinvar-gkm-1.0`, `clinvar-gkm@1.0`); anything else is the path of a tables.yaml. A file
     that happens to share a built-in's name is reached with a path (`./baseline`)."""
     if arg is None:
@@ -377,7 +406,7 @@ def path_problems(d: Derivation) -> list[str]:
     elif kind == "refs":
         if path != "$":
             out.append(f"a refs column takes path $ (the whole record), not {path!r}")
-    elif kind in _POINTER_KINDS:
+    elif kind in _FIELD_PATH_KINDS:
         if not (isinstance(path, str) and FIELD_PATH_RE.fullmatch(path)):
             out.append(f"a {kind} path is fields only ($.a.b), not {path!r}")
     elif path is not None or kind != "computed":
@@ -472,8 +501,8 @@ def parse_spec(raw: object, where: str = "tables.yaml", *, require_name: bool = 
         for col, mapping in slots.items():
             if col not in col_names:
                 raise SpecError(f"{tw}: extension_slots names unknown column {col!r}")
-            if not isinstance(mapping, dict) or not mapping:
-                raise SpecError(f"{tw}: extension_slots.{col} must be a non-empty mapping")
+            if mapping != JSON_TYPE_SLOTS and (not isinstance(mapping, dict) or not mapping):
+                raise SpecError(f"{tw}: extension_slots.{col} must be a non-empty mapping or {JSON_TYPE_SLOTS}")
         for c in columns:
             if c.derivation.kind == "extension-slot" and c.name not in slots:
                 raise SpecError(f"{tw}: column {c.name} is extension-slot but has no extension_slots entry")
@@ -488,7 +517,7 @@ def parse_spec(raw: object, where: str = "tables.yaml", *, require_name: bool = 
                 sort_key=t["sort_key"],
                 description=str(t["description"]),
                 columns=tuple(columns),
-                extension_slots={k: dict(v) for k, v in slots.items()},
+                extension_slots={k: v if v == JSON_TYPE_SLOTS else dict(v) for k, v in slots.items()},
                 sort_key_unique=unique_note,
                 known_fields=known_fields,
             )
@@ -516,17 +545,26 @@ def _table_shape(t: Table) -> tuple:
     cols = tuple(
         (c.name, c.type, c.nulls, c.derivation.kind, c.derivation.path, c.derivation.pointers) for c in t.columns
     )
-    slots = tuple(sorted((k, tuple(sorted(v.items()))) for k, v in t.extension_slots.items()))
+    slots = tuple(
+        sorted((k, v if v == JSON_TYPE_SLOTS else tuple(sorted(v.items()))) for k, v in t.extension_slots.items())
+    )
     return (t.sections, t.row_filter, t.sort_key, t.known_fields, cols, slots)
 
 
 def _same_as_builtin_table(t: Table) -> bool:
     """True if `t` builds exactly what the built-in clinvar-gkm table of the same name builds."""
     try:
-        builtin = load_builtin("clinvar-gkm").table(t.name)
+        builtin = load_builtin(PUBLISHED_SPEC).table(t.name)
     except SpecError:
         return False
     return _table_shape(t) == _table_shape(builtin)
+
+
+def builtin_sql_applies(t: Table) -> bool:
+    """The tool's sql/<name>.sql renders `t`: it ships one, and `t` builds exactly what the clinvar-gkm table of
+    that name builds (the file implements that table; a table of another spec with the same name, such as a
+    sections table, takes the generic renderer)."""
+    return _has_sql_template(t.name) and _same_as_builtin_table(t)
 
 
 def check_rules(spec: Spec, where: str = "tables.yaml", *, builtin: bool = False) -> None:
@@ -567,8 +605,8 @@ def check_rules(spec: Spec, where: str = "tables.yaml", *, builtin: bool = False
         keys, records = t.columns_of("key"), t.columns_of("record")
         if len(keys) != 1:
             errs.append(f"{tw}: needs exactly one key column (derivation kind key), has {len(keys)}")
-        if len(records) != 1:
-            errs.append(f"{tw}: needs exactly one record column (derivation kind record), has {len(records)}")
+        if len(records) > 1:
+            errs.append(f"{tw}: has {len(records)} record columns (derivation kind record); at most one")
         if keys and keys[0].nulls != "never":
             errs.append(f"{tw}: key column {keys[0].name} must have nulls: never")
         if not (keys and t.sort_key == keys[0].name):
@@ -581,15 +619,20 @@ def check_rules(spec: Spec, where: str = "tables.yaml", *, builtin: bool = False
                 errs.append(f"{tw}: sort_key {t.sort_key} must have nulls: never")
         if t.row_filter is not None and not (isinstance(t.row_filter, str) and t.row_filter.strip()):
             errs.append(f"{tw}: row_filter must be null or a description")
-        if baseline_problems(t) and _has_sql_template(t.name) and not builtin and not _same_as_builtin_table(t):
-            # The shipped sql/<name>.sql implements the built-in clinvar-gkm table of that name. A custom table
-            # may reuse it only as defined there; with other columns it would silently get that SQL.
+        # The shipped sql/<name>.sql implements the built-in clinvar-gkm table of that name. While clinvar-gkm
+        # itself loads, its tables are those (comparing with it would load it again).
+        template = _has_sql_template(t.name) and (
+            (builtin and spec.name == PUBLISHED_SPEC) or _same_as_builtin_table(t)
+        )
+        if baseline_problems(t) and _has_sql_template(t.name) and not builtin and not template:
+            # A custom table may reuse a clinvar-gkm name only as defined there (a differing custom table of that
+            # name is refused rather than silently given the generic renderer).
             errs.append(
                 f"{tw}: the name {t.name!r} is a built-in clinvar-gkm table with its own SQL, and this table "
                 "differs from it; reuse it exactly as clinvar-gkm defines it, or give the custom table another "
                 "name"
             )
-        elif baseline_problems(t) and not _has_sql_template(t.name):
+        elif baseline_problems(t) and not template:
             generic = generic_problems(t)
             if generic:
                 errs.append(

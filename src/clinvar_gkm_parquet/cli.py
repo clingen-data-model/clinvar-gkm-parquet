@@ -10,8 +10,9 @@ from pathlib import Path
 from .errors import ToolError
 
 SPEC_HELP = (
-    "table spec: a built-in name (baseline, the default; clinvar-gkm, clinvar-gkm-1.0 or clinvar-gkm@1.0 for "
-    "the 22 tables of ClinVar-GKM's published set) or the path of a tables.yaml"
+    "table spec: a built-in name (sections, the default: one table per bundle section, a typed column per "
+    "record property; baseline: per section id, refs and the record as data; clinvar-gkm, clinvar-gkm-1.0 or "
+    "clinvar-gkm@1.0 for the 22 tables of ClinVar-GKM's published set) or the path of a tables.yaml"
 )
 
 
@@ -34,7 +35,7 @@ def _selection(p: argparse.ArgumentParser, *, required: bool) -> None:
     g.add_argument(
         "--where",
         help="a DuckDB boolean expression over the driver table as the spec builds it (no ';'), "
-        "e.g. \"data->>'$.name' = 'x'\" with the baseline spec",
+        "e.g. \"name = 'x'\" with the sections spec, \"data->>'$.name' = 'x'\" with baseline",
     )
     g.add_argument("--ids", help="comma-separated driver keys (added to the --where keys)")
     g.add_argument("--ids-file", help="a file of driver keys, one per line (added to the --where keys)")
