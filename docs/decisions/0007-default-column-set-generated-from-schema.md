@@ -71,6 +71,16 @@ through:
   and nested, and so does an IRI where the profile now requires the object.
 - The compiler follows the restated property, so the position becomes a typed STRUCT. It ignores `false`, so a removed
   property is still a column today.
+- A profile can also restate a string-or-object position as a pointer to named sections: `$ref` to `iriReference` with
+  `pattern: "^#/location/"`, or `"^#/(allele|copyNumberCount)/"` for several, on a property or on a list's items. The
+  metaschema passes it through, and the validator rejects a pointer to another section and an inline object. The
+  compiler doesn't read `pattern` today.
+
+The bundle writes every pointer as `#/<section>/<key>` (in the 1.1.0 excerpt, 34 section-and-target pairs, from
+`#/location/` in `allele` to `#/propositionSomaticClinicalImpact/` in `evidenceLine`), and every key is already a bare id
+(`clinvar.submission:SCV002077637.1`, `ga4gh:VA.SvLXsMO1…`). The hand-written 1.1.0 set types 27 positions as pointers,
+so today's tables join by bare id, with a `<prop>_section` column where a pointer has several targets (ADR 0005,
+decision 3).
 
 ## Decision
 
@@ -101,9 +111,13 @@ through:
      is a DuckDB `JSON` value, a list of them where the schema says array.
    - **String or object is split** (maintainer, 2026-11-05). A position that may be a string (an `iriReference`, so a
      pointer or an IRI) or an object is `<prop>`, VARCHAR, holding the string as written, and `<prop>_json`, holding an
-     inline object as JSON text. In a list, each element is a STRUCT of the two. A pointer stays as written (`#/allele/…`):
-     the schema doesn't name its target, so there is no bare id and no `<prop>_section` column. A producer who always
-     writes one form narrows the position to it, and then it is one typed column.
+     inline object as JSON text. In a list, each element is a STRUCT of the two. A producer who always writes one form
+     narrows the position to it, and then it is one typed column.
+   - **Pointers name their sections by pattern** (maintainer, 2026-11-06). A string position whose schema has a
+     `pattern` of the form `^#/<section>/` or `^#/(<section>|<section>…)/`, each a collection of the bundle, is a pointer
+     into those sections: the column holds the bare id (the text after `#/<section>/`), plus `<prop>_section` holding the
+     section when there are several, as for a column set's `->a|b`. Any other pattern, or a section that isn't a
+     collection, stops the compile. With no such pattern, a string stays as written.
 2. **The tool generates the default.** A new command writes the default column set of a bundle schema (a file, a URL or a
    schema-set directory). The same schema set and policy version always give the same bytes. A build given a schema and
    no column set uses the generated default. A producer publishes its bundle schema and default-bundle description; it
@@ -122,9 +136,16 @@ through:
 
 6. **ClinVar-GKM publishes the default, from narrowed profiles** (maintainer, 2026-11-05). It narrows its own
    `schema/clinvar-gkm/*-source.yaml` profiles to what its pipeline writes, rather than publishing a variant column set:
-   unused properties `false`, string-or-object positions narrowed to the form it writes, open extension values closed,
-   and integer-or-Range positions narrowed to `integer` where they are never a Range. That is ClinVar-GKM's work, in its
-   repo, as a new schema version; this tool needs only the `false` rule above.
+   unused properties `false`, string-or-object positions narrowed to the form it writes (pointers with their section
+   pattern), open extension values closed, and integer-or-Range positions narrowed to `integer` where they are never a
+   Range. That is ClinVar-GKM's work, in its repo, as a new schema version; this tool needs the `false` and pointer
+   rules above.
+
+   On the 1.1.0 schema the default has 67 string-or-object positions. The hand-written set, which covered every record
+   of the 10-31 full, shows what narrowing makes of them: 27 are always a pointer (one bare-id column each, with
+   `<prop>_section` where several sections are named), 21 are always an inline object (a typed STRUCT), and 19 are never
+   written (`false`, no column). So ClinVar-GKM's narrowed default has no `<prop>_json` column; a later record in the
+   other form fails strict validation before any Parquet is built.
 
 The other ways to store string-or-object, measured on 1.1.0, were JSON text (smallest, but every pointer becomes a
 quoted string inside JSON) and typing the object branch (about 7,700 leaves, an estimate, with every cycle in the GKM
@@ -150,12 +171,12 @@ classes cut).
 - With narrowed profiles, ClinVar-GKM's strict validation of every delta (its `release-gkm-delta.sh`) also stops a
   release whose pipeline writes something the profiles don't allow. The pipeline and the profiles have to change
   together.
-- A narrowed profile can't state a pointer's target section, so pointers in the default stay as written. A rule that reads
-  a target from a pointer pattern (`^#/allele/`) could give bare ids and `<prop>_section` columns back; that is not part
-  of this decision.
-- Compiler changes: `false` properties; JSON text inside a value (today only a record property can be `json`); the
-  string-or-object split; the extension element's extra fields and the `value_json` slot; Range fields at any depth; the
-  `id_present` column; the key-sorted row check for line-layout input with no `key_order`. The extension change also adds
+- A producer that doesn't state pointer patterns gets its pointers as written (`#/allele/…`), so a join strips the
+  prefix. ClinVar-GKM states them, so its tables keep bare ids and `<prop>_section` columns.
+- Compiler changes: `false` properties; pointer sections from `pattern`; JSON text inside a value (today only a record
+  property can be `json`); the string-or-object split; the extension element's extra fields and the `value_json` slot;
+  Range fields at any depth; the `id_present` column; the key-sorted row check for line-layout input with no
+  `key_order`. The extension change also adds
   NULL fields to the extension STRUCTs of existing column sets, so it is a new rules version for every pairing, not only
   the default.
 - ADR 0006's other limits are unchanged: deltas, selective builds, `sources.py`'s release logic and `verify --against`
