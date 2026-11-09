@@ -104,7 +104,27 @@ What already exists (evidence, with dates):
    needs no `pattern` in the schema, and it relies only on conventions every VA-Spec/GKM bundle shares. A producer may
    still narrow its profiles to get fewer columns and typed values. That is a choice about table shape, not a condition
    for the round trip.
-5. **It is the published set.** ClinVar-GKM's release builds the default set from the release's weekly full with a pinned
+5. **The schema declares the foreign keys, by pattern** (ADR 0007's pointer rule, maintainer 2026-11-06). A string
+   position whose schema has a `pattern` of the form `^#/<section>/` or `^#/(<section>|<section>…)/`, each a section
+   of the bundle, is a foreign key into those sections, whose key column is the primary key. The generator reads it
+   from the schema alone, at any depth, through `$ref`, `allOf`, `oneOf`, `anyOf` and array `items`. The column holds the
+   bare id, with `<prop>_section` only when there are several targets. A pattern naming something that isn't a section
+   stops the generator. Every table records its foreign keys (the column or nested field path, and the target sections)
+   in the compiled spec (`table-spec.json`) and in its files' key-value metadata, so a user or a tool can join on them
+   without reading the schema. A position that may hold an IRI but has no such pattern still gets the generic rule in
+   1.4 and still round-trips, but it is not a declared foreign key: its targets are known only row by row. `generate`
+   lists every such position, so a producer sees which pointers it hasn't declared.
+
+   The class a position allows can't stand in for the pattern. GA4GH's published JSON schemas copy inherited properties
+   into each class instead of referencing the parent, so a section's class doesn't show what it descends from. In the
+   1.1.0 schema, `allele` reaches no `Variation` class, and a pointer to `Proposition` or `InformationEntity` reaches no
+   section. Several sections may also hold the same class: `gene`, `condition` and `therapy` all hold `MappableConcept`.
+   A quick class-matching prototype (2026-11-09) agreed with the 1.1.0 hand-written set on 7 of the 24 top-level
+   pointer positions it checked. ClinVar-GKM's
+   narrowing branches already add these patterns (40 so far, on `narrow/variant`, `narrow/proposition` and
+   `narrow/statement`, 2026-11-09). So narrowing stays optional for the round trip, but a producer that wants declared
+   foreign keys adds a pattern at each pointer position, whether or not it narrows anything else.
+6. **It is the published set.** ClinVar-GKM's release builds the default set from the release's weekly full with a pinned
    tool release, runs `verify --bundle-recompute` and `verify --roundtrip --full <bundle>`, and publishes only if both
    pass. It publishes the manifest the tool writes (ADR 0001 decision 4). The round trip, not a comparison with
    another system, is what shows the set is complete and correct.
@@ -168,7 +188,7 @@ What already exists (evidence, with dates):
 | 0004 | Amended | Selection becomes generic, gains `--follow none` and a reverse direction, and its "BigQuery-parity build" note no longer applies (4). |
 | 0005 | Amended | The promise moves from `sections` to the default set and weakens from byte-identical text to record-identical (1.2), checked by a records sha256 instead of the text sha256 (1.3). A spec's `json` block and `key_order` go. A filtered build is reversible to its mini-bundle (4.3). The row-by-row check stays. |
 | 0006 | Amended | The default needs no column set (ADR 0007). Selection now accepts a pairing (4.1); deltas still don't. A custom column set may be a projection (3). |
-| 0007 (proposed) | Revise before acceptance | Decision 5 (JSON-equal default, `key_order` as an add-on) is replaced by 1.2 and 1.3: JSON-equal with arrays as multisets, and no `key_order`. The default has no `ordinal` (1.1). Decision 6 (ClinVar-GKM narrows its profiles) becomes optional (1.4), and the pointer rule no longer needs a `pattern` (1.4). The rest stands. |
+| 0007 (proposed) | Revise before acceptance | Decision 5 (JSON-equal default, `key_order` as an add-on) is replaced by 1.2 and 1.3: JSON-equal with arrays as multisets, and no `key_order`. The default has no `ordinal` (1.1). Decision 6 (ClinVar-GKM narrows its profiles) becomes optional (1.4), and its pattern pointer rule stands as the way to declare foreign keys (1.5), with the generic `#/` rule (1.4) where a position has no pattern. The rest stands. |
 
 None is removed: superseded and amended ADRs stay, with a note at the top (README, Conventions).
 
@@ -179,7 +199,8 @@ None is removed: superseded and amended ADRs stay, with a note at the top (READM
   updates its docs (`docs/parquet/tables.md` and the planned Ecosystem → Add-ons page) when the default ships.
 - **The default doesn't wait on ClinVar-GKM's schema work.** It can be generated from the published 1.1.0 schema as it
   is. Narrowed profiles (the pilot on `feat/narrow-profiles-pilot`) would make the tables narrower and more typed, and
-  would mean another table change for users if they land after the default ships. ClinVar-GKM keeps its BigQuery export
+  would mean another table change for users if they land after the default ships. Declared foreign keys (1.5) arrive
+  with the narrowing branches' pointer patterns; until then the default's pointers are bare ids with a per-row section. ClinVar-GKM keeps its BigQuery export
   until the default ships.
 - **The rules are GKM-wide, not ClinVar-GKM's.** `#/` pointers, gkm-core `Extension`, VRS integer-or-Range,
   string-or-object positions and the record-identical check are conventions of every VA-Spec/GKM bundle, and none
@@ -195,7 +216,7 @@ None is removed: superseded and amended ADRs stay, with a note at the top (READM
   release that deprecates them.
 - **Work this needs, in order:** the replay fixes found on 2026-11-06 (`--full` builds read the line index by default; a
   memory limit that fits a 32 GB machine); ADR 0007's generator and compiler rules, with the records sha256 and the
-  canonical row check (1.3) and the generic pointer rule (1.4); selection on any pairing and in `rebuild`; projections; the deprecation release; the MAJOR; then the toolkit move,
+  canonical row check (1.3), the generic pointer rule (1.4) and declared foreign keys (1.5); selection on any pairing and in `rebuild`; projections; the deprecation release; the MAJOR; then the toolkit move,
   when asked.
 - **On acceptance**, `CLAUDE.md` (the oracle gate, the explicit version lists), `README.md` (status, matrix, specs) and
   the design plan (§3, §8.2, §12, D9, D13, D14) are revised to match.
