@@ -5,9 +5,10 @@
 - **Plan (if any):** [`docs/plans/2026-10-20-design.md`](../plans/2026-10-20-design.md) §3.4, §7.2, §7.3, §10;
   builds on [ADR 0001](0001-parquet-derived-from-bundles.md) and [ADR 0003](0003-pluggable-table-specs.md)
 
-**Amended by [ADR 0008](./0008-end-state-reversible-default-custom-projections-filters.md) (proposed, 2026-11-08):** the byte-identical promise belongs to the schema-generated
-default set, with key order learned from the bundle and stored once per table instead of stated in the spec, and a
-filtered build is reversible to its mini-bundle.
+**Amended by [ADR 0008](./0008-end-state-reversible-default-custom-projections-filters.md) (proposed, 2026-11-08):** the promise belongs to the schema-generated default set and
+weakens from byte-identical text to record-identical (every record by key, JSON-equal, key and array order ignored),
+checked by a records sha256; a spec's `json` block and `key_order` go, and a filtered build is reversible to its
+mini-bundle.
 
 ## Context
 
