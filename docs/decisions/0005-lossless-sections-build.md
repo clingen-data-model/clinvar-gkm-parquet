@@ -5,6 +5,10 @@
 - **Plan (if any):** [`docs/plans/2026-10-20-design.md`](../plans/2026-10-20-design.md) §3.4, §7.2, §7.3, §10;
   builds on [ADR 0001](0001-parquet-derived-from-bundles.md) and [ADR 0003](0003-pluggable-table-specs.md)
 
+**Amended by [ADR 0008](./0008-end-state-reversible-default-custom-projections-filters.md) (proposed, 2026-11-08):** the byte-identical promise belongs to the schema-generated
+default set, with key order stated by the schema (sorted unless it says otherwise), and a filtered build is reversible to
+its mini-bundle.
+
 ## Context
 
 The default `sections` spec (ADR 0003, amended 2026-10-29) writes one table per bundle section, every record

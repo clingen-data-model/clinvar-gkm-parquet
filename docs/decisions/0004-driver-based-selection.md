@@ -4,6 +4,10 @@
 - **Date:** 2026-10-26
 - **Plan:** [`docs/plans/2026-10-20-design.md`](../plans/2026-10-20-design.md) §4.5
 
+**Amended by [ADR 0008](./0008-end-state-reversible-default-custom-projections-filters.md) (proposed, 2026-11-08):** selection works with any pairing and column set, gains
+`--follow none` (a plain row filter) and a reverse direction in `rebuild`, and a filtered build rebuilds to its mini-bundle.
+Decision 5's BigQuery-parity note no longer applies.
+
 ## Context
 
 A full build reads the whole bundle (about 91.5 M records in the 2026-10-18 weekly full) and writes every table.

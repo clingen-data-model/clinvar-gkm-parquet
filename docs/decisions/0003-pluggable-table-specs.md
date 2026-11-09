@@ -5,6 +5,10 @@
 - **Plan (if any):** [`docs/plans/2026-10-20-design.md`](../plans/2026-10-20-design.md) §3, §7.2, §9; amends
   [ADR 0002](0002-independent-tool-versioning.md)
 
+**Superseded by [ADR 0008](./0008-end-state-reversible-default-custom-projections-filters.md) (proposed, 2026-11-08):** the built-in `clinvar-gkm` and `baseline` specs and the
+custom `tables.yaml` input are retired; custom output is a column set. The one-table-per-section shape lives on in ADRs
+0005–0007. The status changes when ADR 0008 is accepted.
+
 ## Context
 
 Until now the tool wrote one table spec: the 22 tables of ClinVar-GKM's published latest set (`spec/1.0/`),

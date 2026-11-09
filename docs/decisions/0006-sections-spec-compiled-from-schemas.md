@@ -7,6 +7,9 @@
   [ADR 0001](0001-parquet-derived-from-bundles.md), [ADR 0003](0003-pluggable-table-specs.md) and
   [ADR 0005](0005-lossless-sections-build.md)
 
+**Amended by [ADR 0008](./0008-end-state-reversible-default-custom-projections-filters.md) (proposed, 2026-11-08):** the default needs no column set (proposed ADR 0007);
+selection accepts a pairing, while deltas still don't; a custom column set may declare itself a projection.
+
 ## Context
 
 The default `sections` spec (ADR 0003) was a checked-in file, `spec/sections/1.0/tables.yaml`, written by hand from
