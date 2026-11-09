@@ -63,6 +63,18 @@ What already exists (evidence, with dates):
 1. **One default set per bundle schema.** It is generated from the bundle schema alone, by ADR 0007's policy: one table
    per section, every allowed property a column, nested objects kept as STRUCTs. Record order isn't content, so the
    default has no `ordinal` column. A producer publishes its bundle schema; it publishes no column set for the default.
+
+   A section whose records may be any of several classes (a `oneOf` or `anyOf`), and a nested position that may, is
+   still one table or one STRUCT: each property name is one column or field, however far up each class's `allOf` chain
+   it is declared, and its type is what the classes allow there taken together. Nothing is repeated per class, and the
+   record's own `type` says which class it is. In ClinVar-GKM 1.1.0, `variation` is one of four classes
+   (`ClinvarCanonicalAllele`, `ClinvarCategoricalCnvChange`, `ClinvarCategoricalCnvCount`,
+   `ClinvarNonConstrainedVariant`), all of which take their nine properties from `CategoricalVariant`, one to two levels
+   up, and each narrows `constraints`. The generated default has the nine columns once each, and `constraints` is one
+   list of one STRUCT whose 14 fields cover every constraint class the four allow (the ADR 0007 prototype, 2026-11-05).
+   Same-named properties are shared because they share a name, whether or not they come from a common parent class.
+   Where the classes disagree on a type, the position follows the rules for a position that may hold either form
+   (ADR 0007's string-or-object split, or JSON text).
 2. **The default round trip is record-identical** (decision 1, which replaces ADR 0007 decision 5). `rebuild` turns a
    full default build back into a bundle with the same root properties and, in every section, exactly the same records
    by key: none missing, none extra, none duplicated. Each rebuilt record equals its source as a JSON value:
