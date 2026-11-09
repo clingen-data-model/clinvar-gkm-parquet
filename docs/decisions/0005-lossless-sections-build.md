@@ -6,8 +6,8 @@
   builds on [ADR 0001](0001-parquet-derived-from-bundles.md) and [ADR 0003](0003-pluggable-table-specs.md)
 
 **Amended by [ADR 0008](./0008-end-state-reversible-default-custom-projections-filters.md) (proposed, 2026-11-08):** the byte-identical promise belongs to the schema-generated
-default set, with key order stated by the schema (sorted unless it says otherwise), and a filtered build is reversible to
-its mini-bundle.
+default set, with key order learned from the bundle and stored once per table instead of stated in the spec, and a
+filtered build is reversible to its mini-bundle.
 
 ## Context
 

@@ -42,6 +42,14 @@ What already exists (evidence, with dates):
 - **Full-release builds.** Tool 1.0.1 built the 10-18 and 10-24 weekly fulls (about 17.5 minutes and about 29 GB peak
   each, `e2-standard-8`), and a replay of the October monthly plus three deltas. Every typed column of all 22 tables
   matched BigQuery's (2026-11-06; reports in `gs://clinvar-gkm/oracle/reports-1.0.1/`).
+- **Key order is the only thing the schema can't give.** The ADR 0007 prototype (2026-11-05) generated the default from the
+  unnarrowed 1.1.0 schema and from CIViC's, and every fixture rebuilt JSON-equal. Only the bytes needed something more:
+  the order of each object's keys. A measurement on the whole 10-31 full (2026-11-09; 91,854,927 records; results in
+  `gs://clinvar-gkm/oracle/keyorder-2026-10-31/`) found that 54,644,043 records in 7 sections aren't written key-sorted.
+  Even so, **one key order per path explains every object**: for all 104 paths of the 20 sections, the orders the
+  records use are consistent with one total order (each record leaves out the keys it lacks). Stored once per table,
+  those orders take 7.2 KB in all (`scv` 1,752 bytes, the most). Storing each record's order as a column instead would
+  take 6.7 MB, 0.13% of the 5.06 GB `sections` set built from the same file.
 - **Replay limits.** The replay of 10-18 differs from the 10-18 weekly in 1,519 `condition.aliases` lists: same values,
   another order. The published monthly and weekly order them differently, and no delta carries the record (checked on
   `clinvar.trait:1`). So monthly plus deltas doesn't reproduce a weekly byte for byte.
@@ -57,15 +65,24 @@ What already exists (evidence, with dates):
    default build back into the bundle's exact uncompressed text, checked against the text sha256 the build recorded.
    Rebuilding needs the Parquet set and the tool version that wrote it. It needs no column set, because the set carries
    its compiled spec (ADR 0006 decision 7). On request it also checks that spec against the bundle schema.
-3. **Key order comes from the schema, not from a hand-written file.** The schema has to be enough to rebuild the bytes,
-   so the default policy states each object's key order: **keys sorted by their UTF-8 bytes**, unless the schema states
-   another order. A producer that wants byte-identical round trips from its schema alone writes its records that way.
-   For ClinVar-GKM that means writing keys sorted (today 7 of its 20 sections use its STRUCT order) at the narrowed
-   schema version, which changes every record's bytes anyway. A bundle whose key order the schema doesn't state still
-   builds; the build checks key-sorted JSON, the round trip is JSON-equal, and the manifest says so. *Open for review:*
-   whether ClinVar-GKM sorts its keys, or the schema states its order with an annotation the GKM schema tooling carries
-   through. The first needs no new tooling, so it is recommended.
-4. **It is the published set.** ClinVar-GKM's release builds the default set from the release's weekly full with a pinned
+3. **The build learns key order from the bundle, and the set stores it.** The schema can't say in what order a producer
+   writes keys, and no one should have to write it down by hand. So while building, the tool records each path's key
+   order from the records and stores it once per table, in the table's key-value metadata and its compiled spec. Each
+   path gets one total order, consistent with every record, and a record leaves out the keys it lacks. `rebuild` writes
+   keys in that order. Where no single order fits a path, that path's order is stored per row, in a column. The build's
+   row-by-row check (ADR 0005 decision 5) still compares every rebuilt record with its bundle line, so an order the set
+   can't reproduce stops the build. On the 10-31 full this costs 7.2 KB for all 20 tables, and no path needs the per-row
+   column. A producer changes nothing: no sorted keys, no schema annotation and no hand-written `key_order`. The order
+   comes from the bundle, so ADR 0001 holds.
+4. **Narrowing is optional.** Reversibility needs nothing from the producer's profiles. A property the producer never
+   writes is an all-NULL column and rebuilds as absent. A string-or-object position keeps the string as written plus
+   `<prop>_json` (ADR 0007). An open value stays JSON text. Every GKM bundle writes local pointers as
+   `#/<section>/<key>`, so at every string position that may hold an IRI the default stores the bare id and a
+   `<prop>_section` column. A non-NULL section rebuilds `#/<section>/<id>`, and any other string stays as written. This
+   needs no `pattern` in the schema, and it relies only on conventions every VA-Spec/GKM bundle shares. A producer may
+   still narrow its profiles to get fewer columns and typed values. That is a choice about table shape, not a condition
+   for the round trip.
+5. **It is the published set.** ClinVar-GKM's release builds the default set from the release's weekly full with a pinned
    tool release, runs `verify --bundle-recompute` and `verify --roundtrip --full <bundle>`, and publishes only if both
    pass. It publishes the manifest the tool writes (ADR 0001 decision 4). The round trip, not a comparison with
    another system, is what shows the set is complete and correct.
@@ -90,7 +107,7 @@ What already exists (evidence, with dates):
    projection, the column set's sha256 and the source bundle's sha256. It can't be mistaken for the default set.
 3. **It can't recreate the original bundle.** `rebuild` refuses to write the source bundle from a projection. It writes
    the **projected bundle** instead: the same line layout, section order and record order, each record holding only the
-   projected properties, under their bundle names (renames reversed), in the default key order.
+   projected properties, under their bundle names (renames reversed), in the key order the build learned from the source.
 4. **The projected bundle and the projection round-trip exactly.** The build records the projected text's sha256, and
    `rebuild` checks against it. Building the projected bundle with the same column set gives the same tables. This holds
    for every mapping a column set can state today (keep, rename, nest, pointer to bare id with its section, Range
@@ -127,9 +144,9 @@ What already exists (evidence, with dates):
 | 0002 | Amended | The explicit `schema_version` list for `baseline`, `clinvar-gkm` and custom specs goes with them (2); ADR 0006's gate applies to every set. |
 | 0003 | **Superseded** | Its built-in `clinvar-gkm` and `baseline` specs and the custom `tables.yaml` input are retired (2). Its one-table-per-section shape lives on in ADRs 0005–0007. |
 | 0004 | Amended | Selection becomes generic, gains `--follow none` and a reverse direction, and its "BigQuery-parity build" note no longer applies (4). |
-| 0005 | Amended | The promise moves from `sections` to the default set, with key order from the schema (1.3), and a filtered build is reversible to its mini-bundle (4.3). |
+| 0005 | Amended | The promise moves from `sections` to the default set, with key order learned from the bundle and stored once per table (1.3) instead of stated in a spec's `json` block, and a filtered build is reversible to its mini-bundle (4.3). |
 | 0006 | Amended | The default needs no column set (ADR 0007). Selection now accepts a pairing (4.1); deltas still don't. A custom column set may be a projection (3). |
-| 0007 (proposed) | Revise before acceptance | Decision 5 (JSON-equal default, `key_order` as an add-on) is replaced by 1.2 and 1.3. The rest stands. |
+| 0007 (proposed) | Revise before acceptance | Decision 5 (JSON-equal default, `key_order` as an add-on) is replaced by 1.2 and 1.3. Decision 6 (ClinVar-GKM narrows its profiles) becomes optional (1.4), and the pointer rule no longer needs a `pattern` (1.4). The rest stands. |
 
 None is removed: superseded and amended ADRs stay, with a note at the top (README, Conventions).
 
@@ -138,16 +155,23 @@ None is removed: superseded and amended ADRs stay, with a note at the top (READM
 - **Users of the published Parquet get a new layout.** The 22 tables are replaced by one table per section, typed, with
   no `data` column. That is a breaking change for every query against `v1/1.1/parquet/`. ClinVar-GKM announces it and
   updates its docs (`docs/parquet/tables.md` and the planned Ecosystem → Add-ons page) when the default ships.
-- **The default needs ClinVar-GKM's narrowed schema** (ADR 0007 decision 6, the pilot on `feat/narrow-profiles-pilot`),
-  and, for byte-identical round trips from the schema alone, keys written in the order the schema states (1.3). Until
-  both ship, ClinVar-GKM keeps its BigQuery export.
+- **The default doesn't wait on ClinVar-GKM's schema work.** It can be generated from the published 1.1.0 schema as it
+  is. Narrowed profiles (the pilot on `feat/narrow-profiles-pilot`) would make the tables narrower and more typed, and
+  would mean another table change for users if they land after the default ships. ClinVar-GKM keeps its BigQuery export
+  until the default ships.
+- **The rules are GKM-wide, not ClinVar-GKM's.** Key order learned from the bundle, `#/` pointers, gkm-core
+  `Extension`, VRS integer-or-Range and string-or-object positions are conventions of every VA-Spec/GKM bundle. So the
+  generator suits other producers' schemas and the GKM Toolkit. A bundle's layout still matters: a pretty-printed bundle
+  (CIViC's) rebuilds JSON-equal in the line layout, not its own bytes, because its whitespace isn't kept (ADR 0006
+  decision 5).
 - **A past week isn't byte-reproducible from a monthly plus deltas** while ClinVar-GKM's array order is unstable between
   releases (the 1,519 aliases above). Rebuilding a weekly's text needs that weekly's full, which is published only for the
   current month. A deterministic array order in the assembler would make replays byte-exact.
 - **Removing `clinvar-gkm`, `baseline`, `tables.yaml` input and `verify --against` is a tool MAJOR** (2.0.0), after a
   release that deprecates them.
 - **Work this needs, in order:** the replay fixes found on 2026-11-06 (`--full` builds read the line index by default; a
-  memory limit that fits a 32 GB machine); ADR 0007's generator and compiler rules, with key order from the schema;
+  memory limit that fits a 32 GB machine); ADR 0007's generator and compiler rules, with key order learned from the
+  bundle (1.3) and the generic pointer rule (1.4);
   selection on any pairing and in `rebuild`; projections; the deprecation release; the MAJOR; then the toolkit move,
   when asked.
 - **On acceptance**, `CLAUDE.md` (the oracle gate, the explicit version lists), `README.md` (status, matrix, specs) and
