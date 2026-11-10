@@ -1,4 +1,4 @@
-"""Command line: build, select, rebuild, verify, compile-spec, version (design plan §10)."""
+"""Command line: build, select, rebuild, verify, compile-spec, validate, version (design plan §10)."""
 
 from __future__ import annotations
 
@@ -149,6 +149,34 @@ def _parser() -> argparse.ArgumentParser:
     c.add_argument("schema_version", nargs="?", help="a version of the default bundle, e.g. 1.1.0")
     _pairing(c)
 
+    val = sub.add_parser(
+        "validate",
+        help="validate every record of a bundle against its JSON Schema set",
+        description="Validate each record alone, as a one-section mini-bundle with the bundle's version, so key "
+        "patterns are checked too. Exits 1 if any record fails, 2 on anything that isn't a verdict on a record "
+        "(an unreadable bundle, an unknown section, a missing version, a schema set that doesn't load).",
+    )
+    val.add_argument("bundle", help="the bundle: a path or URL (.json or .json.gz)")
+    val.add_argument(
+        "--bundle-schema",
+        help="its schema: a file, a URL, or a directory holding a schema set (default: the default bundle's "
+        "schema at the bundle's own version)",
+    )
+    val.add_argument(
+        "--engine",
+        choices=("rs", "python"),
+        default="rs",
+        help="rs: jsonschema-rs (the default); python: the GKM Toolkit's validator, the reference (needs the "
+        "reference extra)",
+    )
+    val.add_argument("--workers", type=int, help="worker processes (default: the number of CPUs)")
+    val.add_argument("--version-property", help="the root property holding the version (default: schema_version)")
+    val.add_argument("--index", help="the line index, for the bundle's expected sha256")
+    val.add_argument("--sha256", help="expected sha256 of the bundle (overrides discovery)")
+    val.add_argument("--max-print", type=int, default=20, help="failing records to print (default 20)")
+    val.add_argument("--failures", type=Path, help="write every failing record and its errors here, as JSON lines")
+    val.add_argument("--json", type=Path, help="write the counts and timings here, as JSON")
+
     ver = sub.add_parser("version", help="tool version and compatibility")
     ver.add_argument("--json", action="store_true")
     return p
@@ -219,6 +247,12 @@ def _verify(args: argparse.Namespace) -> int:
     return run_verify_command(args)
 
 
+def _validate(args: argparse.Namespace) -> int:
+    from .validate import run_validate_command
+
+    return run_validate_command(args)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     handler = {
@@ -227,6 +261,7 @@ def main(argv: list[str] | None = None) -> int:
         "rebuild": _rebuild,
         "verify": _verify,
         "compile-spec": _compile_spec,
+        "validate": _validate,
         "version": _version,
     }[args.command]
     import duckdb

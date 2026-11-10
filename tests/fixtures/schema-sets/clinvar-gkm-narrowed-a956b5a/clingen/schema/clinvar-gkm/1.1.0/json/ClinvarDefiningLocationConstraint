@@ -1,0 +1,36 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarDefiningLocationConstraint",
+   "title": "ClinvarDefiningLocationConstraint",
+   "description": "The location constraint of a ClinVar copy number variant: a DefiningLocationConstraint whose location is a pointer to a record of the location section, matched `is_within` and related by `liftover_to`.",
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/ga4gh/schema/cat-vrs/1.1.1/json/DefiningLocationConstraint"
+      },
+      {
+         "type": "object",
+         "properties": {
+            "location": {
+               "pattern": "^#/location/",
+               "description": "The defining location, a '#/location/<id>' pointer into this bundle.",
+               "$ref": "/ga4gh/schema/gkm-core/1.3.0/json/iriReference"
+            },
+            "matchCharacteristic": {
+               "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarIsWithinMatch",
+               "description": "The `is_within` match characteristic."
+            },
+            "relations": {
+               "type": "array",
+               "ordered": false,
+               "items": {
+                  "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarLiftoverToRelation"
+               },
+               "description": "The `liftover_to` relation."
+            }
+         }
+      }
+   ],
+   "type": "object",
+   "unevaluatedProperties": false
+}

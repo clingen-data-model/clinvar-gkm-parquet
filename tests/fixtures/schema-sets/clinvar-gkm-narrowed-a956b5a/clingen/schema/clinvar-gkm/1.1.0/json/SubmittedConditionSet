@@ -1,0 +1,31 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/SubmittedConditionSet",
+   "title": "SubmittedConditionSet",
+   "description": "The value of a submittedConditionSet extension: the submitted condition set with the mapping of each of its conditions.",
+   "type": "object",
+   "maturity": "trial use",
+   "properties": {
+      "conditionSet": {
+         "type": "string",
+         "description": "The CURIE of the resolved condition set (e.g., \"clinvar.traitset:123\"; the key of the corresponding #/conditionSet/ bundle entry)."
+      },
+      "condition": {
+         "type": "string",
+         "description": "Usually absent for multi-condition submissions; when present, the CURIE of a condition (e.g., \"clinvar.trait:123\"; the key of the corresponding #/condition/ bundle entry)."
+      },
+      "multiple_condition_explanation": {
+         "type": "string",
+         "description": "ClinVar's explanation for how multiple conditions relate (maps to the ConditionSet membership operator: AND or OR)."
+      },
+      "concepts": {
+         "type": "array",
+         "ordered": true,
+         "items": {
+            "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/SubmittedConditionMapping"
+         },
+         "description": "Array of individual submitted condition mappings, one per condition in the set. Ordered by the condition's cat_id suffix."
+      }
+   },
+   "additionalProperties": false
+}

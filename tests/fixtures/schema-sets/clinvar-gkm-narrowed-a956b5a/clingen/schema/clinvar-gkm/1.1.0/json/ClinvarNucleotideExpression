@@ -1,0 +1,146 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarNucleotideExpression",
+   "title": "ClinvarNucleotideExpression",
+   "description": "The nucleotide HGVS expression of a HgvsListItem: an HGVS syntax and the expression text, with extensions only when ClinVar supplied an expression with no HGVS type letter. No id or syntax version.",
+   "$defs": {
+      "ExtensionOriginalClinvarExpression": {
+         "type": "object",
+         "maturity": "trial use",
+         "description": "The nucleotide expression as ClinVar supplied it (with no HGVS type letter), on the repaired expression listed in its place.",
+         "protectedClassOf": "ClinvarNucleotideExpression",
+         "properties": {
+            "name": {
+               "type": "string",
+               "const": "originalClinvarExpression",
+               "description": "Must be 'originalClinvarExpression'."
+            },
+            "value": {
+               "type": "string",
+               "description": "The expression as ClinVar supplied it."
+            }
+         },
+         "required": [
+            "name",
+            "value"
+         ],
+         "additionalProperties": false
+      },
+      "ExtensionInvalidClinvarExpression": {
+         "type": "object",
+         "maturity": "trial use",
+         "description": "A nucleotide expression ClinVar supplied with no HGVS type letter (e.g. `NC_000017.10:9481617_9489649del`), kept as submitted on ClinVar's valid expression for the same accession.",
+         "protectedClassOf": "ClinvarNucleotideExpression",
+         "properties": {
+            "name": {
+               "type": "string",
+               "const": "invalidClinvarExpression",
+               "description": "Must be 'invalidClinvarExpression'."
+            },
+            "value": {
+               "type": "string",
+               "description": "The expression as ClinVar supplied it."
+            }
+         },
+         "required": [
+            "name",
+            "value"
+         ],
+         "additionalProperties": false
+      },
+      "ExtensionExpressionRepaired": {
+         "type": "object",
+         "maturity": "trial use",
+         "description": "Marks a nucleotide expression that is a repair of the expression ClinVar supplied (the HGVS type letter restored).",
+         "protectedClassOf": "ClinvarNucleotideExpression",
+         "properties": {
+            "name": {
+               "type": "string",
+               "const": "expressionRepaired",
+               "description": "Must be 'expressionRepaired'."
+            },
+            "value": {
+               "type": "boolean",
+               "const": true,
+               "description": "Always `true`."
+            }
+         },
+         "required": [
+            "name",
+            "value"
+         ],
+         "additionalProperties": false
+      },
+      "ExtensionExpressionMerged": {
+         "type": "object",
+         "maturity": "trial use",
+         "description": "Marks a nucleotide expression that carries one or more invalidClinvarExpression extensions.",
+         "protectedClassOf": "ClinvarNucleotideExpression",
+         "properties": {
+            "name": {
+               "type": "string",
+               "const": "expressionMerged",
+               "description": "Must be 'expressionMerged'."
+            },
+            "value": {
+               "type": "boolean",
+               "const": true,
+               "description": "Always `true`."
+            }
+         },
+         "required": [
+            "name",
+            "value"
+         ],
+         "additionalProperties": false
+      }
+   },
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/ga4gh/schema/vrs/2.1.1/json/Expression"
+      },
+      {
+         "type": "object",
+         "properties": {
+            "id": false,
+            "syntax_version": false,
+            "syntax": {
+               "type": "string",
+               "enum": [
+                  "hgvs.g",
+                  "hgvs.m",
+                  "hgvs.c",
+                  "hgvs.n",
+                  "hgvs.r",
+                  "hgvs.p"
+               ],
+               "description": "`hgvs.` and the HGVS type letter of the expression."
+            },
+            "extensions": {
+               "type": "array",
+               "ordered": false,
+               "items": {
+                  "oneOf": [
+                     {
+                        "$ref": "#/$defs/ExtensionInvalidClinvarExpression"
+                     },
+                     {
+                        "$ref": "#/$defs/ExtensionExpressionMerged"
+                     },
+                     {
+                        "$ref": "#/$defs/ExtensionOriginalClinvarExpression"
+                     },
+                     {
+                        "$ref": "#/$defs/ExtensionExpressionRepaired"
+                     }
+                  ]
+               },
+               "description": "ClinVar's submitted text when it had no HGVS type letter: either `invalidClinvarExpression` (one per such text) and `expressionMerged`, when this is ClinVar's valid expression for the same accession, or `originalClinvarExpression` and `expressionRepaired`, when this is the repaired expression."
+            }
+         }
+      }
+   ],
+   "type": "object",
+   "unevaluatedProperties": false
+}

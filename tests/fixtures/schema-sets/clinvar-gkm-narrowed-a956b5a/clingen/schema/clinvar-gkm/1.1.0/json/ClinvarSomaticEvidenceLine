@@ -1,0 +1,117 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarSomaticEvidenceLine",
+   "title": "ClinvarSomaticEvidenceLine",
+   "description": "The evidence line of a ClinVar somatic clinical impact (SCI) SCV statement. It links the statement's VariantClinicalSignificanceProposition to the specific assertion: its target proposition (a VariantTherapeuticResponseProposition, VariantDiagnosticProposition or VariantPrognosticProposition, in the propositionSomaticClinicalImpact section), always supported, with an evidence outcome reflecting the AMP/ASCO/CAP tier and the submitter's original condition(s) in an extension. No name, description, aliases, method, contributions, citations, evidence items, strength or score.",
+   "$defs": {
+      "ExtensionEvidenceLineSubmittedCondition": {
+         "type": "object",
+         "maturity": "trial use",
+         "description": "The submitter's original condition, for a somatic clinical impact submission with one condition. The same extension as the SCV statement's submittedCondition extension.",
+         "protectedClassOf": "ClinvarSomaticEvidenceLine",
+         "properties": {
+            "name": {
+               "type": "string",
+               "const": "submittedCondition",
+               "description": "Must be 'submittedCondition'."
+            },
+            "value": {
+               "description": "The submitted condition mapping details, with the condition it resolved to.",
+               "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/SubmittedCondition"
+            }
+         },
+         "required": [
+            "name",
+            "value"
+         ],
+         "additionalProperties": false
+      },
+      "ExtensionEvidenceLineSubmittedConditionSet": {
+         "type": "object",
+         "maturity": "trial use",
+         "description": "The submitter's original conditions, for a somatic clinical impact submission with two or more conditions. The same extension as the SCV statement's submittedConditionSet extension.",
+         "protectedClassOf": "ClinvarSomaticEvidenceLine",
+         "properties": {
+            "name": {
+               "type": "string",
+               "const": "submittedConditionSet",
+               "description": "Must be 'submittedConditionSet'."
+            },
+            "value": {
+               "description": "The submitted condition set with mapping details for each condition.",
+               "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/SubmittedConditionSet"
+            }
+         },
+         "required": [
+            "name",
+            "value"
+         ],
+         "additionalProperties": false
+      }
+   },
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/ga4gh/schema/va-spec/1.1.0/json/EvidenceLine"
+      },
+      {
+         "type": "object",
+         "properties": {
+            "name": false,
+            "description": false,
+            "aliases": false,
+            "specifiedBy": false,
+            "contributions": false,
+            "reportedIn": false,
+            "hasEvidenceItems": false,
+            "strengthOfEvidenceProvided": false,
+            "scoreOfEvidenceProvided": false,
+            "directionOfEvidenceProvided": {
+               "type": "string",
+               "const": "supports",
+               "description": "Always 'supports'."
+            },
+            "evidenceOutcome": {
+               "allOf": [
+                  {
+                     "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarTerm"
+                  },
+                  {
+                     "type": "object",
+                     "properties": {
+                        "conceptType": {
+                           "type": "string",
+                           "const": "Outcome",
+                           "description": "Always 'Outcome'."
+                        }
+                     }
+                  }
+               ],
+               "description": "The evidence level for the AMP/ASCO/CAP tier, as a ClinvarTerm of concept type 'Outcome': 'Level A/B' for Tier I, 'Level C/D' for Tier II; for any other tier, the SCV's classification code."
+            },
+            "targetProposition": {
+               "pattern": "^#/propositionSomaticClinicalImpact/",
+               "description": "The specific assertion, a '#/propositionSomaticClinicalImpact/<id>' pointer to a VariantTherapeuticResponseProposition, VariantDiagnosticProposition or VariantPrognosticProposition in this bundle.",
+               "$ref": "/ga4gh/schema/gkm-core/1.3.0/json/iriReference"
+            },
+            "extensions": {
+               "type": "array",
+               "ordered": false,
+               "items": {
+                  "oneOf": [
+                     {
+                        "$ref": "#/$defs/ExtensionEvidenceLineSubmittedCondition"
+                     },
+                     {
+                        "$ref": "#/$defs/ExtensionEvidenceLineSubmittedConditionSet"
+                     }
+                  ]
+               },
+               "description": "The submitter's original condition, in an ExtensionEvidenceLineSubmittedCondition, or conditions, in an ExtensionEvidenceLineSubmittedConditionSet."
+            }
+         }
+      }
+   ],
+   "type": "object",
+   "unevaluatedProperties": false
+}

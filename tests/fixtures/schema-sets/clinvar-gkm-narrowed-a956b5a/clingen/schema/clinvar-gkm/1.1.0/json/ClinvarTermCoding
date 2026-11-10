@@ -1,0 +1,21 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarTermCoding",
+   "title": "ClinvarTermCoding",
+   "description": "The coding of a ClinVar term: a ClinvarCoding with only its code and system. No name or IRIs.",
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarCoding"
+      },
+      {
+         "type": "object",
+         "properties": {
+            "name": false,
+            "iris": false
+         }
+      }
+   ],
+   "type": "object",
+   "unevaluatedProperties": false
+}

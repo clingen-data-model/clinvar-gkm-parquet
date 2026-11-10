@@ -1,0 +1,23 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarSubmitter",
+   "title": "ClinvarSubmitter",
+   "description": "A record of the submitter section: an Agent for a ClinVar submitter, with its id and name. No description, aliases, agent type or extensions.",
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/ga4gh/schema/va-spec/1.1.0/json/Agent"
+      },
+      {
+         "type": "object",
+         "properties": {
+            "description": false,
+            "aliases": false,
+            "extensions": false,
+            "agentType": false
+         }
+      }
+   ],
+   "type": "object",
+   "unevaluatedProperties": false
+}

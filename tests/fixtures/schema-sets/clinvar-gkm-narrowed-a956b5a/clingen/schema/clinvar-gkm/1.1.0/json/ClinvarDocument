@@ -1,0 +1,182 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarDocument",
+   "title": "ClinvarDocument",
+   "description": "A Document as ClinVar-GKM writes it for a ClinVar citation: its PubMed id, DOI and URLs, the name and document type when ClinVar gives them, and extensions that keep ClinVar's citation text and record repairs of its ids. No id, title, description or aliases.",
+   "$defs": {
+      "ExtensionOriginalClinvarCitationSource": {
+         "type": "object",
+         "maturity": "trial use",
+         "description": "ClinVar's source of a citation id that ClinVar-GKM moved to another source.",
+         "protectedClassOf": "ClinvarDocument",
+         "properties": {
+            "name": {
+               "type": "string",
+               "const": "originalClinvarCitationSource",
+               "description": "Must be 'originalClinvarCitationSource'."
+            },
+            "value": {
+               "type": "string",
+               "description": "ClinVar's citation source."
+            }
+         },
+         "additionalProperties": false
+      },
+      "ExtensionClinvarDoi": {
+         "type": "object",
+         "maturity": "trial use",
+         "description": "A valid DOI that VA-Spec's doi pattern rejects (a SICI DOI, say). The document's doi stays empty and the DOI's doi.org URL is in urls.",
+         "protectedClassOf": "ClinvarDocument",
+         "properties": {
+            "name": {
+               "type": "string",
+               "const": "clinvarDoi",
+               "description": "Must be 'clinvarDoi'."
+            },
+            "value": {
+               "type": "string",
+               "description": "The DOI as ClinVar has it."
+            }
+         },
+         "additionalProperties": false
+      },
+      "ExtensionUnmappedClinvarCitation": {
+         "type": "object",
+         "maturity": "trial use",
+         "description": "A citation id from a source ClinVar-GKM does not map ('<source>:<id>'). No doi, pmid or URL is derived from it.",
+         "protectedClassOf": "ClinvarDocument",
+         "properties": {
+            "name": {
+               "type": "string",
+               "const": "unmappedClinvarCitation",
+               "description": "Must be 'unmappedClinvarCitation'."
+            },
+            "value": {
+               "type": "string",
+               "description": "ClinVar's citation source and id, as '<source>:<id>'."
+            }
+         },
+         "additionalProperties": false
+      },
+      "ExtensionClinvarCitationText": {
+         "type": "object",
+         "maturity": "trial use",
+         "description": "The free text of a ClinVar citation. A citation that is only text is a Document whose only content is this extension.",
+         "protectedClassOf": "ClinvarDocument",
+         "properties": {
+            "name": {
+               "type": "string",
+               "const": "clinvarCitationText",
+               "description": "Must be 'clinvarCitationText'."
+            },
+            "value": {
+               "type": "string",
+               "description": "The citation text, verbatim."
+            }
+         },
+         "additionalProperties": false
+      },
+      "ExtensionOriginalClinvarCitation": {
+         "type": "object",
+         "maturity": "trial use",
+         "description": "The citation id as ClinVar has it, when ClinVar-GKM repaired it.",
+         "protectedClassOf": "ClinvarDocument",
+         "properties": {
+            "name": {
+               "type": "string",
+               "const": "originalClinvarCitation",
+               "description": "Must be 'originalClinvarCitation'."
+            },
+            "value": {
+               "type": "string",
+               "description": "ClinVar's citation id."
+            }
+         },
+         "additionalProperties": false
+      },
+      "ExtensionInvalidClinvarCitation": {
+         "type": "object",
+         "maturity": "trial use",
+         "description": "A citation id that cannot be used (a DOI of \"https\", say). No doi or URL is derived from it.",
+         "protectedClassOf": "ClinvarDocument",
+         "properties": {
+            "name": {
+               "type": "string",
+               "const": "invalidClinvarCitation",
+               "description": "Must be 'invalidClinvarCitation'."
+            },
+            "value": {
+               "type": "string",
+               "description": "ClinVar's citation id."
+            }
+         },
+         "additionalProperties": false
+      },
+      "ExtensionCitationRepaired": {
+         "type": "object",
+         "maturity": "trial use",
+         "description": "Says that ClinVar-GKM repaired the citation's id.",
+         "protectedClassOf": "ClinvarDocument",
+         "properties": {
+            "name": {
+               "type": "string",
+               "const": "citationRepaired",
+               "description": "Must be 'citationRepaired'."
+            },
+            "value": {
+               "type": "boolean",
+               "const": true,
+               "description": "Always true."
+            }
+         },
+         "additionalProperties": false
+      }
+   },
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/ga4gh/schema/va-spec/1.1.0/json/Document"
+      },
+      {
+         "type": "object",
+         "properties": {
+            "id": false,
+            "title": false,
+            "description": false,
+            "aliases": false,
+            "extensions": {
+               "type": "array",
+               "ordered": false,
+               "items": {
+                  "oneOf": [
+                     {
+                        "$ref": "#/$defs/ExtensionClinvarCitationText"
+                     },
+                     {
+                        "$ref": "#/$defs/ExtensionOriginalClinvarCitation"
+                     },
+                     {
+                        "$ref": "#/$defs/ExtensionOriginalClinvarCitationSource"
+                     },
+                     {
+                        "$ref": "#/$defs/ExtensionCitationRepaired"
+                     },
+                     {
+                        "$ref": "#/$defs/ExtensionClinvarDoi"
+                     },
+                     {
+                        "$ref": "#/$defs/ExtensionInvalidClinvarCitation"
+                     },
+                     {
+                        "$ref": "#/$defs/ExtensionUnmappedClinvarCitation"
+                     }
+                  ]
+               },
+               "description": "ClinVar's citation text, the record of any repair of the citation's id, and ids that are invalid or from an unmapped source."
+            }
+         }
+      }
+   ],
+   "type": "object",
+   "unevaluatedProperties": false
+}

@@ -5,6 +5,14 @@ All notable changes to this tool. Each release states the table-spec versions it
 
 ## Unreleased
 
+- **`validate`:** checks every record of a bundle against its JSON Schema set, each as a one-section bundle with the
+  bundle's version, as ClinVar-GKM's `validate-bundle.py` does. Engine `rs` (the default) runs on jsonschema-rs 0.61.1, a
+  new pinned dependency; engine `python` is the GA4GH GKM Toolkit's `validate_bundle_schema` (`ga4gh.gkm` 0.4.0, the new
+  `reference` extra). The two agree on every record of the 2026-10-31 delta and a sample of the 2026-10-31 full, with the
+  published 1.1.0 schemas and ClinVar-GKM's narrowed ones, and on every generated negative case
+  ([docs/validate.md](docs/validate.md)). `version --json` lists the engines (`validate_engines`). Table specs, accepted
+  `schema_version`s and output bytes don't change.
+
 ## 1.0.1 (2026-11-03)
 
 Reads and writes the same as 1.0.0: bundle `schema_version` 1.1.0 snapshotted, table specs `sections` 1.0 (the default),

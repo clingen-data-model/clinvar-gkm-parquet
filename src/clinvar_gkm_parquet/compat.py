@@ -38,6 +38,27 @@ SCHEMA_VERSION_RULE = (
 )
 
 
+def validate_engines() -> dict:
+    """`validate`'s engines: the library each runs on and its installed version (None when not installed)."""
+    from importlib.metadata import PackageNotFoundError, version
+
+    def installed(dist: str) -> str | None:
+        try:
+            return version(dist)
+        except PackageNotFoundError:
+            return None
+
+    return {
+        "rs": {"library": "jsonschema-rs", "version": installed("jsonschema-rs"), "default": True},
+        "python": {
+            "library": "ga4gh.gkm",
+            "version": installed("ga4gh.gkm"),
+            "default": False,
+            "extra": "reference",
+        },
+    }
+
+
 def version_info() -> dict:
     """`version --json`. The keys table_spec_version, table_spec_status and tables describe the clinvar-gkm spec,
     as before specs had names; `table_specs` lists every built-in spec and marks the default. A compiled spec has
@@ -80,4 +101,5 @@ def version_info() -> dict:
         "tables": sorted(t.name for t in published.tables),
         "default_table_spec": DEFAULT_SPEC,
         "table_specs": specs,
+        "validate_engines": validate_engines(),
     }

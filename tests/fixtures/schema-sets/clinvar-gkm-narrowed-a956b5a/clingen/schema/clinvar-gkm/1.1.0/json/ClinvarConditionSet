@@ -1,0 +1,32 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarConditionSet",
+   "title": "ClinvarConditionSet",
+   "description": "A record of the conditionSet section: a ConditionSet whose concepts are pointers to records of the condition or conditionSet section. No name, description, aliases or extensions.",
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/ga4gh/schema/va-spec/1.1.0/json/ConditionSet"
+      },
+      {
+         "type": "object",
+         "properties": {
+            "name": false,
+            "description": false,
+            "aliases": false,
+            "extensions": false,
+            "concepts": {
+               "type": "array",
+               "ordered": false,
+               "items": {
+                  "pattern": "^#/(condition|conditionSet)/",
+                  "$ref": "/ga4gh/schema/gkm-core/1.3.0/json/iriReference"
+               },
+               "description": "The set's members, each a '#/condition/<id>' or '#/conditionSet/<id>' pointer into this bundle."
+            }
+         }
+      }
+   ],
+   "type": "object",
+   "unevaluatedProperties": false
+}

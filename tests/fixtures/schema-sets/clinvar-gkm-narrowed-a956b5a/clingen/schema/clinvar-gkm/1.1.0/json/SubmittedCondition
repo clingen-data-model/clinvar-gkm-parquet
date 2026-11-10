@@ -1,0 +1,24 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/SubmittedCondition",
+   "title": "SubmittedCondition",
+   "description": "The value of a submittedCondition extension: the submitted condition's mapping, with the condition (or, rarely, the condition set) it resolved to.",
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/SubmittedConditionMappingProperties"
+      }
+   ],
+   "properties": {
+      "condition": {
+         "type": "string",
+         "description": "The CURIE of the resolved condition (e.g., \"clinvar.trait:123\"; the key of the corresponding #/condition/ bundle entry)."
+      },
+      "conditionSet": {
+         "type": "string",
+         "description": "Usually absent for single-condition submissions; when a single-trait submission maps to a multi-trait RCV it holds the CURIE of that condition set (e.g., clinvar.traitset:123)."
+      }
+   },
+   "type": "object",
+   "unevaluatedProperties": false
+}

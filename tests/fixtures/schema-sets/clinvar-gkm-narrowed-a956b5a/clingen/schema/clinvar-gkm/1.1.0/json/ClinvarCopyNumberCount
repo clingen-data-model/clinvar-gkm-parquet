@@ -1,0 +1,33 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarCopyNumberCount",
+   "title": "ClinvarCopyNumberCount",
+   "description": "A record of the copyNumberCount section: a VRS CopyNumberCount with an integer copy count, whose location is a pointer to a record of the location section. No name, description, aliases, extensions or expressions.",
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/ga4gh/schema/vrs/2.1.1/json/CopyNumberCount"
+      },
+      {
+         "type": "object",
+         "properties": {
+            "name": false,
+            "description": false,
+            "aliases": false,
+            "extensions": false,
+            "expressions": false,
+            "location": {
+               "pattern": "^#/location/",
+               "description": "The location of the copy number count, a '#/location/<id>' pointer into this bundle.",
+               "$ref": "/ga4gh/schema/gkm-core/1.3.0/json/iriReference"
+            },
+            "copies": {
+               "type": "integer",
+               "description": "The integral number of copies."
+            }
+         }
+      }
+   ],
+   "type": "object",
+   "unevaluatedProperties": false
+}

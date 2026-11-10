@@ -1,0 +1,45 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/HgvsListItem",
+   "title": "HgvsListItem",
+   "description": "A complex structure for sharing individual HGVS entries associated with Clinvar Variations including nucleotide expressions, protein expressions, molecular consequence and mane select/plus settings for the specific aligned and projected forms of the clinvar variant.",
+   "type": "object",
+   "maturity": "trial use",
+   "properties": {
+      "nucleotideExpression": {
+         "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarNucleotideExpression",
+         "description": "The nucleotide HGVS expression with `syntax` (e.g.,` hgvs.c`, `hgvs.g`) and `value` (the HGVS string). ClinVar's submitted text is never altered: when ClinVar supplies an expression with no HGVS type letter (e.g. `NC_000017.10:9481617_9489649del`), it is kept as an extension of the listed expression. If ClinVar also supplies a valid expression for the same accession, that one is listed with extensions `invalidClinvarExpression` (the submitted text) and `expressionMerged` (`true`). Otherwise the listed expression is a repair (the type letter restored) with extensions `originalClinvarExpression` (the submitted text) and `expressionRepaired` (`true`)."
+      },
+      "nucleotideType": {
+         "type": "string",
+         "enum": [
+            "genomic, top-level",
+            "genomic",
+            "coding",
+            "non-coding"
+         ],
+         "description": "The type of nucleotide expression as reported by ClinVar (e.g., `coding`, `genomic`, `genomic, top-level`)."
+      },
+      "maneSelect": {
+         "type": "boolean",
+         "description": "`true` if this transcript is designated as MANE Select. Absent or `false` when not applicable."
+      },
+      "manePlus": {
+         "type": "boolean",
+         "description": "`true` if this transcript is designated as MANE Plus Clinical. Absent or `false` when not applicable."
+      },
+      "proteinExpression": {
+         "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarProteinExpression",
+         "description": "The protein HGVS expression with syntax (typically `hgvs.p`) and `value`. Present only when a protein-level expression exists for the nucleotide expression."
+      },
+      "molecularConsequence": {
+         "type": "array",
+         "ordered": false,
+         "items": {
+            "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarMolecularConsequenceCoding"
+         },
+         "description": "Sequence Ontology terms describing the predicted molecular consequence. Each entry includes `code` (SO identifier), `system`, `name` (SO term label), and `iris` (identifiers.org link)."
+      }
+   },
+   "additionalProperties": false
+}

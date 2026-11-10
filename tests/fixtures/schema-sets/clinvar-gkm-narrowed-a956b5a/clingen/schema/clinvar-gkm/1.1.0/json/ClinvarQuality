@@ -1,0 +1,24 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarQuality",
+   "title": "ClinvarQuality",
+   "description": "The quality of a ClinVar statement's assessment, named from its submission level: a ClinvarTerm whose concept type is 'Quality'.",
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarTerm"
+      },
+      {
+         "type": "object",
+         "properties": {
+            "conceptType": {
+               "type": "string",
+               "const": "Quality",
+               "description": "Must be 'Quality'."
+            }
+         }
+      }
+   ],
+   "type": "object",
+   "unevaluatedProperties": false
+}

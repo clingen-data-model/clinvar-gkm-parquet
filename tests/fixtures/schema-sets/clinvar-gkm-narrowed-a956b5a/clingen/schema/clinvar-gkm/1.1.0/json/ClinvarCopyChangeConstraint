@@ -1,0 +1,27 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarCopyChangeConstraint",
+   "title": "ClinvarCopyChangeConstraint",
+   "description": "The copy change constraint of a ClinvarCategoricalCnvChange: a CopyChangeConstraint whose copy change is 'loss' or 'gain'.",
+   "maturity": "draft",
+   "allOf": [
+      {
+         "$ref": "/ga4gh/schema/cat-vrs/1.1.1/json/CopyChangeConstraint"
+      },
+      {
+         "type": "object",
+         "properties": {
+            "copyChange": {
+               "type": "string",
+               "enum": [
+                  "loss",
+                  "gain"
+               ],
+               "description": "The copy change: 'loss' or 'gain', the only values the pipeline writes."
+            }
+         }
+      }
+   ],
+   "type": "object",
+   "unevaluatedProperties": false
+}

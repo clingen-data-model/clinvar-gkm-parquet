@@ -14,7 +14,9 @@ passed between stages, and the staging format), `sources.py` (paths, URLs, check
 spec: from its `sql/<table>.sql`, or from the spec alone with the generic renderer), `baseline.py` (renders the
 baseline spec's id/refs/data tables), `select.py` (the selection engine: pointer walk and mini-bundle),
 `driver.py` (wires selection into `build` and `select`) and `roundtrip.py` (rows back to bundle records: the
-build's round-trip check, `rebuild` and `verify --roundtrip`; ADR 0005). Update this file when the layout changes.
+build's round-trip check, `rebuild` and `verify --roundtrip`; ADR 0005) and `validate.py` (`validate`: every record of a
+bundle against its JSON Schema set, with the rs engine or the python reference; docs/validate.md). Update this file when the
+layout changes.
 
 **The generic core** (ADR 0006) holds no ClinVar-GKM name or URL and imports nothing that does; `tests/test_any_bundle.py`
 enforces it. Keep it that way, because it is meant to move to the GKM Toolkit:
@@ -34,9 +36,12 @@ the wheel as `_schemas`) and `spec/sections/column-sets/<version>.columns.yaml` 
 
 - `src/` layout, package `clinvar_gkm_parquet`, console script `clinvar-gkm-parquet`.
 - Python `>=3.10`. Manage environments with `uv`; lint and format with `ruff`; test with `pytest`.
-- Runtime dependencies stay minimal: `duckdb` (pinned to the exact version that defines the output, see below)
-  and `PyYAML` (reads `spec/<version>/tables.yaml`). The reader passes records through as bytes and never parses
-  them in Python, so there is no JSON speed-up dependency. Anything else needs a reason in the PR.
+- Runtime dependencies stay minimal: `duckdb` (pinned to the exact version that defines the output, see below),
+  `PyYAML` (reads `spec/<version>/tables.yaml`) and `jsonschema-rs` (`validate`'s default engine, pinned exactly, because
+  its verdicts are proved equal to the reference's at that version). The reference validator, `ga4gh.gkm`, is the optional
+  `reference` extra and a dev dependency; its GA4GH dependencies are pre-releases (`[tool.uv] prerelease = "allow"`). The
+  build's reader passes records through as bytes and never parses them in Python, so there is no JSON speed-up
+  dependency (`validate` parses each record in its workers). Anything else needs a reason in the PR.
 
 ## Output determinism
 

@@ -1,0 +1,38 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarVariantDiagnosticProposition",
+   "title": "ClinvarVariantDiagnosticProposition",
+   "description": "The target proposition of a diagnostic somatic clinical impact SCV's evidence line, in the propositionSomaticClinicalImpact section: a VariantDiagnosticProposition whose subject is a variation pointer and whose object is a condition or condition set pointer, with the SCV's gene context qualifier. No name, description, aliases, extensions or allele origin qualifier.",
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/ga4gh/schema/va-spec/1.1.0/json/VariantDiagnosticProposition"
+      },
+      {
+         "type": "object",
+         "properties": {
+            "name": false,
+            "description": false,
+            "aliases": false,
+            "extensions": false,
+            "alleleOriginQualifier": false,
+            "subject": {
+               "pattern": "^#/variation/",
+               "description": "The variant, a '#/variation/<id>' pointer into this bundle.",
+               "$ref": "/ga4gh/schema/gkm-core/1.3.0/json/iriReference"
+            },
+            "object": {
+               "pattern": "^#/(condition|conditionSet)/",
+               "description": "The disease, a '#/condition/<id>' or '#/conditionSet/<id>' pointer into this bundle.",
+               "$ref": "/ga4gh/schema/gkm-core/1.3.0/json/iriReference"
+            },
+            "geneContextQualifier": {
+               "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarGeneContextQualifier",
+               "description": "The variant's gene."
+            }
+         }
+      }
+   ],
+   "type": "object",
+   "unevaluatedProperties": false
+}

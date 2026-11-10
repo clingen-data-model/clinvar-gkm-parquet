@@ -1,0 +1,34 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarProteinExpression",
+   "title": "ClinvarProteinExpression",
+   "description": "The protein HGVS expression of a HgvsListItem: an HGVS syntax and the expression text. No id, extensions or syntax version.",
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/ga4gh/schema/vrs/2.1.1/json/Expression"
+      },
+      {
+         "type": "object",
+         "properties": {
+            "id": false,
+            "extensions": false,
+            "syntax_version": false,
+            "syntax": {
+               "type": "string",
+               "enum": [
+                  "hgvs.g",
+                  "hgvs.m",
+                  "hgvs.c",
+                  "hgvs.n",
+                  "hgvs.r",
+                  "hgvs.p"
+               ],
+               "description": "`hgvs.` and the HGVS type letter of the expression (`hgvs.p`)."
+            }
+         }
+      }
+   ],
+   "type": "object",
+   "unevaluatedProperties": false
+}

@@ -1,0 +1,25 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarConceptMapping",
+   "title": "ClinvarConceptMapping",
+   "description": "A ConceptMapping as ClinVar-GKM writes it: a ClinvarMappingCoding and its relation. No id or extensions.",
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/ga4gh/schema/gkm-core/1.3.0/json/ConceptMapping"
+      },
+      {
+         "type": "object",
+         "properties": {
+            "id": false,
+            "extensions": false,
+            "coding": {
+               "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarMappingCoding",
+               "description": "The coding the concept maps to."
+            }
+         }
+      }
+   ],
+   "type": "object",
+   "unevaluatedProperties": false
+}
