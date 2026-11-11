@@ -18,7 +18,7 @@ import jsonschema_rs
 import pytest
 from _fixture import COUNTS, FIXTURE, FIXTURES
 from _input_helpers import bundle_bytes, fixture_sections, write_gz
-from _validate_cases import UNDECLARED, ban_cases, list_item_cases, nodes, record_cases, records
+from _validate_cases import UNDECLARED, ban_cases, banned_properties, list_item_cases, nodes, record_cases, records
 
 from clinvar_gkm_parquet.cli import main
 from clinvar_gkm_parquet.default_pairing import schema_source
@@ -201,17 +201,14 @@ def test_rs_and_python_agree_on_every_negative_case(set_name):
 
 def test_every_banned_property_is_rejected_where_it_applies():
     """Generated from the narrowed set: every `false` property of a ClinVar-GKM class, at every record node that
-    class validates. The fixture has no record of three classes; they are listed, not dropped."""
+    class validates. The two excerpts reach every one of them."""
     all_cases, unreached = cases("narrowed")
     bans = [c for c in all_cases if c.kind == "banned-property"]
-    assert len(bans) >= 190
+    banned = banned_properties(schema_set("narrowed"))
+    assert len(bans) == sum(len(v) for v in banned.values()) == 204
     rs = engine("narrowed", "rs")
     assert [c.name for c in bans if rs.is_valid(c.doc)] == []
-    assert {u.split("/json/")[1] for u in unreached} == {
-        "ClinvarGermlineCustomProposition#/allOf/2/properties",
-        "ClinvarPenetranceQualifier#/allOf/1/properties",
-        "ClinvarVariantPrognosticProposition#/allOf/1/properties",
-    }
+    assert unreached == set()
     assert {c.kind for c in cases("published")[0]} >= {"key-breaks-pattern", "undeclared-top-level"}
 
 

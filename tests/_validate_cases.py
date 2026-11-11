@@ -1,11 +1,11 @@
 """Negative cases for `validate`'s engine equivalence, generated from real records and the schema set, not listed
 by hand.
 
-Every case is a real record of the suite's fixture (tests/fixtures/real-1.1.0) with one change, wrapped as the
-one-section mini-bundle `validate` checks. `kind` names the change and `path` the JSON pointer it was made at,
-relative to the record ("" for the record itself, or for its key). A case says nothing about the expected verdict:
-the tests require both engines to give the same one, and require a rejection where the schema set clearly forbids
-the change (`must_reject`).
+Every case is a real record of the excerpts (tests/fixtures/real-1.1.0 and real-1.1.0-1031) with one change,
+wrapped as the one-section mini-bundle `validate` checks. `kind` names the change and `path` the JSON pointer it
+was made at, relative to the record ("" for the record itself, or for its key). A case says nothing about the
+expected verdict: the tests require both engines to give the same one, and require a rejection where the schema
+set clearly forbids the change (`must_reject`).
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 
+from _fixture import FIXTURE, FIXTURES
 from _input_helpers import fixture_sections
 
 from clinvar_gkm_parquet.bundle import decode_key
@@ -40,11 +41,17 @@ class Case:
         return f"{self.kind}:{self.section}/{self.key}{self.path}"
 
 
+# The suite's fixture (a 2026-10-18 excerpt), then a 2026-10-31 excerpt seeded with what the first lacks: the
+# propositionClinvarCustom section (one record of each type), a penetranceQualifier and a prognostic proposition.
+EXCERPTS = (FIXTURE, FIXTURES / "real-1.1.0-1031" / "clinvar-gkm_excerpt.json.gz")
+
+
 def records() -> list[tuple[str, str, dict]]:
-    """(section, key, record) for every record of the fixture, in its order."""
+    """(section, key, record) for every record of the excerpts, in their order."""
     return [
         (section, decode_key(k.decode()), json.loads(r))
-        for section, items in fixture_sections().items()
+        for path in EXCERPTS
+        for section, items in fixture_sections(path).items()
         for k, r in items
     ]
 
