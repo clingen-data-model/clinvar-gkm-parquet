@@ -12,18 +12,18 @@ paths:
 - **This repo** holds contributor-facing design records as plain Markdown: ADRs in `docs/decisions/`, design
   plans in `docs/plans/`, and later the rendered table spec. There is no docs site here, so there is no build
   step; GitHub renders the Markdown. Check relative links by hand (or with a link checker) before committing.
-- **User-facing docs** (how to install and run the tool, the compatibility matrix in prose, the Parquet column
-  reference) live on the ClinVar-GKM docs site, planned under **Ecosystem → Add-ons**. They are written in the
-  clinvar-gks repo with its `write-docs` skill and deployed with that site.
-- **Summarise and link; don't duplicate.** The ClinVar-GKM pages summarise and link here; this repo links to
-  ClinVar-GKM for bundle, schema and release-model facts instead of restating them. When a fact must appear in
+- **User-facing docs** (how to install and run the tool, the compatibility matrix, the column-set format, `validate`)
+  live here, in the README and `docs/`, because the tool serves any GKM producer (ADR 0009). A producer's own site, such
+  as ClinVar-GKM's planned **Ecosystem → Add-ons** page, summarises its use of the tool and links here.
+- **Summarise and link; don't duplicate.** A producer's pages summarise and link here; this repo links to the producer
+  for its bundle, schema and release-model facts instead of restating them. When a fact must appear in
   both places, one is the source and the other links to it at a pinned ref (a tag or commit), not `main`.
 
 ## Docs move with every PR
 
 A PR that changes CLI behaviour, the table spec, accepted `schema_version`s or the compatibility matrix updates
-the README, the changelog and any affected plan or ADR in the same PR, and says in its body which ClinVar-GKM
-page needs a paired change.
+the README, the changelog and any affected plan or ADR in the same PR, and says in its body which producer page
+(ClinVar-GKM's today) needs a paired change.
 
 ## Style
 

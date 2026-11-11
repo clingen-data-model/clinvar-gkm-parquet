@@ -1,28 +1,29 @@
 # clinvar-gkm-parquet
 
-Builds queryable **Parquet** tables from **[ClinVar-GKM](https://github.com/clingen-data-model/clinvar-gkm)**
-JSON bundles.
+Builds queryable **Parquet** tables from **GKM JSON bundles**, rebuilds the bundle from them, and validates bundles
+against their JSON Schema. It works with any bundle built on the GA4GH GKM classes (VRS, Cat-VRS, VA-Spec), given that
+bundle's JSON Schema. Its first producer is [ClinVar-GKM](https://github.com/clingen-data-model/clinvar-gkm). The tests also
+run on real [CIViC](https://github.com/ga4gh/gkm-starter-kit) bundles, which differ from ClinVar-GKM's in layout, version
+and root values.
 
-The JSON bundles are the public record. Parquet is a derived convenience: a quick way to explore and query
-the bundle content with current database tools such as DuckDB, Polars, pandas and Spark. This tool rebuilds
-those Parquet tables from any bundle, including archived releases, so the Parquet for a release can always be
-regenerated from the bundle it came from.
+The JSON bundles are the public record. Parquet is a derived convenience: a quick way to explore and query the bundle
+content with current database tools such as DuckDB, Polars, pandas and Spark. Every Parquet value can be recomputed from
+the bundle it came from ([ADR 0001](https://github.com/clingen-data-model/clinvar-gkm-parquet/blob/main/docs/decisions/0001-parquet-derived-from-bundles.md)).
 
-> **Status:** 1.0.1 is the latest release. Releases so far come before the oracle. No build has run on a full monthly bundle yet, and the table specs are
-> drafts, so their tables can still change. The `clinvar-gkm` spec's names and types match ClinVar-GKM's published 1.1.0
-> Parquet export, and it is final once the oracle has run against that export
-> ([design plan](https://github.com/clingen-data-model/clinvar-gkm-parquet/blob/main/docs/plans/2026-10-20-design.md) §3.2, §8.2). The default `sections` spec is compiled from a bundle schema
-> and its column set, for any producer ([ADR 0006](https://github.com/clingen-data-model/clinvar-gkm-parquet/blob/main/docs/decisions/0006-sections-spec-compiled-from-schemas.md));
-> that path is planned to move to the GKM Toolkit. Until the oracle passes, ClinVar-GKM builds its published Parquet set
-> with its own BigQuery export.
+> **Status:** 1.0.1 is the latest release. Two accepted or proposed decisions reshape the tool for 2.0.0 (planned):
 >
-> ClinVar-GKM publishes **one** Parquet dataset, at `https://data.clinvar-gkm.org/v1/1.1/parquet/`,
-> overwritten every release, with a manifest naming the build date, source release and tool version. Past
-> releases have no published Parquet; this tool rebuilds them from the monthly bundles (or a monthly plus
-> deltas, for a past week). See [ClinVar-GKM ADR 0009](https://github.com/clingen-data-model/clinvar-gkm/blob/docs/adr-0008-bundle-record/docs/decisions/0009-r2-layout-mirrors-ncbi-clinvar.md)
-> (proposed, PR #168). User documentation will live on the
-> [ClinVar-GKM docs site](https://dataexchange.clinicalgenome.org/clinvar-gkm/), in a planned
-> Ecosystem → Add-ons section.
+> - [ADR 0008](https://github.com/clingen-data-model/clinvar-gkm-parquet/blob/main/docs/decisions/0008-end-state-reversible-default-custom-projections-filters.md)
+>   (accepted): the default Parquet set is generated from the bundle schema alone and rebuilds the bundle record for
+>   record. Custom column sets are labelled projections, and filters work in both directions. The `clinvar-gkm` and
+>   `baseline` specs and hand-written `tables.yaml` input are retired.
+> - [ADR 0009](https://github.com/clingen-data-model/clinvar-gkm-parquet/blob/main/docs/decisions/0009-generic-gkm-bundle-tool-renamed.md)
+>   (proposed): the tool names no producer and is renamed **`gkm-bundle-parquet`**. Every command takes the bundle's
+>   schema (`--bundle-schema`), and none defaults to ClinVar-GKM. ClinVar-GKM's release model (its line index, monthly,
+>   weekly and delta files, and replay) moves to ClinVar-GKM.
+>
+> A 1.x release will deprecate what 2.0.0 removes. Until then, the commands below work as documented, including the
+> ClinVar-GKM defaults. ClinVar-GKM plans to publish the default set this tool builds as its Parquet dataset; today it
+> publishes its own BigQuery export.
 
 ## Versioning
 
@@ -82,6 +83,12 @@ Python 3.10 or later. DuckDB is pinned exactly, because the output bytes depend 
 The default engine needs nothing extra.
 
 ## Usage
+
+The examples use ClinVar-GKM bundles, the tool's default today. Any GKM bundle works with its schema and column set
+(`--bundle-schema` and `--column-set`; [format](https://github.com/clingen-data-model/clinvar-gkm-parquet/blob/main/docs/column-set-format.md)). The
+ClinVar-GKM-only parts go in 2.0.0 (planned; ADRs 0008 and 0009): the `clinvar-gkm` and `baseline` specs and custom
+`tables.yaml` input, `--release`, `--index`, `--delta`, `--manifest` and `--full-source-release`, and building with no
+`--bundle-schema`.
 
 ```sh
 # The sections spec (the default): one table per bundle section, a typed column per record property
@@ -166,13 +173,17 @@ row filters need a SQL file the tool ships.
 ## Design records
 
 - [Design plan](https://github.com/clingen-data-model/clinvar-gkm-parquet/blob/main/docs/plans/2026-10-20-design.md): scope, table spec, inputs and delta replay, engine, CLI,
-  testing (including the oracle against ClinVar-GKM's current export), rollout, and open decisions.
+  testing (including the oracle against ClinVar-GKM's current export), rollout, and open decisions. It records the
+  ClinVar-GKM-specific design; ADRs 0008 and 0009 replace parts of it.
 - [Architecture decision records](https://github.com/clingen-data-model/clinvar-gkm-parquet/blob/main/docs/decisions/README.md):
   [0001 — Parquet is derived from the bundles](https://github.com/clingen-data-model/clinvar-gkm-parquet/blob/main/docs/decisions/0001-parquet-derived-from-bundles.md),
   [0002 — Independent tool versioning](https://github.com/clingen-data-model/clinvar-gkm-parquet/blob/main/docs/decisions/0002-independent-tool-versioning.md),
   [0003 — Pluggable table specs](https://github.com/clingen-data-model/clinvar-gkm-parquet/blob/main/docs/decisions/0003-pluggable-table-specs.md),
   [0004 — Driver-based selection](https://github.com/clingen-data-model/clinvar-gkm-parquet/blob/main/docs/decisions/0004-driver-based-selection.md),
-  [0005 — A full sections build is lossless](https://github.com/clingen-data-model/clinvar-gkm-parquet/blob/main/docs/decisions/0005-lossless-sections-build.md).
+  [0005 — A full sections build is lossless](https://github.com/clingen-data-model/clinvar-gkm-parquet/blob/main/docs/decisions/0005-lossless-sections-build.md),
+  [0006 — Tables compiled from a bundle schema and its column set](https://github.com/clingen-data-model/clinvar-gkm-parquet/blob/main/docs/decisions/0006-sections-spec-compiled-from-schemas.md),
+  [0008 — The end state](https://github.com/clingen-data-model/clinvar-gkm-parquet/blob/main/docs/decisions/0008-end-state-reversible-default-custom-projections-filters.md),
+  [0009 — A generic GKM bundle tool, renamed gkm-bundle-parquet](https://github.com/clingen-data-model/clinvar-gkm-parquet/blob/main/docs/decisions/0009-generic-gkm-bundle-tool-renamed.md).
 
 ## Contributing
 
