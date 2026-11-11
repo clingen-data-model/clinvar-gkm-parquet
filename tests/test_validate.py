@@ -80,11 +80,17 @@ def test_narrowed_fixture_is_the_recorded_commit():
 # --- whole bundles, through the CLI ------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("engine_name", ["rs", pytest.param("python", marks=needs_reference)])
-@pytest.mark.parametrize("set_name", SETS)
-def test_cli_passes_the_fixture(tmp_path, engine_name, set_name):
-    if engine_name == "rs" and set_name == "published":
-        pytest.skip("covered in-process below: each worker compiling the published root's sections takes ~1 min")
+# rs on the published set is left out: each worker would compile its sections (~1 min), and the in-process tests
+# below already run that engine on every fixture record.
+@pytest.mark.parametrize(
+    ("set_name", "engine_name"),
+    [
+        ("narrowed", "rs"),
+        pytest.param("narrowed", "python", marks=needs_reference),
+        pytest.param("published", "python", marks=needs_reference),
+    ],
+)
+def test_cli_passes_the_fixture(tmp_path, set_name, engine_name):
     out = tmp_path / "counts.json"
     schema = str(NARROWED) if set_name == "narrowed" else schema_source("1.1.0")
     argv = ["validate", str(FIXTURE), "--bundle-schema", schema, "--engine", engine_name, "--workers", "2"]
