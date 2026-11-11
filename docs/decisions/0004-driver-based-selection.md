@@ -4,7 +4,7 @@
 - **Date:** 2026-10-26
 - **Plan:** [`docs/plans/2026-10-20-design.md`](../plans/2026-10-20-design.md) §4.5
 
-**Amended by [ADR 0008](./0008-end-state-reversible-default-custom-projections-filters.md) (proposed, 2026-11-08):** selection works with any pairing and column set, gains
+**Amended by [ADR 0008](./0008-end-state-reversible-default-custom-projections-filters.md) (accepted 2026-11-11):** selection works with any pairing and column set, gains
 `--follow none` (a plain row filter) and a reverse direction in `rebuild`, and a filtered build rebuilds to its mini-bundle.
 Decision 5's BigQuery-parity note no longer applies.
 

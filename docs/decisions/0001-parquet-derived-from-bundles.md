@@ -4,7 +4,7 @@
 - **Date:** 2026-10-20
 - **Plan:** [`docs/plans/2026-10-20-design.md`](../plans/2026-10-20-design.md)
 
-**Amended by [ADR 0008](./0008-end-state-reversible-default-custom-projections-filters.md) (proposed, 2026-11-08):** ClinVar-GKM publishes the tool's default reversible set
+**Amended by [ADR 0008](./0008-end-state-reversible-default-custom-projections-filters.md) (accepted 2026-11-11):** ClinVar-GKM publishes the tool's default reversible set
 only, and the 22-table BigQuery-style set is retired, so the oracle is no longer a gate. The decisions above stand.
 
 ## Context

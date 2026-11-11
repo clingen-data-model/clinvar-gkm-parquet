@@ -4,7 +4,7 @@
 - **Date:** 2026-10-20
 - **Plan:** [`docs/plans/2026-10-20-design.md`](../plans/2026-10-20-design.md) §3 and §9
 
-**Amended by [ADR 0008](./0008-end-state-reversible-default-custom-projections-filters.md) (proposed, 2026-11-08):** `baseline`, `clinvar-gkm` and custom `tables.yaml` specs are
+**Amended by [ADR 0008](./0008-end-state-reversible-default-custom-projections-filters.md) (accepted 2026-11-11):** `baseline`, `clinvar-gkm` and custom `tables.yaml` specs are
 retired, so their explicit `schema_version` lists go with them; ADR 0006's gate (the pairing loads and compiles) applies to
 every set.
 

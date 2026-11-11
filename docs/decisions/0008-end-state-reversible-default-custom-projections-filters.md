@@ -1,6 +1,6 @@
 # 0008 — End state: one reversible default set, custom projections, and filters both ways
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-11)
 - **Date:** 2026-11-08
 - **Plan (if any):** [`docs/plans/2026-10-20-design.md`](../plans/2026-10-20-design.md) (to be revised on acceptance);
   supersedes [ADR 0003](0003-pluggable-table-specs.md); amends [ADR 0001](0001-parquet-derived-from-bundles.md),
