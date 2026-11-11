@@ -8,6 +8,9 @@
 `--follow none` (a plain row filter) and a reverse direction in `rebuild`, and a filtered build rebuilds to its mini-bundle.
 Decision 5's BigQuery-parity note no longer applies.
 
+**Amended by [ADR 0009](./0009-generic-gkm-bundle-tool-renamed.md) (proposed, 2026-11-11):** selection takes the
+bundle's schema like every other command and no longer reads a fixed `schema_version` line.
+
 ## Context
 
 A full build reads the whole bundle (about 91.5 M records in the 2026-10-18 weekly full) and writes every table.

@@ -8,6 +8,10 @@
 retired, so their explicit `schema_version` lists go with them; ADR 0006's gate (the pairing loads and compiles) applies to
 every set.
 
+**Amended by [ADR 0009](./0009-generic-gkm-bundle-tool-renamed.md) (proposed, 2026-11-11):** the compatibility matrix
+lists no producer's `schema_version`s; a release reads any bundle whose given schema loads and compiles. The tool is
+renamed `gkm-bundle-parquet` in 2.0.0.
+
 **Amended by [ADR 0006](0006-sections-spec-compiled-from-schemas.md) (2026-11-02):** for the `sections` spec the fixed
 list of decisions 3 and 4 is replaced: a bundle's version is accepted when its schema and column set load and compile, and
 is refused with the reason otherwise, so a schema bump with a published column set needs no tool release. `baseline`,

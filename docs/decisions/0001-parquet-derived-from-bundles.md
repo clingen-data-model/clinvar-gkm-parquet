@@ -7,6 +7,10 @@
 **Amended by [ADR 0008](./0008-end-state-reversible-default-custom-projections-filters.md) (accepted 2026-11-11):** ClinVar-GKM publishes the tool's default reversible set
 only, and the 22-table BigQuery-style set is retired, so the oracle is no longer a gate. The decisions above stand.
 
+**Amended by [ADR 0009](./0009-generic-gkm-bundle-tool-renamed.md) (proposed, 2026-11-11):** the tool serves any GKM
+producer: "the bundle is the record, and Parquet derives from it" holds for each producer's bundle, and a missing fact
+goes into that producer's bundle first. ClinVar-GKM's publishing arrangements are its own.
+
 ## Context
 
 ClinVar-GKM publishes its data as JSON bundles (monthly fulls, weekly deltas and, from 1.1.0, weekly fulls)
