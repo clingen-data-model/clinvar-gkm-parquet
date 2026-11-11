@@ -1,0 +1,33 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarCondition",
+   "title": "ClinvarCondition",
+   "description": "A record of the condition section: a Condition for a ClinVar trait, with its name, aliases, primary coding and mappings. No description or extensions.",
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/ga4gh/schema/va-spec/1.1.0/json/Condition"
+      },
+      {
+         "type": "object",
+         "properties": {
+            "description": false,
+            "extensions": false,
+            "primaryCoding": {
+               "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarCoding",
+               "description": "The condition's primary coding."
+            },
+            "mappings": {
+               "type": "array",
+               "ordered": false,
+               "items": {
+                  "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarConceptMapping"
+               },
+               "description": "Mappings of the condition to codes in other terminologies."
+            }
+         }
+      }
+   ],
+   "type": "object",
+   "unevaluatedProperties": false
+}

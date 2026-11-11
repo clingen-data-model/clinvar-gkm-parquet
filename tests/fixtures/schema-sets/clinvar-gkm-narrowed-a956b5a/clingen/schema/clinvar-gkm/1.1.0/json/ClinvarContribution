@@ -1,0 +1,38 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarContribution",
+   "title": "ClinvarContribution",
+   "description": "A Contribution as ClinVar-GKM writes it: a submitter's activity on a ClinVar record, with its date. The contributor is a pointer to a record of the submitter section. No id, name, description, aliases or extensions.",
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/ga4gh/schema/va-spec/1.1.0/json/Contribution"
+      },
+      {
+         "type": "object",
+         "properties": {
+            "id": false,
+            "name": false,
+            "description": false,
+            "aliases": false,
+            "extensions": false,
+            "contributor": {
+               "pattern": "^#/submitter/",
+               "description": "The submitter, a '#/submitter/<id>' pointer into this bundle.",
+               "$ref": "/ga4gh/schema/gkm-core/1.3.0/json/iriReference"
+            },
+            "activityType": {
+               "type": "string",
+               "enum": [
+                  "submitted",
+                  "created",
+                  "evaluated"
+               ],
+               "description": "What the submitter did on the date: submitted (last updated), created, or evaluated the record."
+            }
+         }
+      }
+   ],
+   "type": "object",
+   "unevaluatedProperties": false
+}

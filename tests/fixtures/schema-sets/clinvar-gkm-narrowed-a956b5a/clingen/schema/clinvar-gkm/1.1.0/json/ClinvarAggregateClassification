@@ -1,0 +1,57 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarAggregateClassification",
+   "title": "ClinvarAggregateClassification",
+   "description": "The classification of a ClinVar VCV or RCV aggregate statement: a MappableConcept with its concept type and the aggregate classification label as its name and, when the submissions conflict, an ExtensionConflictingExplanation. No id, description, aliases, coding or mappings.",
+   "$defs": {
+      "ExtensionConflictingExplanation": {
+         "type": "object",
+         "maturity": "trial use",
+         "description": "The classifications behind a conflicting aggregate classification, with the number of submissions for each (e.g., \"Pathogenic(2); Uncertain significance(1)\").",
+         "protectedClassOf": "ClinvarAggregateClassification",
+         "properties": {
+            "name": {
+               "type": "string",
+               "const": "conflictingExplanation",
+               "description": "Must be 'conflictingExplanation'."
+            },
+            "value": {
+               "type": "string",
+               "description": "The classifications and their submission counts, separated by '; '."
+            }
+         },
+         "additionalProperties": false
+      }
+   },
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/ga4gh/schema/gkm-core/1.3.0/json/MappableConcept"
+      },
+      {
+         "type": "object",
+         "properties": {
+            "id": false,
+            "description": false,
+            "aliases": false,
+            "primaryCoding": false,
+            "mappings": false,
+            "conceptType": {
+               "type": "string",
+               "const": "Classification",
+               "description": "Must be 'Classification'."
+            },
+            "extensions": {
+               "type": "array",
+               "ordered": false,
+               "items": {
+                  "$ref": "#/$defs/ExtensionConflictingExplanation"
+               },
+               "description": "The conflicting classifications, in an ExtensionConflictingExplanation."
+            }
+         }
+      }
+   ],
+   "type": "object",
+   "unevaluatedProperties": false
+}

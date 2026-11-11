@@ -1,0 +1,14 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/SubmittedConditionMapping",
+   "title": "SubmittedConditionMapping",
+   "description": "The submitter's original condition details and how they were mapped to a ClinVar canonical condition. Includes the submitted name, type, MedGen ID, cross-references, and the normalization path (direct match, original medgen match, normalized match, resolution type, mapping details).",
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/SubmittedConditionMappingProperties"
+      }
+   ],
+   "type": "object",
+   "unevaluatedProperties": false
+}

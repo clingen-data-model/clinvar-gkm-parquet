@@ -1,0 +1,45 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarLiftoverToRelation",
+   "title": "ClinvarLiftoverToRelation",
+   "description": "The `liftover_to` relation of a ClinVar defining allele or defining location constraint: a MappableConcept with only its type and primary coding (code `liftover_to`, system `ga4gh-gks-term:allele-relation`, no IRIs).",
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/ga4gh/schema/gkm-core/1.3.0/json/MappableConcept"
+      },
+      {
+         "type": "object",
+         "properties": {
+            "id": false,
+            "name": false,
+            "description": false,
+            "aliases": false,
+            "extensions": false,
+            "conceptType": false,
+            "mappings": false,
+            "primaryCoding": {
+               "type": "object",
+               "additionalProperties": false,
+               "properties": {
+                  "code": {
+                     "type": "string",
+                     "const": "liftover_to"
+                  },
+                  "system": {
+                     "type": "string",
+                     "const": "ga4gh-gks-term:allele-relation"
+                  }
+               },
+               "required": [
+                  "code",
+                  "system"
+               ],
+               "description": "The relation's code and system."
+            }
+         }
+      }
+   ],
+   "type": "object",
+   "unevaluatedProperties": false
+}

@@ -76,6 +76,11 @@ pipx install clinvar-gkm-parquet==1.0.1        # or install it
 Python 3.10 or later. DuckDB is pinned exactly, because the output bytes depend on it, so an isolated environment
 (`uvx` or `pipx`) avoids a clash with your own DuckDB.
 
+`validate --engine python`, the reference validator, needs the `reference` extra (the GA4GH GKM Toolkit, `ga4gh.gkm`
+0.4.0, Python 3.11 or later), whose GA4GH dependencies are pre-releases:
+`uv tool install --prerelease=allow 'clinvar-gkm-parquet[reference]'` or `pip install --pre 'clinvar-gkm-parquet[reference]'`.
+The default engine needs nothing extra.
+
 ## Usage
 
 ```sh
@@ -114,6 +119,12 @@ clinvar-gkm-parquet compile-spec 1.1.0 > sections-1.1.0.yaml
 # Back from Parquet to the bundle: a full sections build rebuilds the bundle's text byte for byte
 clinvar-gkm-parquet rebuild out/ -o clinvar-gkm_2026-1018.json.gz
 
+# Validate every record against the bundle's JSON Schema set (the default engine, jsonschema-rs; docs/validate.md)
+clinvar-gkm-parquet validate clinvar-gkm_2026-1018.json.gz
+clinvar-gkm-parquet validate clinvar-gkm-delta_2026-1031.json.gz --bundle-schema my-schema-set/ --failures bad.jsonl
+# The same with the GKM Toolkit's validator, the reference the default is checked against (much slower)
+clinvar-gkm-parquet validate clinvar-gkm-delta_2026-1031.json.gz --engine python
+
 # Checks: the directory on its own; a full build against its bundle; a selection against its mini-bundle;
 # the round trip (the rebuilt text against the recorded hashes and, with --full, the bundle's own text)
 clinvar-gkm-parquet verify out/
@@ -121,6 +132,13 @@ clinvar-gkm-parquet verify out/ --bundle-recompute --full clinvar-gkm_2026-1018.
 clinvar-gkm-parquet verify omim/ --bundle-recompute --full omim.json.gz
 clinvar-gkm-parquet verify out/ --roundtrip --full clinvar-gkm_2026-1018.json.gz
 ```
+
+`validate` checks each record alone, as a one-section bundle with the bundle's `schema_version`, so key patterns are
+checked too, as ClinVar-GKM's validator does. It exits 1 if any record fails, naming its section, key and instance paths,
+and 2 on anything that isn't a verdict on a record (an unreadable bundle, an unknown section, a missing version, a schema
+set that doesn't load). Its two engines give the same verdicts on every record of the 2026-10-31 delta and a sample of the
+2026-10-31 full, with the published 1.1.0 schemas and ClinVar-GKM's narrowed ones; [docs/validate.md](docs/validate.md) has
+the evidence, the known differences and the timings.
 
 `rebuild` writes gzip when the output name ends in `.gz`; the gzip bytes differ from the published file (header
 and compressor), the uncompressed text does not, and its sha256 is checked against the build's manifest

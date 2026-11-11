@@ -1,0 +1,86 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/ga4gh/schema/vrs/2.1.1/json/SequenceReference",
+   "title": "SequenceReference",
+   "type": "object",
+   "maturity": "trial use",
+   "ga4gh": {
+      "inherent": [
+         "refgetAccession",
+         "type"
+      ]
+   },
+   "description": "A sequence of nucleic or amino acid character codes.",
+   "properties": {
+      "id": {
+         "type": "string",
+         "description": "The 'logical' identifier of the Entity in the system of record, e.g. a UUID.  This 'id' is unique within a given system, but may or may not be globally unique outside the system. It is used within a system to reference an object from another."
+      },
+      "type": {
+         "type": "string",
+         "description": "MUST be \"SequenceReference\"",
+         "const": "SequenceReference",
+         "default": "SequenceReference"
+      },
+      "name": {
+         "type": "string",
+         "description": "A primary name for the entity."
+      },
+      "description": {
+         "type": "string",
+         "description": "A free-text description of the Entity."
+      },
+      "aliases": {
+         "type": "array",
+         "ordered": false,
+         "items": {
+            "type": "string"
+         },
+         "description": "Alternative name(s) for the Entity."
+      },
+      "extensions": {
+         "type": "array",
+         "ordered": false,
+         "items": {
+            "$ref": "/ga4gh/schema/gkm-core/1.3.0/json/Extension"
+         },
+         "description": "A list of extensions to the Entity, that allow for capture of information not directly supported by elements defined in the model."
+      },
+      "refgetAccession": {
+         "description": "A [GA4GH RefGet](http://samtools.github.io/hts-specs/refget.html) identifier for the referenced sequence, using the sha512t24u digest.",
+         "type": "string",
+         "pattern": "^SQ.[0-9A-Za-z_\\-]{32}$"
+      },
+      "residueAlphabet": {
+         "type": "string",
+         "description": "The interpretation of the character codes referred to by the refget accession, where \"aa\" specifies an amino acid character set, and \"na\" specifies a nucleic acid character set.",
+         "enum": [
+            "aa",
+            "na"
+         ]
+      },
+      "sequence": {
+         "$ref": "/ga4gh/schema/vrs/2.1.1/json/sequenceString",
+         "description": "A sequenceString that is a literal representation of the referenced sequence."
+      },
+      "moleculeType": {
+         "type": "string",
+         "description": "Molecule types as [defined by RefSeq](https://www.ncbi.nlm.nih.gov/books/NBK21091/) (see Table 1). MUST be one of \"genomic\", \"RNA\", \"mRNA\", or \"protein\".",
+         "enum": [
+            "genomic",
+            "RNA",
+            "mRNA",
+            "protein"
+         ]
+      },
+      "circular": {
+         "type": "boolean",
+         "description": "A boolean indicating whether the molecule represented by the sequence is circular (true) or linear (false)."
+      }
+   },
+   "required": [
+      "refgetAccession",
+      "type"
+   ],
+   "additionalProperties": false
+}

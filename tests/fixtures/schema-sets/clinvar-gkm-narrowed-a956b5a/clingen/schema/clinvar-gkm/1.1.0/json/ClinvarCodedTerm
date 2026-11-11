@@ -1,0 +1,28 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarCodedTerm",
+   "title": "ClinvarCodedTerm",
+   "description": "A term of a ClinVar vocabulary (a strength, say) as a MappableConcept: its concept type, its name and, when the term has one, a ClinvarTermCoding. No id, description, aliases, mappings or extensions.",
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/ga4gh/schema/gkm-core/1.3.0/json/MappableConcept"
+      },
+      {
+         "type": "object",
+         "properties": {
+            "id": false,
+            "description": false,
+            "aliases": false,
+            "mappings": false,
+            "extensions": false,
+            "primaryCoding": {
+               "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarTermCoding",
+               "description": "The term's code and its system."
+            }
+         }
+      }
+   ],
+   "type": "object",
+   "unevaluatedProperties": false
+}

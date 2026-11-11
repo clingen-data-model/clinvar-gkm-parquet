@@ -13,9 +13,20 @@ classifiers = [
 ]
 # duckdb is pinned exactly: the output bytes depend on it (design plan §9.3, D8). 1.5.4 is the version that
 # merges ClinVar-GKM's published Parquet today. PyYAML reads the table spec (spec/<version>/tables.yaml).
+# jsonschema-rs is `validate`'s default engine, pinned exactly: its verdicts are proved equal to the reference
+# validator's at this version (docs/validate.md).
 dependencies = [
     "duckdb==1.5.4",
     "PyYAML>=6.0",
+    "jsonschema-rs==0.61.1",
+]
+
+[project.optional-dependencies]
+# `validate --engine python`: the GA4GH GKM Toolkit's validator, the reference the rs engine is checked against.
+# Its GA4GH dependencies are pre-releases, so install it with a pre-release resolver
+# (`uv sync --extra reference`, or `pip install --pre 'clinvar-gkm-parquet[reference]'`).
+reference = [
+    "ga4gh.gkm==0.4.0; python_version >= '3.11'",
 ]
 
 [project.urls]
@@ -28,6 +39,7 @@ clinvar-gkm-parquet = "clinvar_gkm_parquet.cli:main"
 dev = [
     "pytest>=8",
     "ruff>=0.6",
+    "ga4gh.gkm==0.4.0; python_version >= '3.11'",
 ]
 
 [build-system]
@@ -57,3 +69,7 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.uv]
+# ga4gh.gkm 0.4.0 (the reference extra) needs pre-releases of the GA4GH model packages.
+prerelease = "allow"

@@ -1,0 +1,72 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarAggregateEvidenceLine",
+   "title": "ClinvarAggregateEvidenceLine",
+   "description": "An evidence line of a VCV or RCV aggregate statement. A 'Contributing' line (direction 'supports') lists the statements the aggregate statement is built from; a 'Non-contributing' line (direction 'neutral') lists those of a lower review-status priority that did not contribute. Its items are pointers to SCV statements (at the classification layer) or to VCV or RCV statements (at the priority and aggregate layers). No name, description, aliases, extensions, method, contributions, citations, target proposition, score or evidence outcome.",
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/ga4gh/schema/va-spec/1.1.0/json/EvidenceLine"
+      },
+      {
+         "type": "object",
+         "properties": {
+            "name": false,
+            "description": false,
+            "aliases": false,
+            "extensions": false,
+            "specifiedBy": false,
+            "contributions": false,
+            "reportedIn": false,
+            "targetProposition": false,
+            "scoreOfEvidenceProvided": false,
+            "evidenceOutcome": false,
+            "directionOfEvidenceProvided": {
+               "type": "string",
+               "enum": [
+                  "supports",
+                  "neutral"
+               ],
+               "description": "'supports' for a Contributing line, 'neutral' for a Non-contributing line."
+            },
+            "strengthOfEvidenceProvided": {
+               "allOf": [
+                  {
+                     "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarTerm"
+                  },
+                  {
+                     "type": "object",
+                     "properties": {
+                        "conceptType": {
+                           "type": "string",
+                           "const": "Strength",
+                           "description": "Always 'Strength'."
+                        },
+                        "name": {
+                           "type": "string",
+                           "enum": [
+                              "Contributing",
+                              "Non-contributing"
+                           ],
+                           "description": "Whether the line's items contributed to the aggregate statement."
+                        }
+                     }
+                  }
+               ],
+               "description": "'Contributing' or 'Non-contributing', as a ClinvarTerm of concept type 'Strength'."
+            },
+            "hasEvidenceItems": {
+               "type": "array",
+               "ordered": false,
+               "items": {
+                  "pattern": "^#/(scv|vcv|rcv)/",
+                  "$ref": "/ga4gh/schema/gkm-core/1.3.0/json/iriReference"
+               },
+               "description": "The statements the line groups, each a '#/scv/<id>', '#/vcv/<id>' or '#/rcv/<id>' pointer into this bundle."
+            }
+         }
+      }
+   ],
+   "type": "object",
+   "unevaluatedProperties": false
+}

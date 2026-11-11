@@ -1,0 +1,92 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/SubmittedConditionMappingProperties",
+   "title": "SubmittedConditionMappingProperties",
+   "description": "The properties of a submitted condition's mapping, shared by SubmittedConditionMapping and SubmittedCondition.",
+   "abstract": true,
+   "type": "object",
+   "maturity": "trial use",
+   "properties": {
+      "id": {
+         "type": "string",
+         "description": "The submitted trait category assignment identifier (cat_id)."
+      },
+      "name": {
+         "type": "string",
+         "description": "The condition name as submitted by the submitter."
+      },
+      "type": {
+         "type": "string",
+         "description": "The condition type as submitted (e.g., \"Disease\", \"Finding\")."
+      },
+      "medgen_id": {
+         "type": "string",
+         "description": "The MedGen ID submitted by the submitter, if provided."
+      },
+      "xrefs": {
+         "type": "array",
+         "ordered": false,
+         "items": {
+            "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarTermCoding"
+         },
+         "description": "Cross-references submitted by the submitter for this condition."
+      },
+      "original_medgen_match": {
+         "type": "object",
+         "additionalProperties": false,
+         "description": "The original MedGen match when the submitted MedGen ID was remapped to a different canonical MedGen concept. Contains id and name of the original match. Null when no remapping occurred.",
+         "properties": {
+            "id": {
+               "type": "string"
+            },
+            "name": {
+               "type": "string"
+            }
+         }
+      },
+      "direct_match": {
+         "type": "string",
+         "description": "The CURIE of the directly matched condition (e.g., \"clinvar.trait:123\"; the key of the corresponding #/condition/ bundle entry). Present only when the direct match differs from the normalized match."
+      },
+      "normalized_match": {
+         "type": "string",
+         "description": "The CURIE of the final normalized condition (e.g., \"clinvar.trait:456\"; the key of the corresponding #/condition/ bundle entry)."
+      },
+      "normalized_resolution": {
+         "type": "string",
+         "enum": [
+            "tm reftype xref medgen",
+            "tm reftype preferred name",
+            "tm reftype xref omim",
+            "tm reftype xref mondo",
+            "tm reftype xref HP",
+            "tm reftype xref omim.ps",
+            "tm reftype xref orpha",
+            "tm reftype xref mesh",
+            "random trait assignment"
+         ],
+         "description": "How the condition normalization was resolved: by the trait mapping of one of the submitted references (\"tm reftype xref medgen\", \"tm reftype preferred name\", ...), or, when none matched, by \"random trait assignment\"."
+      },
+      "mapping": {
+         "type": "object",
+         "additionalProperties": false,
+         "description": "The mapping details used to resolve the submitted condition to a ClinVar trait, including mapping type, reference field, and value.",
+         "properties": {
+            "type": {
+               "type": "string",
+               "enum": [
+                  "Name",
+                  "XRef"
+               ],
+               "description": "Name when the condition was submitted by name, otherwise XRef."
+            },
+            "ref": {
+               "type": "string"
+            },
+            "value": {
+               "type": "string"
+            }
+         }
+      }
+   }
+}

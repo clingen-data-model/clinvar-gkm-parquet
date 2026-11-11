@@ -1,0 +1,61 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarSequenceReference",
+   "title": "ClinvarSequenceReference",
+   "description": "A record of the sequenceReference section: a VRS SequenceReference for an NCBI RefSeq sequence, with its accession as the name, its molecule type and residue alphabet, and its assembly in an extension when the sequence belongs to one. No id, description, aliases, sequence or circular flag.",
+   "$defs": {
+      "ExtensionAssembly": {
+         "description": "An extension item for the assembly of a genomic sequence reference.",
+         "protectedClassOf": "ClinvarSequenceReference",
+         "type": "object",
+         "maturity": "trial use",
+         "properties": {
+            "name": {
+               "type": "string",
+               "const": "assembly",
+               "description": "Must be 'assembly'."
+            },
+            "value": {
+               "type": "string",
+               "enum": [
+                  "GRCh37",
+                  "GRCh38",
+                  "NCBI36"
+               ],
+               "description": "The assembly of the sequence as provided by Clinvar. It must be one of the following: 'GRCh37', 'GRCh38', or 'NCBI36'."
+            }
+         },
+         "required": [
+            "name",
+            "value"
+         ],
+         "additionalProperties": false
+      }
+   },
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/ga4gh/schema/vrs/2.1.1/json/SequenceReference"
+      },
+      {
+         "type": "object",
+         "properties": {
+            "id": false,
+            "description": false,
+            "aliases": false,
+            "sequence": false,
+            "circular": false,
+            "extensions": {
+               "type": "array",
+               "ordered": false,
+               "items": {
+                  "$ref": "#/$defs/ExtensionAssembly"
+               },
+               "description": "The assembly of the sequence, when it belongs to one."
+            }
+         }
+      }
+   ],
+   "type": "object",
+   "unevaluatedProperties": false
+}

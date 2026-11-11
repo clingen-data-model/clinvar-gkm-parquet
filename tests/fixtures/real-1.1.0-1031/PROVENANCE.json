@@ -1,0 +1,806 @@
+{
+  "fixture": "clinvar-gkm_excerpt.json.gz",
+  "sha256": "446e9f6b99e5eb1afc674d80b788fa1e3f03bac074365ab6455a7332316e001b",
+  "schema_version": "1.1.0",
+  "generator": "scripts/extract-fixtures.py",
+  "script_version": "1.0",
+  "tool_version": "1.0.1",
+  "table_spec_version": "1.0",
+  "source": {
+    "url": "https://data.clinvar-gkm.org/v1/1.1/weekly/clinvar-gkm_2026-1031.json.gz",
+    "release": "2026-10-31",
+    "schema_version": "1.1.0",
+    "sha256": "7105eba1d88f22359e94d8d813a1e7b3afd00afe1b2e528180ea312267392c20",
+    "sha256_published": "7105eba1d88f22359e94d8d813a1e7b3afd00afe1b2e528180ea312267392c20",
+    "size": 4807272930,
+    "records": 91854927,
+    "section_records": {
+      "sequenceReference": 216,
+      "location": 4226867,
+      "allele": 4615593,
+      "copyNumberCount": 47469,
+      "copyNumberChange": 31745,
+      "gene": 92989,
+      "variation": 4708791,
+      "condition": 23426,
+      "conditionSet": 100864,
+      "therapy": 38,
+      "therapyGroup": 10,
+      "submitter": 3586,
+      "propositionPathogenicity": 27981342,
+      "propositionOncogenicity": 12233,
+      "propositionSomaticClinicalImpact": 12607,
+      "propositionClinvarCustom": 186189,
+      "evidenceLine": 21620159,
+      "scv": 6881795,
+      "vcv": 9200508,
+      "rcv": 12108500
+    }
+  },
+  "layout": "design plan §4.2 line format; every key and record verbatim from the source line; source section order; source key order within a section; gzip level 9, mtime 0, no file name",
+  "selection": {
+    "per_shape": 1,
+    "candidates": 1,
+    "max_seed_bytes": 131072,
+    "explicit_seeds": [
+      "propositionPathogenicity:SCV002547360-PATH",
+      "propositionSomaticClinicalImpact:SCV006076900-PROG",
+      "propositionClinvarCustom:VCV001065846-G-AFF",
+      "propositionClinvarCustom:VCV000523645-G-ASSOC-NOCP",
+      "propositionClinvarCustom:VCV000996154-G-CS",
+      "propositionClinvarCustom:VCV000150646-G-CDFS-NOCP",
+      "propositionClinvarCustom:VCV000226025-G-DR-NOCP",
+      "propositionClinvarCustom:VCV000004792-G-NP",
+      "propositionClinvarCustom:VCV000010406-G-OTH-NOCP",
+      "propositionClinvarCustom:VCV000013416-G-PROTECT-NOCP",
+      "propositionClinvarCustom:VCV000004286-G-RF"
+    ]
+  },
+  "passes": 6,
+  "seeds": [
+    {
+      "section": "location",
+      "key": "ga4gh:SL.3kDWNdRoZLTYWKQ4fp80XpKFIU1XU3RW",
+      "shapes": [
+        "uncertain-range-location"
+      ],
+      "closure_bytes": 546
+    },
+    {
+      "section": "variation",
+      "key": "clinvar:633857",
+      "shapes": [
+        "genotype"
+      ],
+      "closure_bytes": 591
+    },
+    {
+      "section": "variation",
+      "key": "clinvar:442538",
+      "shapes": [
+        "copy-number-count"
+      ],
+      "closure_bytes": 3497
+    },
+    {
+      "section": "variation",
+      "key": "clinvar:395722",
+      "shapes": [
+        "ext:variation.extensions:vrsProcessingException"
+      ],
+      "closure_bytes": 3001
+    },
+    {
+      "section": "variation",
+      "key": "clinvar:1047883",
+      "shapes": [
+        "copy-number-change"
+      ],
+      "closure_bytes": 11298
+    },
+    {
+      "section": "variation",
+      "key": "clinvar:1215081",
+      "shapes": [
+        "allele"
+      ],
+      "closure_bytes": 3586
+    },
+    {
+      "section": "variation",
+      "key": "clinvar:441270",
+      "shapes": [
+        "haplotype"
+      ],
+      "closure_bytes": 753
+    },
+    {
+      "section": "propositionPathogenicity",
+      "key": "SCV003793897-PATH",
+      "shapes": [
+        "gene-context-placeholder"
+      ],
+      "closure_bytes": 5498
+    },
+    {
+      "section": "propositionPathogenicity",
+      "key": "SCV002547360-PATH",
+      "shapes": [
+        "explicit"
+      ],
+      "closure_bytes": 8362
+    },
+    {
+      "section": "propositionSomaticClinicalImpact",
+      "key": "SCV007338595-TR",
+      "shapes": [
+        "therapy-group"
+      ],
+      "closure_bytes": 7021
+    },
+    {
+      "section": "propositionSomaticClinicalImpact",
+      "key": "SCV006076900-PROG",
+      "shapes": [
+        "explicit"
+      ],
+      "closure_bytes": 18505
+    },
+    {
+      "section": "propositionClinvarCustom",
+      "key": "VCV001065846-G-AFF",
+      "shapes": [
+        "explicit"
+      ],
+      "closure_bytes": 6374
+    },
+    {
+      "section": "propositionClinvarCustom",
+      "key": "VCV000523645-G-ASSOC-NOCP",
+      "shapes": [
+        "explicit"
+      ],
+      "closure_bytes": 6372
+    },
+    {
+      "section": "propositionClinvarCustom",
+      "key": "VCV000996154-G-CS",
+      "shapes": [
+        "explicit"
+      ],
+      "closure_bytes": 5571
+    },
+    {
+      "section": "propositionClinvarCustom",
+      "key": "VCV000150646-G-CDFS-NOCP",
+      "shapes": [
+        "explicit"
+      ],
+      "closure_bytes": 19652
+    },
+    {
+      "section": "propositionClinvarCustom",
+      "key": "VCV000226025-G-DR-NOCP",
+      "shapes": [
+        "explicit"
+      ],
+      "closure_bytes": 5756
+    },
+    {
+      "section": "propositionClinvarCustom",
+      "key": "VCV000004792-G-NP",
+      "shapes": [
+        "explicit"
+      ],
+      "closure_bytes": 5867
+    },
+    {
+      "section": "propositionClinvarCustom",
+      "key": "VCV000010406-G-OTH-NOCP",
+      "shapes": [
+        "explicit"
+      ],
+      "closure_bytes": 5033
+    },
+    {
+      "section": "propositionClinvarCustom",
+      "key": "VCV000013416-G-PROTECT-NOCP",
+      "shapes": [
+        "explicit"
+      ],
+      "closure_bytes": 6374
+    },
+    {
+      "section": "propositionClinvarCustom",
+      "key": "VCV000004286-G-RF",
+      "shapes": [
+        "explicit"
+      ],
+      "closure_bytes": 4890
+    },
+    {
+      "section": "evidenceLine",
+      "key": "clinvar.submission:SCV007104888.1",
+      "shapes": [
+        "evidence-line-scv"
+      ],
+      "closure_bytes": 7796
+    },
+    {
+      "section": "evidenceLine",
+      "key": "RCV000806768.10-G-PATH.non-contributing",
+      "shapes": [
+        "evidence-line-rcv"
+      ],
+      "closure_bytes": 10276
+    },
+    {
+      "section": "evidenceLine",
+      "key": "VCV004530323.2-S-SCI-CP.contributing",
+      "shapes": [
+        "evidence-line-vcv"
+      ],
+      "closure_bytes": 20053
+    },
+    {
+      "section": "scv",
+      "key": "clinvar.submission:SCV007980487.1",
+      "shapes": [
+        "ext:scv.reportedIn:clinvarCitationText"
+      ],
+      "closure_bytes": 13909
+    },
+    {
+      "section": "scv",
+      "key": "clinvar.submission:SCV000327499.4",
+      "shapes": [
+        "ext:scv.specifiedBy:clinvarCitationText"
+      ],
+      "closure_bytes": 11219
+    },
+    {
+      "section": "scv",
+      "key": "clinvar.submission:SCV004707957.1",
+      "shapes": [
+        "ext:scv.specifiedBy:invalidClinvarCitation"
+      ],
+      "closure_bytes": 8268
+    },
+    {
+      "section": "scv",
+      "key": "clinvar.submission:SCV002505627.1",
+      "shapes": [
+        "ext:scv.reportedIn:originalClinvarCitation"
+      ],
+      "closure_bytes": 11740
+    },
+    {
+      "section": "scv",
+      "key": "clinvar.submission:SCV007612060.1",
+      "shapes": [
+        "ext:scv.specifiedBy:originalClinvarCitation"
+      ],
+      "closure_bytes": 10346
+    },
+    {
+      "section": "scv",
+      "key": "clinvar.submission:SCV007601300.1",
+      "shapes": [
+        "ext:scv.reportedIn:invalidClinvarCitation"
+      ],
+      "closure_bytes": 10836
+    },
+    {
+      "section": "scv",
+      "key": "clinvar.submission:SCV000914329.1",
+      "shapes": [
+        "ext:scv.specifiedBy:additionalClinvarMethodCitations"
+      ],
+      "closure_bytes": 9572
+    },
+    {
+      "section": "scv",
+      "key": "clinvar.submission:SCV004171219.1",
+      "shapes": [
+        "ext:scv.reportedIn:originalClinvarCitationSource"
+      ],
+      "closure_bytes": 8895
+    },
+    {
+      "section": "scv",
+      "key": "clinvar.submission:SCV007637169.1",
+      "shapes": [
+        "ext:scv.reportedIn:clinvarDoi"
+      ],
+      "closure_bytes": 11032
+    },
+    {
+      "section": "scv",
+      "key": "clinvar.submission:SCV005077921.2",
+      "shapes": [
+        "ext:scv.specifiedBy:originalClinvarCitationSource"
+      ],
+      "closure_bytes": 10298
+    },
+    {
+      "section": "vcv",
+      "key": "VCV001050652.9-G-PATH",
+      "shapes": [
+        "germline-vcv"
+      ],
+      "closure_bytes": 18939
+    },
+    {
+      "section": "vcv",
+      "key": "VCV005021357.1-S-ONCO",
+      "shapes": [
+        "somatic-vcv"
+      ],
+      "closure_bytes": 10230
+    },
+    {
+      "section": "rcv",
+      "key": "RCV000127469.1-G-PATH-CP",
+      "shapes": [
+        "rcv"
+      ],
+      "closure_bytes": 12409
+    }
+  ],
+  "shapes": [
+    {
+      "shape": "allele",
+      "description": "a variation with categoricalVariationType CanonicalAllele (with its allele, location, sequence)",
+      "status": "selected",
+      "candidates": 1,
+      "seeds": [
+        "variation:clinvar:1215081"
+      ]
+    },
+    {
+      "shape": "copy-number-count",
+      "description": "a variation with categoricalVariationType CategoricalCnvCount (with its copyNumberCount)",
+      "status": "selected",
+      "candidates": 1,
+      "seeds": [
+        "variation:clinvar:442538"
+      ]
+    },
+    {
+      "shape": "copy-number-change",
+      "description": "a variation with categoricalVariationType CategoricalCnvChange (with its copyNumberChange)",
+      "status": "selected",
+      "candidates": 1,
+      "seeds": [
+        "variation:clinvar:1047883"
+      ]
+    },
+    {
+      "shape": "uncertain-range-location",
+      "description": "a location whose start or end is a Range [min, max]",
+      "status": "selected",
+      "candidates": 1,
+      "seeds": [
+        "location:ga4gh:SL.3kDWNdRoZLTYWKQ4fp80XpKFIU1XU3RW"
+      ]
+    },
+    {
+      "shape": "haplotype",
+      "description": "a variation with clinvarSubclassType Haplotype",
+      "status": "selected",
+      "candidates": 1,
+      "seeds": [
+        "variation:clinvar:441270"
+      ]
+    },
+    {
+      "shape": "genotype",
+      "description": "a variation with clinvarSubclassType Genotype",
+      "status": "selected",
+      "candidates": 1,
+      "seeds": [
+        "variation:clinvar:633857"
+      ]
+    },
+    {
+      "shape": "germline-vcv",
+      "description": "a germline VCV aggregate statement (key VCV...-G-...)",
+      "status": "selected",
+      "candidates": 1,
+      "seeds": [
+        "vcv:VCV001050652.9-G-PATH"
+      ]
+    },
+    {
+      "shape": "somatic-vcv",
+      "description": "a somatic VCV aggregate statement (key VCV...-S-...)",
+      "status": "selected",
+      "candidates": 1,
+      "seeds": [
+        "vcv:VCV005021357.1-S-ONCO"
+      ]
+    },
+    {
+      "shape": "rcv",
+      "description": "an RCV aggregate statement",
+      "status": "selected",
+      "candidates": 1,
+      "seeds": [
+        "rcv:RCV000127469.1-G-PATH-CP"
+      ]
+    },
+    {
+      "shape": "therapy-group",
+      "description": "a proposition pointing to a #/therapyGroup/ (with the group and its therapies)",
+      "status": "selected",
+      "candidates": 1,
+      "seeds": [
+        "propositionSomaticClinicalImpact:SCV007338595-TR"
+      ]
+    },
+    {
+      "shape": "gene-context-placeholder",
+      "description": "a proposition whose geneContextQualifier has geneContextSource submittedNotNormalized",
+      "status": "selected",
+      "candidates": 1,
+      "seeds": [
+        "propositionPathogenicity:SCV003793897-PATH"
+      ]
+    },
+    {
+      "shape": "hgvs-repair",
+      "description": "a variation with a repaired hgvs expression (expressionRepaired + originalClinvarExpression)",
+      "status": "not-found",
+      "candidates": 0
+    },
+    {
+      "shape": "evidence-line-scv",
+      "description": "an evidence line keyed clinvar.submission:SCV<n>.<v>",
+      "status": "selected",
+      "candidates": 1,
+      "seeds": [
+        "evidenceLine:clinvar.submission:SCV007104888.1"
+      ]
+    },
+    {
+      "shape": "evidence-line-vcv",
+      "description": "an evidence line keyed VCV<n>.<v>-...",
+      "status": "selected",
+      "candidates": 1,
+      "seeds": [
+        "evidenceLine:VCV004530323.2-S-SCI-CP.contributing"
+      ]
+    },
+    {
+      "shape": "evidence-line-rcv",
+      "description": "an evidence line keyed RCV<n>.<v>-...",
+      "status": "selected",
+      "candidates": 1,
+      "seeds": [
+        "evidenceLine:RCV000806768.10-G-PATH.non-contributing"
+      ]
+    },
+    {
+      "shape": "ext:variation.extensions:categoricalVariationType",
+      "description": "a record in variation with extension categoricalVariationType under extensions",
+      "status": "covered",
+      "candidates": 1,
+      "covered_by": "variation:clinvar:633857"
+    },
+    {
+      "shape": "ext:variation.extensions:definingVrsVariationType",
+      "description": "a record in variation with extension definingVrsVariationType under extensions",
+      "status": "covered",
+      "candidates": 1,
+      "covered_by": "variation:clinvar:633857"
+    },
+    {
+      "shape": "ext:variation.extensions:vrsPreProcessingIssue",
+      "description": "a record in variation with extension vrsPreProcessingIssue under extensions",
+      "status": "covered",
+      "candidates": 1,
+      "covered_by": "variation:clinvar:633857"
+    },
+    {
+      "shape": "ext:variation.extensions:clinvarVariationType",
+      "description": "a record in variation with extension clinvarVariationType under extensions",
+      "status": "covered",
+      "candidates": 1,
+      "covered_by": "variation:clinvar:633857"
+    },
+    {
+      "shape": "ext:variation.extensions:clinvarSubclassType",
+      "description": "a record in variation with extension clinvarSubclassType under extensions",
+      "status": "covered",
+      "candidates": 1,
+      "covered_by": "variation:clinvar:633857"
+    },
+    {
+      "shape": "ext:variation.extensions:clinvarCytogeneticLocation",
+      "description": "a record in variation with extension clinvarCytogeneticLocation under extensions",
+      "status": "covered",
+      "candidates": 1,
+      "covered_by": "variation:clinvar:442538"
+    },
+    {
+      "shape": "ext:variation.extensions:vrsProcessingException",
+      "description": "a record in variation with extension vrsProcessingException under extensions",
+      "status": "selected",
+      "candidates": 1,
+      "seeds": [
+        "variation:clinvar:395722"
+      ]
+    },
+    {
+      "shape": "ext:variation.extensions:clinvarHgvsList",
+      "description": "a record in variation with extension clinvarHgvsList under extensions",
+      "status": "covered",
+      "candidates": 1,
+      "covered_by": "variation:clinvar:1047883"
+    },
+    {
+      "shape": "ext:variation.extensions:clinvarGeneList",
+      "description": "a record in variation with extension clinvarGeneList under extensions",
+      "status": "covered",
+      "candidates": 1,
+      "covered_by": "variation:clinvar:442538"
+    },
+    {
+      "shape": "ext:variation.extensions:invalidClinvarExpression",
+      "description": "a record in variation with extension invalidClinvarExpression under extensions",
+      "status": "not-found",
+      "candidates": 0
+    },
+    {
+      "shape": "ext:variation.extensions:expressionMerged",
+      "description": "a record in variation with extension expressionMerged under extensions",
+      "status": "not-found",
+      "candidates": 0
+    },
+    {
+      "shape": "ext:variation.extensions:originalClinvarExpression",
+      "description": "a record in variation with extension originalClinvarExpression under extensions",
+      "status": "not-found",
+      "candidates": 0
+    },
+    {
+      "shape": "ext:variation.extensions:expressionRepaired",
+      "description": "a record in variation with extension expressionRepaired under extensions",
+      "status": "not-found",
+      "candidates": 0
+    },
+    {
+      "shape": "ext:evidenceLine.extensions:submittedConditionSet",
+      "description": "a record in evidenceLine with extension submittedConditionSet under extensions",
+      "status": "not-found",
+      "candidates": 0
+    },
+    {
+      "shape": "ext:evidenceLine.extensions:submittedCondition",
+      "description": "a record in evidenceLine with extension submittedCondition under extensions",
+      "status": "covered",
+      "candidates": 1,
+      "covered_by": "evidenceLine:clinvar.submission:SCV007104888.1"
+    },
+    {
+      "shape": "ext:scv.classification:description",
+      "description": "a record in scv with extension description under classification",
+      "status": "covered",
+      "candidates": 1,
+      "covered_by": "scv:clinvar.submission:SCV002085775.1"
+    },
+    {
+      "shape": "ext:scv.specifiedBy:additionalClinvarMethodCitations",
+      "description": "a record in scv with extension additionalClinvarMethodCitations under specifiedBy",
+      "status": "selected",
+      "candidates": 1,
+      "seeds": [
+        "scv:clinvar.submission:SCV000914329.1"
+      ]
+    },
+    {
+      "shape": "ext:scv.specifiedBy:clinvarCitationText",
+      "description": "a record in scv with extension clinvarCitationText under specifiedBy",
+      "status": "selected",
+      "candidates": 1,
+      "seeds": [
+        "scv:clinvar.submission:SCV000327499.4"
+      ]
+    },
+    {
+      "shape": "ext:scv.specifiedBy:originalClinvarCitation",
+      "description": "a record in scv with extension originalClinvarCitation under specifiedBy",
+      "status": "selected",
+      "candidates": 1,
+      "seeds": [
+        "scv:clinvar.submission:SCV007612060.1"
+      ]
+    },
+    {
+      "shape": "ext:scv.specifiedBy:originalClinvarCitationSource",
+      "description": "a record in scv with extension originalClinvarCitationSource under specifiedBy",
+      "status": "selected",
+      "candidates": 1,
+      "seeds": [
+        "scv:clinvar.submission:SCV005077921.2"
+      ]
+    },
+    {
+      "shape": "ext:scv.specifiedBy:citationRepaired",
+      "description": "a record in scv with extension citationRepaired under specifiedBy",
+      "status": "covered",
+      "candidates": 1,
+      "covered_by": "scv:clinvar.submission:SCV007612060.1"
+    },
+    {
+      "shape": "ext:scv.specifiedBy:clinvarDoi",
+      "description": "a record in scv with extension clinvarDoi under specifiedBy",
+      "status": "not-found",
+      "candidates": 0
+    },
+    {
+      "shape": "ext:scv.specifiedBy:invalidClinvarCitation",
+      "description": "a record in scv with extension invalidClinvarCitation under specifiedBy",
+      "status": "selected",
+      "candidates": 1,
+      "seeds": [
+        "scv:clinvar.submission:SCV004707957.1"
+      ]
+    },
+    {
+      "shape": "ext:scv.specifiedBy:unmappedClinvarCitation",
+      "description": "a record in scv with extension unmappedClinvarCitation under specifiedBy",
+      "status": "not-found",
+      "candidates": 0
+    },
+    {
+      "shape": "ext:scv.reportedIn:clinvarCitationText",
+      "description": "a record in scv with extension clinvarCitationText under reportedIn",
+      "status": "selected",
+      "candidates": 1,
+      "seeds": [
+        "scv:clinvar.submission:SCV007980487.1"
+      ]
+    },
+    {
+      "shape": "ext:scv.reportedIn:originalClinvarCitation",
+      "description": "a record in scv with extension originalClinvarCitation under reportedIn",
+      "status": "selected",
+      "candidates": 1,
+      "seeds": [
+        "scv:clinvar.submission:SCV002505627.1"
+      ]
+    },
+    {
+      "shape": "ext:scv.reportedIn:originalClinvarCitationSource",
+      "description": "a record in scv with extension originalClinvarCitationSource under reportedIn",
+      "status": "selected",
+      "candidates": 1,
+      "seeds": [
+        "scv:clinvar.submission:SCV004171219.1"
+      ]
+    },
+    {
+      "shape": "ext:scv.reportedIn:citationRepaired",
+      "description": "a record in scv with extension citationRepaired under reportedIn",
+      "status": "covered",
+      "candidates": 1,
+      "covered_by": "scv:clinvar.submission:SCV002505627.1"
+    },
+    {
+      "shape": "ext:scv.reportedIn:clinvarDoi",
+      "description": "a record in scv with extension clinvarDoi under reportedIn",
+      "status": "selected",
+      "candidates": 1,
+      "seeds": [
+        "scv:clinvar.submission:SCV007637169.1"
+      ]
+    },
+    {
+      "shape": "ext:scv.reportedIn:invalidClinvarCitation",
+      "description": "a record in scv with extension invalidClinvarCitation under reportedIn",
+      "status": "selected",
+      "candidates": 1,
+      "seeds": [
+        "scv:clinvar.submission:SCV007601300.1"
+      ]
+    },
+    {
+      "shape": "ext:scv.reportedIn:unmappedClinvarCitation",
+      "description": "a record in scv with extension unmappedClinvarCitation under reportedIn",
+      "status": "not-found",
+      "candidates": 0
+    },
+    {
+      "shape": "ext:scv.extensions:clinvarScvId",
+      "description": "a record in scv with extension clinvarScvId under extensions",
+      "status": "covered",
+      "candidates": 1,
+      "covered_by": "scv:clinvar.submission:SCV007980487.1"
+    },
+    {
+      "shape": "ext:scv.extensions:clinvarScvVersion",
+      "description": "a record in scv with extension clinvarScvVersion under extensions",
+      "status": "covered",
+      "candidates": 1,
+      "covered_by": "scv:clinvar.submission:SCV007980487.1"
+    },
+    {
+      "shape": "ext:scv.extensions:submittedConditionSet",
+      "description": "a record in scv with extension submittedConditionSet under extensions",
+      "status": "covered",
+      "candidates": 1,
+      "covered_by": "scv:clinvar.submission:SCV007980487.1"
+    },
+    {
+      "shape": "ext:scv.extensions:submittedCondition",
+      "description": "a record in scv with extension submittedCondition under extensions",
+      "status": "covered",
+      "candidates": 1,
+      "covered_by": "scv:clinvar.submission:SCV000327499.4"
+    },
+    {
+      "shape": "ext:scv.extensions:clinvarScvReviewStatus",
+      "description": "a record in scv with extension clinvarScvReviewStatus under extensions",
+      "status": "covered",
+      "candidates": 1,
+      "covered_by": "scv:clinvar.submission:SCV007980487.1"
+    },
+    {
+      "shape": "ext:scv.extensions:submittedScvClassification",
+      "description": "a record in scv with extension submittedScvClassification under extensions",
+      "status": "covered",
+      "candidates": 1,
+      "covered_by": "scv:clinvar.submission:SCV007104422.1"
+    },
+    {
+      "shape": "ext:scv.extensions:submittedScvLocalKey",
+      "description": "a record in scv with extension submittedScvLocalKey under extensions",
+      "status": "covered",
+      "candidates": 1,
+      "covered_by": "scv:clinvar.submission:SCV007980487.1"
+    },
+    {
+      "shape": "ext:scv.extensions:submissionLevel",
+      "description": "a record in scv with extension submissionLevel under extensions",
+      "status": "covered",
+      "candidates": 1,
+      "covered_by": "scv:clinvar.submission:SCV007980487.1"
+    }
+  ],
+  "shapes_not_found": [
+    "hgvs-repair",
+    "ext:variation.extensions:invalidClinvarExpression",
+    "ext:variation.extensions:expressionMerged",
+    "ext:variation.extensions:originalClinvarExpression",
+    "ext:variation.extensions:expressionRepaired",
+    "ext:evidenceLine.extensions:submittedConditionSet",
+    "ext:scv.specifiedBy:clinvarDoi",
+    "ext:scv.specifiedBy:unmappedClinvarCitation",
+    "ext:scv.reportedIn:unmappedClinvarCitation"
+  ],
+  "shapes_over_budget": [],
+  "counts": {
+    "sequenceReference": 18,
+    "location": 33,
+    "allele": 27,
+    "copyNumberCount": 2,
+    "copyNumberChange": 3,
+    "gene": 88,
+    "variation": 35,
+    "condition": 36,
+    "conditionSet": 3,
+    "therapy": 3,
+    "therapyGroup": 1,
+    "submitter": 16,
+    "propositionPathogenicity": 21,
+    "propositionOncogenicity": 3,
+    "propositionSomaticClinicalImpact": 8,
+    "propositionClinvarCustom": 9,
+    "evidenceLine": 14,
+    "scv": 17,
+    "vcv": 6,
+    "rcv": 2
+  },
+  "dangling_pointers": []
+}

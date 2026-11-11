@@ -1,0 +1,110 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarGeneContextQualifier",
+   "title": "ClinvarGeneContextQualifier",
+   "description": "The gene context qualifier on a ClinVar SCV proposition: a gene MappableConcept with the codings of a ClinvarGene, and extensions saying where its gene came from (ExtensionGeneContextSource) and which gene symbols the submitter gave (ExtensionSubmittedGeneSymbols). No id, description or aliases.",
+   "$defs": {
+      "ExtensionGeneContextSource": {
+         "type": "object",
+         "maturity": "trial use",
+         "description": "Where the gene on a SCV proposition's geneContextQualifier came from, compared with the gene symbols the submitter gave.",
+         "protectedClassOf": "ClinvarGeneContextQualifier",
+         "properties": {
+            "name": {
+               "type": "string",
+               "const": "geneContextSource",
+               "description": "Must be 'geneContextSource'."
+            },
+            "value": {
+               "type": "string",
+               "enum": [
+                  "submittedSymbolMatches",
+                  "submittedSymbolDiffers",
+                  "inferredFromVariant",
+                  "submittedNotNormalized"
+               ],
+               "description": "submittedSymbolMatches: the submitter's symbols include the qualifier's symbol. submittedSymbolDiffers: the submitter gave symbols, but none equals the qualifier's symbol (most are previous symbols of the same gene). inferredFromVariant: the submitter gave no symbols. submittedNotNormalized: the variant has no single representative gene, so the qualifier is a placeholder named with the submitter's symbol(s). Symbols are compared trimmed and case-insensitively."
+            }
+         },
+         "required": [
+            "name",
+            "value"
+         ],
+         "additionalProperties": false
+      },
+      "ExtensionSubmittedGeneSymbols": {
+         "type": "object",
+         "maturity": "trial use",
+         "description": "The gene symbols the submitter gave for the SCV, as submitted.",
+         "protectedClassOf": "ClinvarGeneContextQualifier",
+         "properties": {
+            "name": {
+               "type": "string",
+               "const": "submittedGeneSymbols",
+               "description": "Must be 'submittedGeneSymbols'."
+            },
+            "value": {
+               "type": "array",
+               "ordered": true,
+               "items": {
+                  "type": "string"
+               },
+               "description": "The submitted gene symbols."
+            }
+         },
+         "required": [
+            "name",
+            "value"
+         ],
+         "additionalProperties": false
+      }
+   },
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/ga4gh/schema/gkm-core/1.3.0/json/MappableConcept"
+      },
+      {
+         "type": "object",
+         "properties": {
+            "id": false,
+            "description": false,
+            "aliases": false,
+            "conceptType": {
+               "type": "string",
+               "const": "gene",
+               "description": "Always 'gene'."
+            },
+            "primaryCoding": {
+               "description": "The gene's NCBI Gene coding. Absent on a placeholder qualifier (geneContextSource 'submittedNotNormalized').",
+               "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarCoding"
+            },
+            "mappings": {
+               "type": "array",
+               "ordered": false,
+               "items": {
+                  "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarConceptMapping"
+               },
+               "description": "Mappings of the gene to other gene codes (its HGNC coding). Absent on a placeholder qualifier."
+            },
+            "extensions": {
+               "type": "array",
+               "ordered": false,
+               "items": {
+                  "oneOf": [
+                     {
+                        "$ref": "#/$defs/ExtensionGeneContextSource"
+                     },
+                     {
+                        "$ref": "#/$defs/ExtensionSubmittedGeneSymbols"
+                     }
+                  ]
+               },
+               "description": "The qualifier's extensions, each an ExtensionGeneContextSource or an ExtensionSubmittedGeneSymbols."
+            }
+         }
+      }
+   ],
+   "type": "object",
+   "unevaluatedProperties": false
+}

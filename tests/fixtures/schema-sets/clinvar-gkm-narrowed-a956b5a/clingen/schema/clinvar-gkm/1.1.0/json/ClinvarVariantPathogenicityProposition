@@ -1,0 +1,46 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarVariantPathogenicityProposition",
+   "title": "ClinvarVariantPathogenicityProposition",
+   "description": "A record of the propositionPathogenicity section: a VariantPathogenicityProposition whose subject is a variation pointer and whose object is a condition or condition set pointer. SCV propositions may carry gene context, mode of inheritance and penetrance qualifiers; VCV and RCV propositions carry none. No name, description, aliases, extensions or allele origin qualifier.",
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/ga4gh/schema/va-spec/1.1.0/json/VariantPathogenicityProposition"
+      },
+      {
+         "type": "object",
+         "properties": {
+            "name": false,
+            "description": false,
+            "aliases": false,
+            "extensions": false,
+            "alleleOriginQualifier": false,
+            "subject": {
+               "pattern": "^#/variation/",
+               "description": "The variant, a '#/variation/<id>' pointer into this bundle.",
+               "$ref": "/ga4gh/schema/gkm-core/1.3.0/json/iriReference"
+            },
+            "object": {
+               "pattern": "^#/(condition|conditionSet)/",
+               "description": "The condition, a '#/condition/<id>' or '#/conditionSet/<id>' pointer into this bundle.",
+               "$ref": "/ga4gh/schema/gkm-core/1.3.0/json/iriReference"
+            },
+            "geneContextQualifier": {
+               "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarGeneContextQualifier",
+               "description": "The variant's gene (SCV propositions only)."
+            },
+            "modeOfInheritanceQualifier": {
+               "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarModeOfInheritanceQualifier",
+               "description": "The submitted mode of inheritance (SCV propositions only)."
+            },
+            "penetranceQualifier": {
+               "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarPenetranceQualifier",
+               "description": "The penetrance implied by a low-penetrance or risk-allele classification (SCV propositions only)."
+            }
+         }
+      }
+   ],
+   "type": "object",
+   "unevaluatedProperties": false
+}

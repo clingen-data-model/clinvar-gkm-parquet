@@ -19,18 +19,18 @@ from clinvar_gkm_parquet.model import InputFile
 PROVENANCE = PROVENANCE_PATH
 
 
-def fixture_lines() -> list[bytes]:
+def fixture_lines(path: Path = FIXTURE) -> list[bytes]:
     """The fixture's decompressed lines, without newlines."""
-    return gzip.decompress(FIXTURE.read_bytes()).split(b"\n")
+    return gzip.decompress(path.read_bytes()).split(b"\n")
 
 
-def fixture_sections() -> dict[str, list[tuple[bytes, bytes]]]:
+def fixture_sections(path: Path = FIXTURE) -> dict[str, list[tuple[bytes, bytes]]]:
     """section -> [(key as JSON bytes, record bytes)], in file order, parsed independently of bundle.py: each
     record line is decoded with the stdlib JSON decoder to find where its key ends."""
     out: dict[str, list[tuple[bytes, bytes]]] = {}
     section = None
     dec = json.JSONDecoder()
-    for line in fixture_lines():
+    for line in fixture_lines(path):
         if line.startswith(b'  "') and line.endswith(b": {"):
             section = json.loads(line.strip()[:-3])
             out[section] = []

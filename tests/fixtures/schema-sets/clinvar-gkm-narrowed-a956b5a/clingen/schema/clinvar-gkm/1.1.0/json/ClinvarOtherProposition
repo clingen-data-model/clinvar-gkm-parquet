@@ -1,0 +1,28 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarOtherProposition",
+   "title": "ClinvarOtherProposition",
+   "description": "A proposition for ClinVar submissions classified as \"other\" that do not fit any standard or named classification category. ClinVar has stopped accepting new submissions with this classification, but historical submissions remain.",
+   "type": "object",
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarGermlineCustomProposition"
+      }
+   ],
+   "properties": {
+      "type": {
+         "type": "string",
+         "const": "ClinvarOtherProposition",
+         "default": "ClinvarOtherProposition",
+         "description": "MUST be \"ClinvarOtherProposition\"."
+      },
+      "predicate": {
+         "type": "string",
+         "const": "isClinvarOtherAssociationFor",
+         "default": "isClinvarOtherAssociationFor",
+         "description": "The relationship the Proposition describes between the subject variant and object condition. MUST be \"isClinvarOtherAssociationFor\"."
+      }
+   },
+   "unevaluatedProperties": false
+}

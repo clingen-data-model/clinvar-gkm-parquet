@@ -1,0 +1,28 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarConfersSensitivityProposition",
+   "title": "ClinvarConfersSensitivityProposition",
+   "description": "A proposition describing a variant that confers sensitivity to a condition or environmental factor. Used for ClinVar submissions classified as \"confers sensitivity\". ClinVar has stopped accepting new submissions with this classification, but historical submissions remain.",
+   "type": "object",
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarGermlineCustomProposition"
+      }
+   ],
+   "properties": {
+      "type": {
+         "type": "string",
+         "const": "ClinvarConfersSensitivityProposition",
+         "default": "ClinvarConfersSensitivityProposition",
+         "description": "MUST be \"ClinvarConfersSensitivityProposition\"."
+      },
+      "predicate": {
+         "type": "string",
+         "const": "confersSensitivityFor",
+         "default": "confersSensitivityFor",
+         "description": "The relationship the Proposition describes between the subject variant and object condition. MUST be \"confersSensitivityFor\"."
+      }
+   },
+   "unevaluatedProperties": false
+}

@@ -1,0 +1,81 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarMolecularConsequenceCoding",
+   "title": "ClinvarMolecularConsequenceCoding",
+   "description": "A Sequence Ontology molecular consequence of a HgvsListItem: the SO code, its label as the name, the SO system and one identifiers.org IRI.",
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarCoding"
+      },
+      {
+         "type": "object",
+         "properties": {
+            "code": {
+               "type": "string",
+               "enum": [
+                  "SO:0001583",
+                  "SO:0001627",
+                  "SO:0001820",
+                  "SO:0001822",
+                  "SO:0002073",
+                  "SO:0001821",
+                  "SO:0001587",
+                  "SO:0001623",
+                  "SO:0001578",
+                  "SO:0002153",
+                  "SO:0001574",
+                  "SO:0001619",
+                  "SO:0002152",
+                  "SO:0001575",
+                  "SO:0001624",
+                  "SO:0001819",
+                  "SO:0001589",
+                  "SO:0001582"
+               ],
+               "description": "The SO identifier."
+            },
+            "name": {
+               "type": "string",
+               "enum": [
+                  "missense_variant",
+                  "intron_variant",
+                  "inframe_indel",
+                  "inframe_deletion",
+                  "no_sequence_alteration",
+                  "inframe_insertion",
+                  "stop_gained",
+                  "5_prime_UTR_variant",
+                  "stop_lost",
+                  "genic_upstream_transcript_variant",
+                  "splice_acceptor_variant",
+                  "non_coding_transcript_variant",
+                  "genic_downstream_transcript_variant",
+                  "splice_donor_variant",
+                  "3_prime_UTR_variant",
+                  "synonymous_variant",
+                  "frameshift_variant",
+                  "initiator_codon_variant"
+               ],
+               "description": "The SO term label."
+            },
+            "system": {
+               "type": "string",
+               "const": "http://www.sequenceontology.org/",
+               "description": "Must be 'http://www.sequenceontology.org/'."
+            },
+            "iris": {
+               "type": "array",
+               "ordered": false,
+               "items": {
+                  "pattern": "^https://identifiers\\.org/SO:[0-9]{7}$",
+                  "$ref": "/ga4gh/schema/gkm-core/1.3.0/json/iriReference"
+               },
+               "description": "The identifiers.org IRI of the SO term."
+            }
+         }
+      }
+   ],
+   "type": "object",
+   "unevaluatedProperties": false
+}

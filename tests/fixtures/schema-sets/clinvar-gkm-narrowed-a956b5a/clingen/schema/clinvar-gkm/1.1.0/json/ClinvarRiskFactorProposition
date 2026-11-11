@@ -1,0 +1,28 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarRiskFactorProposition",
+   "title": "ClinvarRiskFactorProposition",
+   "description": "A custom proposition describing the role of a variant as a risk factor for a condition. Used for ClinVar submissions classified as \"risk factor\". ClinVar has stopped accepting new submissions with this classification in favor of standard pathogenicity terms, but historical submissions remain.",
+   "type": "object",
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarGermlineCustomProposition"
+      }
+   ],
+   "properties": {
+      "type": {
+         "type": "string",
+         "const": "ClinvarRiskFactorProposition",
+         "default": "ClinvarRiskFactorProposition",
+         "description": "MUST be \"ClinvarRiskFactorProposition\""
+      },
+      "predicate": {
+         "type": "string",
+         "const": "isRiskFactorFor",
+         "default": "isRiskFactorFor",
+         "description": "The relationship the Proposition describes between the subject variant and object condition. MUST be \"isRiskFactorFor\"."
+      }
+   },
+   "unevaluatedProperties": false
+}

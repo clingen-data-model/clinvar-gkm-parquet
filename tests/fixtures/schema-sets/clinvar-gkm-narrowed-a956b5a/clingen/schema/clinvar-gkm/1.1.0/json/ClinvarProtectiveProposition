@@ -1,0 +1,28 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarProtectiveProposition",
+   "title": "ClinvarProtectiveProposition",
+   "description": "A custom proposition describing the protective role of a variant against a condition. Used for ClinVar submissions classified as \"protective\". ClinVar has stopped accepting new submissions with this classification, but historical submissions remain.",
+   "type": "object",
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarGermlineCustomProposition"
+      }
+   ],
+   "properties": {
+      "type": {
+         "type": "string",
+         "const": "ClinvarProtectiveProposition",
+         "default": "ClinvarProtectiveProposition",
+         "description": "MUST be \"ClinvarProtectiveProposition\"."
+      },
+      "predicate": {
+         "type": "string",
+         "const": "isProtectiveFor",
+         "default": "isProtectiveFor",
+         "description": "The relationship the Proposition describes between the subject variant and object condition. MUST be \"isProtectiveFor\"."
+      }
+   },
+   "unevaluatedProperties": false
+}

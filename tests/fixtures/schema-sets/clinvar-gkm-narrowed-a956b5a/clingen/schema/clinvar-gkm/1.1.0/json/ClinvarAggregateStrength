@@ -1,0 +1,24 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarAggregateStrength",
+   "title": "ClinvarAggregateStrength",
+   "description": "The strength of a ClinVar VCV or RCV aggregate statement: a ClinvarTerm (no coding) whose concept type is 'Strength'.",
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarTerm"
+      },
+      {
+         "type": "object",
+         "properties": {
+            "conceptType": {
+               "type": "string",
+               "const": "Strength",
+               "description": "Must be 'Strength'."
+            }
+         }
+      }
+   ],
+   "type": "object",
+   "unevaluatedProperties": false
+}

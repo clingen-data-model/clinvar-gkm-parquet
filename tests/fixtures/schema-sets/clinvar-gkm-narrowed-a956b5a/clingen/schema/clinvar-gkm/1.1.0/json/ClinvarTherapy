@@ -1,0 +1,25 @@
+{
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://w3id.org/clingen/schema/clinvar-gkm/1.1.0/json/ClinvarTherapy",
+   "title": "ClinvarTherapy",
+   "description": "A record of the therapy section: a Therapy named by its submitted text. No id, description, aliases, extensions, codings or mappings.",
+   "maturity": "trial use",
+   "allOf": [
+      {
+         "$ref": "/ga4gh/schema/va-spec/1.1.0/json/Therapy"
+      },
+      {
+         "type": "object",
+         "properties": {
+            "id": false,
+            "description": false,
+            "aliases": false,
+            "extensions": false,
+            "primaryCoding": false,
+            "mappings": false
+         }
+      }
+   ],
+   "type": "object",
+   "unevaluatedProperties": false
+}
