@@ -1,9 +1,13 @@
 # 0003 — Pluggable table specs, with a sections spec as the default
 
-- **Status:** Accepted
+- **Status:** Superseded by [0008](0008-end-state-reversible-default-custom-projections-filters.md)
 - **Date:** 2026-10-26
 - **Plan (if any):** [`docs/plans/2026-10-20-design.md`](../plans/2026-10-20-design.md) §3, §7.2, §9; amends
   [ADR 0002](0002-independent-tool-versioning.md)
+
+**Superseded by [ADR 0008](./0008-end-state-reversible-default-custom-projections-filters.md) (accepted 2026-11-11):** the built-in `clinvar-gkm` and `baseline` specs and the
+custom `tables.yaml` input are retired; custom output is a column set. The one-table-per-section shape lives on in ADRs
+0005–0007.
 
 ## Context
 
